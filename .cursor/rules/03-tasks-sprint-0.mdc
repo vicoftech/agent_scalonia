@@ -1,0 +1,108 @@
+---
+description: Sprint 0 — MVP agente + Telegram; tasks, ADRs aprobados y CA. Aplicar al implementar código o infra de este sprint.
+globs: agent/**/*.py, src/**/*.py, infrastructure/**/*.py, tests/**/*.py
+alwaysApply: false
+---
+
+# Sprint 0 — Tasks, ADRs y CA — Prode Mundial 2026
+
+## ADR-001 — Strands + Bedrock AgentCore Runtime (APROBADO)
+
+Strands elegido sobre LangChain (breaking changes) y Bedrock Agents nativo (menos control).
+
+```python
+# agent/main.py — patrón canónico
+app   = BedrockAgentCoreApp()
+agent = Agent(model="us.anthropic.claude-sonnet-4-20250514", tools=[...])
+
+@app.entrypoint
+async def agent_invocation(payload: dict):
+    stream = agent.stream_async(payload["prompt"])
+    async for event in stream:
+        yield event
+
+if __name__ == "__main__":
+    app.run()
+```
+
+Invocación desde Lambda webhook:
+```python
+response = boto3.client("bedrock-agent-runtime").invoke_agent(
+    agentId=AGENT_ID, agentAliasId="LIVE",
+    sessionId=session_id, inputText=prompt,
+    sessionState={"sessionAttributes": {"user_id": user_id, "platform": "TELEGRAM"}}
+)
+full_text = ""
+for event in response["completion"]:
+    chunk = event.get("chunk", {})
+    if "bytes" in chunk:
+        full_text += chunk["bytes"].decode("utf-8")
+```
+
+## ADR-002 — Arquitectura Híbrida DynamoDB + Aurora (APROBADO)
+
+DynamoDB: escrituras transaccionales, lookups sub-5ms, estado efímero (TTL).
+Aurora PostgreSQL 16 Serverless v2: queries con JOIN, reporting, ranking relacional.
+Sync: DynamoDB Streams → Lambda → upsert idempotente ON CONFLICT DO UPDATE.
+RDS Proxy: obligatorio con Lambda, pool máx 10 conexiones.
+Alembic: solo en CI/CD, nunca en Lambda runtime.
+
+## ADR-003 — DynamoDB Single-Table Design (APROBADO)
+
+Ver steering.md para patrones PK/SK completos y 4 GSIs.
+
+## ADR-004 — WebSocket Rankings Real-Time (APROBADO)
+
+$connect → registra WS#<connId>/DETAILS (TTL 8h) → post-scoring → ranking_broadcaster → postToConnection.
+GoneException → eliminar connId stale de DynamoDB.
+
+## ADR-005 — EventBridge Scheduler Veda (APROBADO)
+
+Job naming: `veda-{match_id}` (determinístico = idempotente).
+Lambda veda_activator: UpdateItem con ConditionExpression="veda_active = :false".
+
+---
+
+## Tasks — Sprint 0 — MVP: Agente base + Telegram
+
+| TASK | Descripción | Modo | Est. |
+|------|------------|------|------|
+| TASK-000-001 | agent/main.py — @app.entrypoint async + stream_async | IA-Assisted | 3h |
+| TASK-000-002 | agent/tools/echo_tool.py — smoke test @tool | IA-Autonomous | 1h |
+| TASK-000-003 | telegram_webhook/handler.py — invoke_agent + EventStream | IA-Assisted | 4h |
+| TASK-000-004 | CDK: API GW POST /webhook/telegram → Lambda | IA-Assisted | 3h |
+| TASK-000-005 | CDK: DataStack (DynamoDB + Cognito) | IA-Assisted | 3h |
+| TASK-000-006 | CDK: AuroraStack (Serverless v2 + RDS Proxy) | Humano | 4h |
+| TASK-000-007 | Alembic env.py + GitHub Actions step | IA-Assisted | 2h |
+| TASK-000-008 | agentcore configure + deploy staging | Humano | 2h |
+| TASK-000-009 | Registrar webhook Telegram + smoke test E2E | Humano | 2h |
+
+## Criterios de aceptación — Sprint 0
+
+- Agente cumple ADR-001: `BedrockAgentCoreApp`, `stream_async`, `yield` por evento en `@app.entrypoint`.
+- `echo_tool` demostrable vía el agente (smoke).
+- `telegram_webhook` arma `invoke_agent`, consume el stream de `completion` y devuelve texto completo al canal.
+- CDK: API Gateway POST `/webhook/telegram` → Lambda webhook; DataStack (DynamoDB + Cognito) y AuroraStack (Serverless v2 + RDS Proxy) sintetizan sin error cuando apliquen cambios.
+- Alembic y paso en CI listos; migraciones no se ejecutan en runtime de Lambdas.
+- Staging: agente desplegado con `agentcore`; webhook de Telegram registrado; al menos un mensaje E2E con respuesta del agente.
+- Sin `platform_id` en logs; idempotencia donde introduzca escrituras (p. ej. reintentos del webhook).
+
+## Criterio Done Global
+
+- PR merged + todos los tests en verde
+- pytest --cov >= 80% en módulo modificado
+- cdk synth sin errores si hay cambios de infra
+- Sin platform_id en logs
+- Idempotencia verificada en operaciones críticas
+- SLAs cumplidos en staging
+
+## Prohibiciones
+
+- NO Lambda directa para el agente — agentcore deploy siempre
+- NO boto3 raw en handlers — siempre vía DAOs
+- NO escribir en Aurora desde @tools — solo la Lambda sync
+- NO format HTML en Telegram — solo MarkdownV2
+- NO scheduler con nombre no-determinístico
+- NO procesar scoring si result_processed=true
+- NO escribir predicción sin verificar veda_active
+- NO Alembic en Lambda runtime

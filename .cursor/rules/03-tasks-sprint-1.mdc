@@ -1,10 +1,10 @@
 ---
-description: Tasks técnicas por sprint, ADRs y criterios Done. Aplicar al implementar código o infra.
+description: Sprint 1 — Predicciones, veda y auth; tasks, ADRs aprobados y CA. Aplicar al implementar código o infra de este sprint.
 globs: agent/**/*.py, src/**/*.py, infrastructure/**/*.py, tests/**/*.py
 alwaysApply: false
 ---
 
-# Tasks Técnicas y ADRs — Prode Mundial 2026
+# Sprint 1 — Tasks, ADRs y CA — Prode Mundial 2026
 
 ## ADR-001 — Strands + Bedrock AgentCore Runtime (APROBADO)
 
@@ -63,21 +63,7 @@ Lambda veda_activator: UpdateItem con ConditionExpression="veda_active = :false"
 
 ---
 
-## Sprint 0 — MVP: Agente base + Telegram
-
-| TASK | Descripción | Modo | Est. |
-|------|------------|------|------|
-| TASK-000-001 | agent/main.py — @app.entrypoint async + stream_async | IA-Assisted | 3h |
-| TASK-000-002 | agent/tools/echo_tool.py — smoke test @tool | IA-Autonomous | 1h |
-| TASK-000-003 | telegram_webhook/handler.py — invoke_agent + EventStream | IA-Assisted | 4h |
-| TASK-000-004 | CDK: API GW POST /webhook/telegram → Lambda | IA-Assisted | 3h |
-| TASK-000-005 | CDK: DataStack (DynamoDB + Cognito) | IA-Assisted | 3h |
-| TASK-000-006 | CDK: AuroraStack (Serverless v2 + RDS Proxy) | Humano | 4h |
-| TASK-000-007 | Alembic env.py + GitHub Actions step | IA-Assisted | 2h |
-| TASK-000-008 | agentcore configure + deploy staging | Humano | 2h |
-| TASK-000-009 | Registrar webhook Telegram + smoke test E2E | Humano | 2h |
-
-## Sprint 1 — Predicciones + Veda + Auth
+## Tasks — Sprint 1 — Predicciones + Veda + Auth
 
 | TASK | Descripción | Modo | Est. |
 |------|------------|------|------|
@@ -90,32 +76,15 @@ Lambda veda_activator: UpdateItem con ConditionExpression="veda_active = :false"
 | TASK-007 | CDK: EventBridge Scheduler veda jobs | IA-Assisted | 3h |
 | TASK-008 | infrastructure/lambdas/teams_webhook/handler.py | IA-Assisted | 4h |
 
-## Sprint 2 — Resultados + Scoring + Rankings + Grupos
+## Criterios de aceptación — Sprint 1
 
-| TASK | Descripción | Modo | Est. |
-|------|------------|------|------|
-| TASK-009 | infrastructure/lambdas/result_poller/handler.py | IA-Assisted | 6h |
-| TASK-010 | src/scoring/scoring_engine.py (puro, sin boto3) | Humano | 6h |
-| TASK-011 | src/dao/aurora/ranking_repo.py (v_group_ranking, v_user_score_summary) | IA-Assisted | 4h |
-| TASK-012 | agent/tools/ranking_tool.py | IA-Assisted | 3h |
-| TASK-013 | agent/tools/scoring_tool.py (desglose puntos) | IA-Assisted | 3h |
-| TASK-014 | src/dao/dynamo/group_dao.py + agent/tools/group_tool.py | IA-Assisted | 5h |
-| TASK-015 | infrastructure/lambdas/sync_dynamo_to_aurora/handler.py | Humano | 6h |
-| TASK-016 | WebSocket: ws_connect + ranking_broadcaster | IA-Assisted | 5h |
-| TASK-017 | Recordatorios: scheduler + Aurora v_members_without_prediction | IA-Assisted | 4h |
-
-## Sprint 3 — KB + Trivia + Daily Job
-
-| TASK | Descripción | Modo | Est. |
-|------|------------|------|------|
-| TASK-018 | agent/tools/kb_retrieval_tool.py (RAG Bedrock KB) | IA-Assisted | 4h |
-| TASK-019 | agent/tools/trivia_tool.py (sesión multi-turno, TTL DynamoDB) | Humano | 6h |
-| TASK-020 | agent/tools/web_search_tool.py (cache DynamoDB 24h) | IA-Assisted | 4h |
-| TASK-021 | src/jobs/daily_ranking_job.py (8 pasos, idempotente) | Humano | 8h |
-| TASK-022 | KB ingesta: scripts Python 22 mundiales + 2026 | IA-Assisted | 8h |
-| TASK-023 | Integration tests E2E | IA-Assisted | 6h |
-
----
+- `user_dao` y `user_repo` alineados a ADR-003 (PK/SK, GSI platform donde corresponda); Aurora solo lectura desde el agente.
+- `prediction_dao`: verificación de `veda_active` y escritura de predicción atómica (ConditionExpression / transacción según diseño); imposible guardar predicción con veda cerrada en condiciones de carrera razonables.
+- `prediction_tool` expone al LLM el flujo correcto (lookup usuario, validación veda, persistencia DynamoDB únicamente).
+- `veda_activator` y scheduler ADR-005: nombres `veda-{match_id}`; actualización de veda con condición explícita (`veda_active = :false` u equivalente acordado).
+- Auth: `auth_service` + triggers Cognito coherentes con JWT y resolución de usuario para webhooks.
+- `teams_webhook`: mismo patrón de invocación al agente que Telegram (stream → texto); Markdown coherente con políticas del canal.
+- Higiene: sin `platform_id` en logs; DAOs sustituyen boto3 disperso en handlers donde aplique.
 
 ## Criterio Done Global
 

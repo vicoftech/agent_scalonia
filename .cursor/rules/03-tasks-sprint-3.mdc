@@ -1,0 +1,105 @@
+---
+description: Sprint 3 — KB, trivia, daily job e integración E2E; tasks, ADRs aprobados y CA. Aplicar al implementar código o infra de este sprint.
+globs: agent/**/*.py, src/**/*.py, infrastructure/**/*.py, tests/**/*.py
+alwaysApply: false
+---
+
+# Sprint 3 — Tasks, ADRs y CA — Prode Mundial 2026
+
+## ADR-001 — Strands + Bedrock AgentCore Runtime (APROBADO)
+
+Strands elegido sobre LangChain (breaking changes) y Bedrock Agents nativo (menos control).
+
+```python
+# agent/main.py — patrón canónico
+app   = BedrockAgentCoreApp()
+agent = Agent(model="us.anthropic.claude-sonnet-4-20250514", tools=[...])
+
+@app.entrypoint
+async def agent_invocation(payload: dict):
+    stream = agent.stream_async(payload["prompt"])
+    async for event in stream:
+        yield event
+
+if __name__ == "__main__":
+    app.run()
+```
+
+Invocación desde Lambda webhook:
+```python
+response = boto3.client("bedrock-agent-runtime").invoke_agent(
+    agentId=AGENT_ID, agentAliasId="LIVE",
+    sessionId=session_id, inputText=prompt,
+    sessionState={"sessionAttributes": {"user_id": user_id, "platform": "TELEGRAM"}}
+)
+full_text = ""
+for event in response["completion"]:
+    chunk = event.get("chunk", {})
+    if "bytes" in chunk:
+        full_text += chunk["bytes"].decode("utf-8")
+```
+
+## ADR-002 — Arquitectura Híbrida DynamoDB + Aurora (APROBADO)
+
+DynamoDB: escrituras transaccionales, lookups sub-5ms, estado efímero (TTL).
+Aurora PostgreSQL 16 Serverless v2: queries con JOIN, reporting, ranking relacional.
+Sync: DynamoDB Streams → Lambda → upsert idempotente ON CONFLICT DO UPDATE.
+RDS Proxy: obligatorio con Lambda, pool máx 10 conexiones.
+Alembic: solo en CI/CD, nunca en Lambda runtime.
+
+## ADR-003 — DynamoDB Single-Table Design (APROBADO)
+
+Ver steering.md para patrones PK/SK completos y 4 GSIs.
+
+## ADR-004 — WebSocket Rankings Real-Time (APROBADO)
+
+$connect → registra WS#<connId>/DETAILS (TTL 8h) → post-scoring → ranking_broadcaster → postToConnection.
+GoneException → eliminar connId stale de DynamoDB.
+
+## ADR-005 — EventBridge Scheduler Veda (APROBADO)
+
+Job naming: `veda-{match_id}` (determinístico = idempotente).
+Lambda veda_activator: UpdateItem con ConditionExpression="veda_active = :false".
+
+---
+
+## Tasks — Sprint 3 — KB + Trivia + Daily Job
+
+| TASK | Descripción | Modo | Est. |
+|------|------------|------|------|
+| TASK-018 | agent/tools/kb_retrieval_tool.py (RAG Bedrock KB) | IA-Assisted | 4h |
+| TASK-019 | agent/tools/trivia_tool.py (sesión multi-turno, TTL DynamoDB) | Humano | 6h |
+| TASK-020 | agent/tools/web_search_tool.py (cache DynamoDB 24h) | IA-Assisted | 4h |
+| TASK-021 | src/jobs/daily_ranking_job.py (8 pasos, idempotente) | Humano | 8h |
+| TASK-022 | KB ingesta: scripts Python 22 mundiales + 2026 | IA-Assisted | 8h |
+| TASK-023 | Integration tests E2E | IA-Assisted | 6h |
+
+## Criterios de aceptación — Sprint 3
+
+- `kb_retrieval_tool` integrado con Bedrock Knowledge Base; respuestas acotadas al KB sin inventar hechos no recuperados.
+- `trivia_tool`: sesión multi-turno persistida en Dynamo con TTL ~30 min (patrón `USER#` / `TRIVIA#` según steering); reanudación o fin de sesión definidos.
+- `web_search_tool` usa cache Dynamo `CACHE#` / `RESULT` con TTL 24h; no loguear consultas que expongan PII.
+- `daily_ranking_job`: los 8 pasos documentados en la task son idempotentes (re-ejecución segura); controles tipo `JOB_CTRL#` si aplica.
+- Ingesta KB (TASK-022): cobertura acordada de mundiales + 2026; pipeline reproducible (scripts/versionado).
+- TASK-023: integration tests E2E en verde en CI; cubren caminos críticos del producto post–Sprint 0–2.
+- Arquitectura híbrida intacta: DynamoDB para estado efímero/cache de estas features; sin escrituras Aurora desde @tools.
+
+## Criterio Done Global
+
+- PR merged + todos los tests en verde
+- pytest --cov >= 80% en módulo modificado
+- cdk synth sin errores si hay cambios de infra
+- Sin platform_id en logs
+- Idempotencia verificada en operaciones críticas
+- SLAs cumplidos en staging
+
+## Prohibiciones
+
+- NO Lambda directa para el agente — agentcore deploy siempre
+- NO boto3 raw en handlers — siempre vía DAOs
+- NO escribir en Aurora desde @tools — solo la Lambda sync
+- NO format HTML en Telegram — solo MarkdownV2
+- NO scheduler con nombre no-determinístico
+- NO procesar scoring si result_processed=true
+- NO escribir predicción sin verificar veda_active
+- NO Alembic en Lambda runtime
