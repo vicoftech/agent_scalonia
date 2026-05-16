@@ -38,8 +38,10 @@ agentcore configure --entrypoint agent/main.py --name prode-mundial-2026
 agentcore launch --local &
 agentcore invoke --local --payload '{"prompt": "hola"}'
 
-# 4. Deploy infra (staging)
-cd infrastructure && cdk deploy --all --context env=staging
+# 4. Deploy infra data layer (DynamoDB + Cognito)
+cd infrastructure/terraform
+terraform init
+terraform apply -var=env=staging
 
 # 5. Migrations Aurora (corre automáticamente en CI/CD)
 alembic upgrade head
@@ -88,7 +90,8 @@ prode-mundial-2026/
 ├── infrastructure/
 │   ├── db/
 │   │   ├── aurora_schema.sql       ← DDL completo + 4 vistas ✓
-│   │   └── dynamodb_tables.py      ← CDK Construct 4 GSIs ✓
+│   │   └── DYNAMODB_SINGLE_TABLE.md ← modelo single-table + GSIs ✓
+│   ├── terraform/                  ← IaC: módulo DynamoDB + Cognito ✓
 │   ├── lambdas/
 │   │   ├── telegram_webhook/       ← handler.py ✓
 │   │   └── sync_dynamo_to_aurora/  ← handler.py ✓

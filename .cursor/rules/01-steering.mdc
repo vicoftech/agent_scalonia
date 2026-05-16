@@ -56,7 +56,7 @@ def my_tool(param: str) -> dict:
 | WebSocket | API Gateway WS — rankings real-time |
 | Scheduler | EventBridge Scheduler — veda, recordatorios, daily job |
 | Secretos | Secrets Manager — tokens, DB credentials |
-| IaC | AWS CDK Python |
+| IaC | **Terraform** — módulos [terraform-aws-modules](https://registry.terraform.io/namespaces/terraform-aws-modules) + proveedor `hashicorp/aws` |
 
 ## Arquitectura híbrida — regla central
 

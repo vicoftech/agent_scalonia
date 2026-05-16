@@ -70,28 +70,30 @@ Lambda veda_activator: UpdateItem con ConditionExpression="veda_active = :false"
 | TASK-000-001 | agent/main.py — @app.entrypoint async + stream_async | IA-Assisted | 3h |
 | TASK-000-002 | agent/tools/echo_tool.py — smoke test @tool | IA-Autonomous | 1h |
 | TASK-000-003 | telegram_webhook/handler.py — invoke_agent + EventStream | IA-Assisted | 4h |
-| TASK-000-004 | CDK: API GW POST /webhook/telegram → Lambda | IA-Assisted | 3h |
-| TASK-000-005 | CDK: DataStack (DynamoDB + Cognito) | IA-Assisted | 3h |
-| TASK-000-006 | CDK: AuroraStack (Serverless v2 + RDS Proxy) | Humano | 4h |
+| TASK-000-004 | Terraform: API GW POST /webhook/telegram → Lambda | IA-Assisted | 3h |
+| TASK-000-005 | Terraform: Data layer (DynamoDB + Cognito, módulo `dynamodb-table`) | IA-Assisted | 3h |
+| TASK-000-006 | Terraform: AuroraStack (Serverless v2 + RDS Proxy) | Humano | 4h |
 | TASK-000-007 | Alembic env.py + GitHub Actions step | IA-Assisted | 2h |
 | TASK-000-008 | agentcore configure + deploy staging | Humano | 2h |
 | TASK-000-009 | Registrar webhook Telegram + smoke test E2E | Humano | 2h |
+| TASK-000-010 | CI/CD: pipeline deploy agente (`agentcore deploy`) y Lambdas/infra (`terraform apply`) según corresponda; sin depender de CLI manual desde terminal | IA-Assisted | 4h |
 
 ## Criterios de aceptación — Sprint 0
 
 - Agente cumple ADR-001: `BedrockAgentCoreApp`, `stream_async`, `yield` por evento en `@app.entrypoint`.
 - `echo_tool` demostrable vía el agente (smoke).
 - `telegram_webhook` arma `invoke_agent`, consume el stream de `completion` y devuelve texto completo al canal.
-- CDK: API Gateway POST `/webhook/telegram` → Lambda webhook; DataStack (DynamoDB + Cognito) y AuroraStack (Serverless v2 + RDS Proxy) sintetizan sin error cuando apliquen cambios.
+- Terraform: API Gateway POST `/webhook/telegram` → Lambda webhook; módulos/data layer para DynamoDB + Cognito y (cuando exista) Aurora + RDS Proxy; `terraform validate` / `plan` limpios en CI.
 - Alembic y paso en CI listos; migraciones no se ejecutan en runtime de Lambdas.
-- Staging: agente desplegado con `agentcore`; webhook de Telegram registrado; al menos un mensaje E2E con respuesta del agente.
+- Staging: agente desplegado con `agentcore` vía pipeline (TASK-000-010); webhook de Telegram registrado; al menos un mensaje E2E con respuesta del agente.
+- Pipeline TASK-000-010: job(s) reproducible(s) (p. ej. GitHub Actions) con rol/OIDC; despliega runtime del agente y stacks Lambda según el repo; deploy manual por CLI solo como excepción documentada.
 - Sin `platform_id` en logs; idempotencia donde introduzca escrituras (p. ej. reintentos del webhook).
 
 ## Criterio Done Global
 
 - PR merged + todos los tests en verde
 - pytest --cov >= 80% en módulo modificado
-- cdk synth sin errores si hay cambios de infra
+- `terraform validate` (y `plan` en PR si aplica) sin errores cuando haya cambios de infra
 - Sin platform_id en logs
 - Idempotencia verificada en operaciones críticas
 - SLAs cumplidos en staging

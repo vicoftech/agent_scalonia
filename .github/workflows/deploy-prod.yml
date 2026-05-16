@@ -15,12 +15,14 @@ jobs:
           aws-region: us-east-1
       - run: |
           pip install poetry bedrock-agentcore-starter-toolkit
-          npm install -g aws-cdk
-          poetry install --with infra
+          poetry install
       - name: Run Alembic migrations (prod)
         run: poetry run alembic upgrade head
         env:
           AURORA_SYNC_SECRET_ARN: ${{ secrets.AURORA_SYNC_SECRET_ARN_PROD }}
           RDS_PROXY_ENDPOINT: ${{ secrets.RDS_PROXY_ENDPOINT_PROD }}
-      - run: cd infrastructure && cdk deploy --all --context env=prod --require-approval never
+      - uses: hashicorp/setup-terraform@v3
+        with: { terraform_wrapper: false }
+      - run: terraform -chdir=infrastructure/terraform init -input=false
+      - run: terraform -chdir=infrastructure/terraform apply -auto-approve -input=false -var=env=prod
       - run: agentcore deploy --env prod

@@ -47,7 +47,7 @@ deploy_cli: agentcore deploy (NO Lambda directa para el agente)
 | Mensajería | SQS + SNS | Notificaciones async, DLQ para sync fallida |
 | Secretos | AWS Secrets Manager | Todos los tokens, credentials de DB |
 | Config | SSM Parameter Store | Params no secretos |
-| IaC | AWS CDK Python | Stacks separados por dominio |
+| IaC | **Terraform** | Módulos terraform-aws-modules + AWS provider; stacks por dominio |
 | CI/CD | GitHub Actions | Alembic migrations antes del deploy |
 | Lenguaje | Python 3.12 | snake_case funciones/vars, PascalCase clases |
 

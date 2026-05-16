@@ -71,7 +71,7 @@ schedule: cron(0 3 * * ? *) UTC | período: 2026-06-11 → 2026-07-20
   agent_mode: manual
   estimate_hours: 8
   implementation_notes: |
-    Lambda timeout: 5 minutos (configurar en CDK).
+    Lambda timeout: 5 minutos (configurar en Terraform).
     Digest via SQS NotificationQueue (no esperar confirmación).
     Todos los pasos son idempotentes individualmente.
 

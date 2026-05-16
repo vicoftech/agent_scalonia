@@ -47,12 +47,12 @@ conectado a Telegram. Sin features de negocio. Solo validar el stack.
   estimate_hours: 4
 
 - task_id: TASK-000-004
-  title: CDK DataStack — DynamoDB + Cognito
+  title: Terraform DataStack — DynamoDB + Cognito
   agent_mode: auto
   estimate_hours: 3
 
 - task_id: TASK-000-005
-  title: CDK AuroraStack — Serverless v2 + RDS Proxy
+  title: Terraform AuroraStack — Serverless v2 + RDS Proxy
   agent_mode: manual
   estimate_hours: 4
 

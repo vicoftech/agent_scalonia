@@ -93,6 +93,6 @@ sprint: Sprint-1 | modo: IA-Assisted
   estimate_hours: 4
 
 - task_id: TASK-007
-  title: CDK: EventBridge Scheduler + scheduler_manager Lambda
+  title: Terraform: EventBridge Scheduler + scheduler_manager Lambda
   agent_mode: assisted
   estimate_hours: 3

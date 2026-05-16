@@ -13,7 +13,7 @@ Provisionar DynamoDB (escrituras) + Aurora PostgreSQL Serverless v2 (lecturas co
   acceptance_criteria:
     - 'On-Demand, PITR, TTL=ttl_expiry, Streams=NEW_AND_OLD_IMAGES'
     - '4 GSIs operativos con proyecciones calibradas'
-    - 'Stream ARN disponible como output CDK para Lambda sync'
+    - 'Stream ARN disponible como output de Terraform (módulo DynamoDB) para Lambda sync'
 
 - requirement_id: INFRA-002
   title: Aurora PostgreSQL 16 Serverless v2 + RDS Proxy
@@ -42,22 +42,22 @@ Provisionar DynamoDB (escrituras) + Aurora PostgreSQL Serverless v2 (lecturas co
 ## Tasks
 
 - task_id: TASK-INFRA-001
-  title: CDK BaseStack — IAM, Secrets Manager, CloudWatch
+  title: Terraform BaseStack — IAM, Secrets Manager, CloudWatch
   agent_mode: assisted
   estimate_hours: 4
 
 - task_id: TASK-INFRA-002
-  title: CDK DataStack — DynamoDB ProdeTable + 4 GSIs + Streams
+  title: Terraform DataStack — DynamoDB ProdeTable + 4 GSIs + Streams
   agent_mode: auto
   estimate_hours: 3
 
 - task_id: TASK-INFRA-003
-  title: CDK DataStack — Cognito User Pool + triggers
+  title: Terraform DataStack — Cognito User Pool + triggers
   agent_mode: assisted
   estimate_hours: 3
 
 - task_id: TASK-INFRA-004
-  title: CDK AuroraStack — Serverless v2 + RDS Proxy + security groups
+  title: Terraform AuroraStack — Serverless v2 + RDS Proxy + security groups
   agent_mode: manual
   estimate_hours: 4
 
@@ -67,22 +67,22 @@ Provisionar DynamoDB (escrituras) + Aurora PostgreSQL Serverless v2 (lecturas co
   estimate_hours: 2
 
 - task_id: TASK-INFRA-006
-  title: CDK: Lambda sync_dynamo_to_aurora + DynamoDB Stream trigger + SQS DLQ
+  title: Terraform: Lambda sync_dynamo_to_aurora + DynamoDB Stream trigger + SQS DLQ
   agent_mode: assisted
   estimate_hours: 4
 
 - task_id: TASK-INFRA-007
-  title: CDK: API Gateway REST (webhooks) + WebSocket
+  title: Terraform: API Gateway REST (webhooks) + WebSocket
   agent_mode: assisted
   estimate_hours: 4
 
 - task_id: TASK-INFRA-008
-  title: CDK: EventBridge Scheduler + SQS NotificationQueue
+  title: Terraform: EventBridge Scheduler + SQS NotificationQueue
   agent_mode: assisted
   estimate_hours: 3
 
 - task_id: TASK-INFRA-009
-  title: CDK: Bedrock Knowledge Base + S3 + OpenSearch Serverless
+  title: Terraform: Bedrock Knowledge Base + S3 + OpenSearch Serverless
   agent_mode: manual
   estimate_hours: 5
 

@@ -88,7 +88,7 @@ Lambda veda_activator: UpdateItem con ConditionExpression="veda_active = :false"
 
 - PR merged + todos los tests en verde
 - pytest --cov >= 80% en módulo modificado
-- cdk synth sin errores si hay cambios de infra
+- `terraform validate` sin errores si hay cambios de infra
 - Sin platform_id en logs
 - Idempotencia verificada en operaciones críticas
 - SLAs cumplidos en staging

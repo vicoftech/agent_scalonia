@@ -29,10 +29,6 @@ ruff             = "^0.4"
 mypy             = "^1.10"
 respx            = "^0.21"
 
-[tool.poetry.group.infra.dependencies]
-aws-cdk-lib = "^2.140"
-constructs  = "^10.3"
-
 [build-system]
 requires      = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"

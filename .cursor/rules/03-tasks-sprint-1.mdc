@@ -73,7 +73,7 @@ Lambda veda_activator: UpdateItem con ConditionExpression="veda_active = :false"
 | TASK-004 | src/dao/dynamo/prediction_dao.py (veda check atómico) | IA-Autonomous | 4h |
 | TASK-005 | agent/tools/prediction_tool.py | Humano | 6h |
 | TASK-006 | infrastructure/lambdas/veda_activator/handler.py | IA-Assisted | 4h |
-| TASK-007 | CDK: EventBridge Scheduler veda jobs | IA-Assisted | 3h |
+| TASK-007 | Terraform: EventBridge Scheduler veda jobs | IA-Assisted | 3h |
 | TASK-008 | infrastructure/lambdas/teams_webhook/handler.py | IA-Assisted | 4h |
 
 ## Criterios de aceptación — Sprint 1
@@ -90,7 +90,7 @@ Lambda veda_activator: UpdateItem con ConditionExpression="veda_active = :false"
 
 - PR merged + todos los tests en verde
 - pytest --cov >= 80% en módulo modificado
-- cdk synth sin errores si hay cambios de infra
+- `terraform validate` sin errores si hay cambios de infra
 - Sin platform_id en logs
 - Idempotencia verificada en operaciones críticas
 - SLAs cumplidos en staging
