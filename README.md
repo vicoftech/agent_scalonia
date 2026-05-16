@@ -1,4 +1,4 @@
-# ⚽ Prode Mundial 2026
+# ⚽ Agente ScalonIA Prode Mundial 2026
 
 Plataforma de predicciones del Mundial FIFA 2026 para grupos de amigos y equipos de trabajo.
 **Bedrock AgentCore Runtime + Strands Agents SDK + Aurora PostgreSQL + DynamoDB**
