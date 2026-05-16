@@ -9,11 +9,18 @@ Patrón oficial de streaming:
 """
 import logging
 import os
+import sys
+from pathlib import Path
 
 from strands import Agent
 from bedrock_agentcore import BedrockAgentCoreApp
 
-from tools.echo_tool import echo_tool
+# Repo root en sys.path (AgentCore ejecuta agent/main.py)
+_root = Path(__file__).resolve().parents[1]
+if str(_root) not in sys.path:
+    sys.path.insert(0, str(_root))
+
+from agent.tools.echo_tool import echo_tool
 # Sprint 1+: descomenzar conforme se implementan
 # from tools.prediction_tool  import prediction_tool
 # from tools.ranking_tool     import ranking_tool

@@ -1,2 +1,6 @@
-env        = "staging"
-aws_region = "us-east-1"
+env                        = "dev"
+aws_region                 = "us-east-1"
+aurora_cluster_identifier  = "aurora-pg-asap-dev"
+# Obtener ARN real: aws secretsmanager describe-secret --secret-id TELEGRAM_BOT_TOKEN --profile asap_dev --query ARN --output text
+telegram_secret_arn        = "arn:aws:secretsmanager:us-east-1:ACCOUNT_ID:secret:TELEGRAM_BOT_TOKEN-AbCdEf"
+agentcore_agent_id         = "REEMPLAZAR_TRAS_agentcore_deploy"

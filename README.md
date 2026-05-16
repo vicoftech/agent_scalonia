@@ -38,20 +38,25 @@ agentcore configure --entrypoint agent/main.py --name prode-mundial-2026
 agentcore launch --local &
 agentcore invoke --local --payload '{"prompt": "hola"}'
 
-# 4. Deploy infra data layer (DynamoDB + Cognito)
+# 4. Deploy infra (Terraform): DynamoDB, Cognito, Lambda Telegram, HTTP API
 cd infrastructure/terraform
+cp terraform.tfvars.example terraform.tfvars   # completar ARN secreto Telegram + agent id
+export AWS_PROFILE=asap_dev   # o el perfil de tu cuenta dev
 terraform init
-terraform apply -var=env=staging
+terraform workspace select dev || terraform workspace new dev   # opcional; default si un solo entorno
+terraform apply
+cd ../..
 
-# 5. Migrations Aurora (corre automáticamente en CI/CD)
+# 5. Alembic → Aurora (usa Secrets Manager + RDS Proxy / endpoint en env)
 alembic upgrade head
 
 # 6. Deploy agente
-agentcore deploy --env staging
+agentcore deploy --env dev   # o staging; alinear DYNAMODB_TABLE con ProdeTable-<env>
 
-# 7. Registrar webhook Telegram
+# 7. Webhook Telegram (sustituir TOKEN; la URL sale de: terraform -chdir=infrastructure/terraform output -raw telegram_webhook_url)
 curl -X POST "https://api.telegram.org/bot<TOKEN>/setWebhook" \
-  -d '{"url": "https://<api-gw-url>/webhook/telegram"}'
+  -H "Content-Type: application/json" \
+  -d '{"url": "PASTE_WEBHOOK_URL_HERE"}'
 
 # 8. Tests
 poetry run pytest
@@ -91,11 +96,10 @@ prode-mundial-2026/
 │   ├── db/
 │   │   ├── aurora_schema.sql       ← DDL completo + 4 vistas ✓
 │   │   └── DYNAMODB_SINGLE_TABLE.md ← modelo single-table + GSIs ✓
-│   ├── terraform/                  ← IaC: módulo DynamoDB + Cognito ✓
+│   ├── terraform/                  ← IaC: DynamoDB, Cognito, API+Lambda Telegram ✓
 │   ├── lambdas/
 │   │   ├── telegram_webhook/       ← handler.py ✓
 │   │   └── sync_dynamo_to_aurora/  ← handler.py ✓
-│   └── stacks/
 ├── migrations/
 │   └── versions/0001_initial_schema.py  ← Alembic migration ✓
 ├── tests/

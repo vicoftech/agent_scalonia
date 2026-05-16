@@ -14,6 +14,7 @@ infrastructure/terraform/*.tfstate.*
 infrastructure/terraform/.terraform.tfstate.lock.info
 infrastructure/terraform/terraform.tfvars
 infrastructure/terraform/crash.log
+infrastructure/terraform/.build/
 .agentcore/
 agentcore-build/
 *.zip

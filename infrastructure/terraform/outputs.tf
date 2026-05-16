@@ -27,3 +27,35 @@ output "cognito_app_client_id" {
   description = "App client sin secret (público)"
   value       = aws_cognito_user_pool_client.prode_app.id
 }
+
+# --- Aurora existente (data source) ---
+
+output "aurora_cluster_endpoint" {
+  description = "Writer endpoint del cluster (vacío si aurora_cluster_identifier no está definido)"
+  value       = try(data.aws_rds_cluster.prode[0].endpoint, null)
+}
+
+output "aurora_cluster_reader_endpoint" {
+  description = "Reader endpoint del cluster"
+  value       = try(data.aws_rds_cluster.prode[0].reader_endpoint, null)
+}
+
+output "aurora_cluster_port" {
+  value = try(data.aws_rds_cluster.prode[0].port, null)
+}
+
+output "aurora_cluster_resource_id" {
+  description = "DbClusterResourceId (p. ej. para Policy IAM / Proxy)"
+  value       = try(data.aws_rds_cluster.prode[0].cluster_resource_id, null)
+}
+
+# --- Telegram webhook ---
+
+output "telegram_webhook_url" {
+  description = "URL para setWebhook de Telegram"
+  value       = "${aws_apigatewayv2_stage.default.invoke_url}/webhook/telegram"
+}
+
+output "telegram_lambda_function_name" {
+  value = aws_lambda_function.telegram_webhook.function_name
+}

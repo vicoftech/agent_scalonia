@@ -24,5 +24,10 @@ jobs:
       - uses: hashicorp/setup-terraform@v3
         with: { terraform_wrapper: false }
       - run: terraform -chdir=infrastructure/terraform init -input=false
-      - run: terraform -chdir=infrastructure/terraform apply -auto-approve -input=false -var=env=prod
+      - run: |
+          terraform -chdir=infrastructure/terraform apply -auto-approve -input=false \
+            -var=env=prod \
+            -var=telegram_secret_arn=${{ secrets.TELEGRAM_SECRET_ARN_PROD }} \
+            -var=agentcore_agent_id=${{ secrets.AGENTCORE_AGENT_ID_PROD }} \
+            -var=aurora_cluster_identifier=${{ secrets.AURORA_CLUSTER_IDENTIFIER_PROD }}
       - run: agentcore deploy --env prod

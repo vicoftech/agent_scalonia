@@ -45,7 +45,7 @@ if __name__ == "__main__": app.run()
 - [x] `agent/tools/echo_tool.py` — smoke test
 - [x] `infrastructure/lambdas/telegram_webhook/handler.py` — webhook funcional
 - [x] `infrastructure/db/aurora_schema.sql` — DDL completo + 4 vistas
-- [x] `infrastructure/terraform/` — DynamoDB (`terraform-aws-modules/dynamodb-table`) + Cognito (proveedor AWS)
+- [x] `infrastructure/terraform/` — DynamoDB + Cognito + HTTP API (`/webhook/telegram`) + Lambda; data source Aurora opcional
 - [x] `infrastructure/lambdas/sync_dynamo_to_aurora/handler.py` — puente
 - [x] `migrations/versions/0001_initial_schema.py` — Alembic migration
 

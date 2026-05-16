@@ -3,7 +3,7 @@
   "entrypoint": "agent/main.py",
   "requirements_file": "requirements-agent.txt",
   "environment_variables": {
-    "DYNAMODB_TABLE": "ProdeTable",
+    "DYNAMODB_TABLE": "ProdeTable-dev",
     "AWS_REGION":     "us-east-1",
     "LOG_LEVEL":      "INFO"
   },
