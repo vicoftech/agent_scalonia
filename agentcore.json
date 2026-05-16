@@ -1,0 +1,21 @@
+{
+  "name": "prode-mundial-2026",
+  "entrypoint": "agent/main.py",
+  "requirements_file": "requirements-agent.txt",
+  "environment_variables": {
+    "DYNAMODB_TABLE": "ProdeTable",
+    "AWS_REGION":     "us-east-1",
+    "LOG_LEVEL":      "INFO"
+  },
+  "secrets": [
+    "TELEGRAM_BOT_TOKEN",
+    "TEAMS_WEBHOOK_URL",
+    "BEDROCK_KB_ID",
+    "AURORA_READER_SECRET_ARN"
+  ],
+  "observability": {
+    "cloudwatch_enabled":         true,
+    "transaction_search_enabled": true,
+    "xray_enabled":               true
+  }
+}

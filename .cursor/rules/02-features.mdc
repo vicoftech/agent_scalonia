@@ -1,0 +1,163 @@
+---
+description: Features del Prode Municipal 2026 con User Stories y Gherkin ACs. Aplicar al trabajar en lógica de negocio.
+globs: agent/**/*.py, src/**/*.py
+alwaysApply: false
+---
+
+# Features — Prode Mundial 2026
+
+## FEATURE-000 — MVP: Agente base + streaming Telegram  [Sprint 0]
+
+- US-000 (SC-01): Pipeline E2E — agente responde en Telegram en < 5s via AgentCore
+- US-001 (SC-02): Streaming acumula todos los chunks del EventStream correctamente
+- US-002 (SC-03): echo_tool retorna timestamp, status y features_pending
+
+```gherkin
+SC-01: agentcore deployado → user envía "hola" → Lambda recibe → invoke_agent() → EventStream → sendMessage → respuesta < 5s
+SC-02: response["completion"] iterado → todos los chunks["bytes"] acumulados → mensaje completo sin truncar
+SC-03: echo_tool("test") → {echo, timestamp, status="MVP operativo", features_pending=[...]}
+```
+
+---
+
+## FEATURE-001 — Alta y Autenticación de Usuarios  [Sprint 1]
+
+- US-003 (SC-01): Registro exitoso vía Telegram en ≤ 3 intercambios
+- US-004 (SC-02): Usuario existente reconocido sin duplicado en DynamoDB
+- US-005 (SC-03): Alias duplicado → 3 sugerencias alternativas
+- US-006 (SC-04): Registro vía Teams → Adaptive Card de bienvenida
+
+```gherkin
+SC-01: chat_id no registrado → /start → alias solicitado → "GolazoFan" → USER#<uuid>/PROFILE en DynamoDB → sync → users en Aurora
+SC-02: usuario existente → /start → saludo + posición ranking → SIN duplicado en DynamoDB
+SC-04: Teams userId → @ProdeBot /start → perfil con platform=TEAMS → Adaptive Card
+```
+
+---
+
+## FEATURE-002 — Alta de Predicciones  [Sprint 1]
+
+- US-005: Como jugador, predecir marcador antes de la veda → persistido en DynamoDB
+- US-006: Veda activa → rechazo inmediato, sin escritura en DynamoDB
+- US-007: Modificar predicción antes de veda → anterior=SUPERSEDED, nueva=ACTIVE
+- US-008: Input ambiguo → agente pide aclaración, no guarda hasta marcador válido
+
+```gherkin
+SC-01: veda_active=false + "predigo ARG 2 BRA 0" → DynamoDB PutItem → confirmación → sync Aurora
+SC-02: veda_active=true → VEDA_ACTIVE error → "⛔ Veda activa" → SIN escritura
+SC-03: predicción existente + veda inactiva + "cambio a 1-1" → anterior SUPERSEDED → nueva ACTIVE
+```
+
+---
+
+## FEATURE-003 — Recolección Automática de Resultados  [Sprint 2]
+
+- US-009: Detectar resultado FINAL via web_search_tool → scoring → ranking update
+- US-010: Admin carga resultado manual si web_search falla (fuente=MANUAL_ADMIN)
+- US-011: Marcadores parciales ignorados — esperar status FINAL
+
+```gherkin
+SC-01: match FINISHED + result_processed=false → poller detecta FINAL → DynamoDB RESULT → scoring → rankings → notificación → result_processed=true (idempotente)
+SC-03: partido 70' → marcador parcial → NO procesar → esperar FINAL
+```
+
+---
+
+## FEATURE-004 — Veda Pre-Partido  [Sprint 1 — CRÍTICA]
+
+- US-012: Veda automática 30min antes del kickoff (EventBridge Scheduler)
+- US-013: Notificar a usuarios sin predicción cuando se activa la veda
+- US-014: Rechazar toda predicción con veda activa
+
+```gherkin
+SC-01: kickoff 18:00 UTC → scheduler dispara 17:30 → veda_active=true en MATCH#<id>/DETAILS → notificación SQS
+SC-02: veda activa + usuario sin predicción → "⏰ Quedan 30 min para ARG vs BRA. ¡Última chance!"
+```
+
+---
+
+## FEATURE-005 — Recordatorio de Predicciones  [Sprint 2]
+
+- US-015: Recordatorio 2.5h antes del partido a usuarios sin predicción
+- US-016: NO enviar recordatorio a usuarios con predicción ya registrada
+- US-017: /recordatorios off → notifications_enabled=false
+
+---
+
+## FEATURE-006 — Grupos de Usuarios  [Sprint 2]
+
+- US-018: Crear grupo → código alfanumérico 6 chars → owner_id en DynamoDB
+- US-019: Unirse con código válido → membresía inmediata en ranking
+- US-020: Código inválido → "Código no válido o expirado"
+- US-021: Grupo lleno (50) → GROUP_FULL
+
+---
+
+## FEATURE-007/008 — Rankings Grupo + Global  [Sprint 2/3]
+
+- US-022: Ranking grupo → Aurora v_group_ranking + WebSocket push post-resultado
+- US-023: /ranking → top 10 global + posición propia + puntos para subir
+- US-024: Delta de posición vs partido anterior
+
+---
+
+## FEATURE-009 — Knowledge Base del Mundial  [Sprint 3]
+
+- US-026: Preguntas sobre mundiales → RAG desde Bedrock KB
+- US-027: Info del Mundial 2026 no en KB → web_search_tool complementa
+
+---
+
+## FEATURE-010 — Trivia con Puntos Extra  [Sprint 3]
+
+- US-028: /trivia → pregunta generada desde KB con opciones → suma puntos si acierta
+- US-029: Error → 0 puntos, sin penalización → ofrece continuar
+- US-030: 5 rondas/día → "Volvé mañana"
+
+```gherkin
+SC-01: trivia_rounds_today < 5 → pregunta medium desde KB → "1930" → "✅ +2 pts" → total_points += 2 en DynamoDB → sync Aurora
+SC-03: trivia_rounds_today = 5 → "Ya jugaste tus 5 rondas de hoy"
+```
+
+---
+
+## FEATURE-011 — Integración Telegram  [Sprint 1]
+
+- US-031: Webhook Update → Lambda → invoke_agent → EventStream → sendMessage (MarkdownV2)
+- US-032: Rate limit 429 → backoff exponencial + SQS buffer
+
+Comandos: /start /predecir /partidos /mis-predicciones /mis-puntos /ranking /ranking-grupo /crear-grupo /unirme /trivia /info /recordatorios /perfil /ayuda
+
+---
+
+## FEATURE-012 — Integración Microsoft Teams  [Sprint 2]
+
+- US-033: Activity Bot Framework → invoke_agent → Adaptive Card response
+- US-034: Predicción via Adaptive Card interactiva (botones + modal)
+
+---
+
+## FEATURE-013 — Sistema de Puntuación  [Sprint 2]
+
+- US-035: calculate_points con 4 reglas priorizadas (módulo puro, sin boto3)
+- US-036: Fases eliminatorias sobre result_90min
+- US-037: /mis-puntos → desglose partido a partido + trivia + posición
+- US-038: Trivia suma a total_points en DynamoDB
+
+```
+calculate_points(2,0,2,0,"GROUP") → (5, "EXACT_SCORE")
+calculate_points(2,0,3,1,"GROUP") → (3, "CORRECT_WINNER_AND_DIFF")
+calculate_points(2,0,1,0,"GROUP") → (1, "CORRECT_WINNER_ONLY")
+calculate_points(2,0,0,1,"GROUP") → (0, "INCORRECT")
+calculate_points(0,0,0,0,"QF")   → (5, "EXACT_SCORE")  # scoring sobre 90'
+```
+
+---
+
+## FEATURE-014 — Job Diario de Rankings  [Sprint 3]
+
+- US-039: 3:00 UTC — catch-up partidos sin scoring → recalcular rankings → snapshots
+- US-040: Digest diario a usuarios activos con posición + próximos partidos
+- US-041: Idempotente via JOB_CTRL#DAILY_RANKING/<fecha>
+
+Período activo: 2026-06-11 → 2026-07-20

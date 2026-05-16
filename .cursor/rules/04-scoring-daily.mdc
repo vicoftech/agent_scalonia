@@ -1,0 +1,79 @@
+---
+description: SPEC-013 (Scoring Engine) y SPEC-014 (Daily Ranking Job). Aplicar en src/scoring/ y src/jobs/.
+globs: src/scoring/**/*.py, src/jobs/**/*.py, tests/unit/test_scoring/**/*.py
+alwaysApply: false
+---
+
+# SPEC-013 — Motor de Puntuación
+
+Módulo: `src/scoring/scoring_engine.py` — funciones PURAS. Sin boto3, sin I/O.
+
+## Tabla de puntos (INMUTABLE)
+
+| Prioridad | Caso | Puntos | Condición |
+|-----------|------|--------|-----------|
+| 1 | Exacto | 5 | pred_home==actual_home AND pred_away==actual_away |
+| 2 | Ganador + diferencia | 3 | winner correcto AND (home-away) predicho == real |
+| 3 | Solo ganador | 1 | winner correcto (DRAW incluido) |
+| 4 | Incorrecto | 0 | — |
+
+Fases eliminatorias (R16/QF/SF/FINAL/THIRD_PLACE): el caller SIEMPRE pasa result_90min.
+
+## Gherkin completo
+
+```
+calculate_points(2,0,2,0,"GROUP") → (5, "EXACT_SCORE")
+calculate_points(2,0,3,1,"GROUP") → (3, "CORRECT_WINNER_AND_DIFF")  # dif=+2 en ambos
+calculate_points(2,0,1,0,"GROUP") → (1, "CORRECT_WINNER_ONLY")
+calculate_points(2,0,0,1,"GROUP") → (0, "INCORRECT")
+calculate_points(1,1,1,1,"GROUP") → (5, "EXACT_SCORE")
+calculate_points(0,0,2,2,"GROUP") → (1, "CORRECT_WINNER_ONLY")   # empate correcto
+calculate_points(0,0,0,0,"QF")   → (5, "EXACT_SCORE")            # 90' empate, penales ignorados
+```
+
+## Trivia
+
+easy=1pt | medium=2pt | hard=3pt | sin penalización | máx 5 rondas/día
+`trivia_rounds_today` reset por daily job a las 3:00 UTC.
+
+---
+
+# SPEC-014 — Job Diario de Rankings
+
+Schedule: `cron(0 3 * * ? *)` UTC | Período: 2026-06-11 → 2026-07-20
+Módulo: `src/jobs/daily_ranking_job.py`
+
+## Flujo (9 pasos — todos idempotentes)
+
+```python
+1. is_mundial_active()                     → si no, return SKIPPED
+2. is_already_processed(job_run_id)        → si sí, return SKIPPED
+3. get_unprocessed_finished_matches()      → catch-up scoring
+4. recalculate_global_ranking()            → DynamoDB RANKING#GLOBAL
+5. for g in get_active_groups():           → DynamoDB RANKING#GROUP#<id>
+       recalculate_group_ranking(g)
+6. save_ranking_snapshot(date)             → DynamoDB RANKING_SNAP# + Aurora ranking_history
+7. reset_daily_trivia_counters()           → DynamoDB USER#*/PROFILE trivia_rounds_today=0
+8. send_daily_digest(date)                 → SQS NotificationQueue (async)
+9. mark_job_processed(job_run_id)          → DynamoDB JOB_CTRL#DAILY_RANKING/<fecha>
+```
+
+## Idempotencia
+
+`job_run_id = f"DAILY_JOB#{date.isoformat()}"`
+DynamoDB: PK=`JOB_CTRL#DAILY_RANKING` SK=`<fecha>`.
+
+## Gherkin clave
+
+```gherkin
+SC-01: 3:00 UTC → recalcula todo → snapshot → trivia reset → digest → mark processed
+SC-03: job_run_id ya existe → return SKIPPED → SIN modificaciones
+SC-04: partido FINISHED + result_processed=false → catch-up → result_processed=true
+SC-06: fecha fuera de período mundial → return SKIPPED
+```
+
+Período activo:
+```python
+MUNDIAL_START = date(2026, 6, 11)
+MUNDIAL_END   = date(2026, 7, 20)
+```

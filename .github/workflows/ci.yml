@@ -1,0 +1,33 @@
+name: CI
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: [main]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - uses: snok/install-poetry@v1
+        with: { version: "1.8.2" }
+      - run: poetry install
+      - run: poetry run ruff check agent/ src/ tests/
+      - run: poetry run mypy agent/ src/ --ignore-missing-imports
+      - run: poetry run pytest --cov=src --cov=agent --cov-report=term-missing --cov-fail-under=80
+  cdk-synth:
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "20" }
+      - run: npm install -g aws-cdk
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - uses: snok/install-poetry@v1
+      - run: poetry install --with infra
+      - run: cd infrastructure && cdk synth --context env=staging --context account=000000000000
+        env: { AWS_DEFAULT_REGION: us-east-1 }

@@ -1,0 +1,140 @@
+---
+description: Steering Context v2.0 — stack completo, arquitectura híbrida DynamoDB+Aurora, patrones Strands/AgentCore. Aplica a TODO el código.
+alwaysApply: true
+---
+
+# Prode Mundial 2026 — Steering Context v2.0
+
+## Runtime del agente — patrón OBLIGATORIO
+
+```python
+from strands import Agent, tool
+from bedrock_agentcore import BedrockAgentCoreApp
+
+app   = BedrockAgentCoreApp()
+agent = Agent(model="us.anthropic.claude-sonnet-4-20250514", tools=[...])
+
+@app.entrypoint
+async def agent_invocation(payload: dict):
+    stream = agent.stream_async(payload["prompt"])
+    async for event in stream:
+        yield event          # streaming token a token
+
+if __name__ == "__main__":
+    app.run()
+```
+
+Deploy: `agentcore deploy` — NO Lambda directa para el agente principal.
+Webhooks Telegram/Teams son Lambdas separadas que invocan el agente vía `boto3 bedrock-agent-runtime.invoke_agent()`.
+
+## Patrón @tool (Strands)
+
+```python
+from strands import tool
+
+@tool
+def my_tool(param: str) -> dict:
+    """Descripción que el LLM usa para decidir cuándo invocar."""
+    ...
+```
+
+## Stack
+
+| Capa | Servicio |
+|------|----------|
+| Agent runtime | Bedrock AgentCore Runtime (ARM64, serverless) |
+| Framework | strands-agents + strands-agents-tools |
+| LLM | claude-sonnet-4-20250514 vía Bedrock |
+| **DB operativa** | **DynamoDB On-Demand — escrituras + lookups sub-5ms** |
+| **DB relacional** | **Aurora PostgreSQL 16 Serverless v2 — JOINs + reporting** |
+| **Sync** | **DynamoDB Streams → Lambda sync_dynamo_to_aurora** |
+| Connection pool | RDS Proxy (obligatorio con Lambda) |
+| ORM | SQLAlchemy 2.x + asyncpg |
+| Migrations | Alembic (solo CI/CD) |
+| Auth | Cognito User Pools, JWT 24h |
+| KB | Bedrock Knowledge Base (S3 + OpenSearch) |
+| WebSocket | API Gateway WS — rankings real-time |
+| Scheduler | EventBridge Scheduler — veda, recordatorios, daily job |
+| Secretos | Secrets Manager — tokens, DB credentials |
+| IaC | AWS CDK Python |
+
+## Arquitectura híbrida — regla central
+
+```
+@tool escribe predicción
+  → DynamoDB PutItem (sub-5ms, veda check atómico)
+       ↓ DynamoDB Streams
+  → Lambda sync_dynamo_to_aurora
+       ↓ upsert idempotente ON CONFLICT DO UPDATE
+  → Aurora PostgreSQL (espejo)
+
+@tool lee ranking de grupo
+  → Aurora via RDS Proxy
+  → SELECT * FROM v_group_ranking WHERE group_id = ?
+```
+
+**DynamoDB escribe. Aurora lee. Nunca al revés.**
+
+## Cuándo usar cada store
+
+| Operación | Store |
+|-----------|-------|
+| Verificar veda activa | DynamoDB GetItem |
+| Escribir predicción | DynamoDB PutItem + condition_expression |
+| Lookup usuario por platform_id | DynamoDB GSI-1-platform |
+| Sesión trivia activa | DynamoDB GetItem (TTL 30min) |
+| Ranking de grupo con alias | Aurora → v_group_ranking |
+| Historial predicciones usuario | Aurora → v_user_prediction_history |
+| Desglose de puntos | Aurora → v_user_score_summary |
+| Usuarios sin predicción (recordatorio) | Aurora → v_members_without_prediction |
+
+## DynamoDB — patrones PK/SK
+
+| Entidad | PK | SK |
+|---------|----|----|
+| Usuario | `USER#<uuid>` | `PROFILE` |
+| Predicción | `USER#<uuid>` | `PRED#<match_uuid>` |
+| Partido | `MATCH#<uuid>` | `DETAILS` |
+| Resultado | `MATCH#<uuid>` | `RESULT` |
+| Grupo | `GROUP#<uuid>` | `DETAILS` |
+| Membresía | `GROUP#<uuid>` | `MEMBER#<user_uuid>` |
+| Trivia sesión | `USER#<uuid>` | `TRIVIA#<session_uuid>` (TTL 30min) |
+| WS conexión | `WS#<connection_id>` | `DETAILS` (TTL 8h) |
+| Cache search | `CACHE#<query_hash>` | `RESULT` (TTL 24h) |
+| Job control | `JOB_CTRL#<job_name>` | `<YYYY-MM-DD>` |
+
+GSIs: GSI-1-platform | GSI-2-match-predictions | GSI-3-group-members | GSI-4-ranking-score
+
+## DAOs — separación estricta
+
+```
+src/dao/dynamo/   ← escrituras + lookups (nunca JOINs)
+src/dao/aurora/   ← queries con JOIN (nunca escrituras desde el agente)
+```
+
+## Scoring
+
+| Caso | Puntos |
+|------|--------|
+| Resultado exacto | 5 |
+| Ganador + diferencia de goles | 3 |
+| Solo ganador (empate incluido) | 1 |
+| Incorrecto | 0 |
+| Trivia easy/medium/hard | +1/+2/+3 |
+
+Fases eliminatorias: scoring sobre `result_90min` (ignorar ET y penales).
+
+## SLAs
+
+Respuesta agente < 3s p95 | Ranking post-resultado < 30s | Veda < 60s de margen
+
+## NUNCA
+
+- Hardcodear tokens → Secrets Manager
+- Loggear platform_id → SHA-256
+- Escribir predicción sin verificar `veda_active=true`
+- Re-procesar scoring si `result_processed=true`
+- Escribir en Aurora desde el agente o @tools
+- Conectar Aurora sin RDS Proxy en Lambda
+- Correr Alembic en Lambda runtime
+- Usar Lambda directa para el agente — siempre `@app.entrypoint` + `agentcore deploy`
