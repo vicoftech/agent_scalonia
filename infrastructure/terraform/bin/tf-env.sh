@@ -1,7 +1,16 @@
 #!/usr/bin/env bash
 # Source antes de terraform/aws: exporta perfil desde dev.tfvars y evita credenciales sueltas en el shell.
 # Uso: . ./bin/tf-env.sh
-set -euo pipefail
+_sourced=false
+if [[ -n "${BASH_VERSION:-}" ]]; then
+  [[ "${BASH_SOURCE[0]:-}" != "${0:-}" ]] && _sourced=true
+elif [[ -n "${ZSH_VERSION:-}" ]]; then
+  # En zsh, source deja $0 como el shell (p. ej. zsh), no el path del script.
+  case "${0:-}" in zsh|*-zsh|"") _sourced=true ;; esac
+fi
+if ! $_sourced; then
+  set -euo pipefail
+fi
 
 if [[ -n "${BASH_SOURCE[0]:-}" ]]; then
   _tf_env_bin="$(dirname "${BASH_SOURCE[0]}")"

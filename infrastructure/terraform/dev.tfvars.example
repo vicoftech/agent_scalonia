@@ -25,3 +25,6 @@ telegram_secret_arn = "arn:aws:secretsmanager:us-east-1:ACCOUNT_ID:secret:SCALON
 
 # LLM (cuentas reseller: sin Anthropic). Pro ≈ Sonnet | Lite ≈ Haiku | Llama: us.meta.llama3-3-70b-instruct-v1:0
 # bedrock_model_id = "us.amazon.nova-pro-v1:0"
+
+# Guardrails SPEC-2026-015 (opcional)
+# sns_alerts_arn = "arn:aws:sns:us-east-1:ACCOUNT_ID:prode-alerts"

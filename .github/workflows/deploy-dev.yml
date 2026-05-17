@@ -40,3 +40,7 @@ jobs:
             -var=terraform_state_bucket=${{ secrets.TF_STATE_BUCKET_DEV }} \
             -var=terraform_state_lock_table=${{ secrets.TF_STATE_LOCK_TABLE_DEV }} \
             -var=terraform_state_key=prode/terraform.tfstate
+      - name: Verify guardrail SSM (SPEC-015)
+        run: |
+          aws ssm get-parameter --name /prode-mundial/dev/guardrail_id --region us-east-1
+          aws ssm get-parameter --name /prode-mundial/dev/guardrail_version --region us-east-1
