@@ -48,5 +48,6 @@ fi
 
 if command -v aws >/dev/null 2>&1; then
   _acct=$(aws sts get-caller-identity --query Account --output text 2>/dev/null) || _acct="?"
-  echo "AWS_PROFILE=${AWS_PROFILE} account=${_acct} region=${AWS_DEFAULT_REGION}"
+  _profile_label="${AWS_PROFILE:-<env-keys>}"
+  echo "AWS_PROFILE=${_profile_label} account=${_acct} region=${AWS_DEFAULT_REGION}"
 fi
