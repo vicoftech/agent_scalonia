@@ -44,7 +44,7 @@ jobs:
     with:
       environment_name: development
       terraform_workspace: dev
-      run_alembic: ${{ needs.changes.outputs.migrations == 'true' || (github.event_name == 'workflow_dispatch' && inputs.run_migrations) }}
+      run_alembic: ${{ needs.changes.outputs.migrations == 'true' || (github.event_name == 'workflow_dispatch' && github.event.inputs.run_migrations == 'true') }}
     secrets:
       AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN_DEV }}
       DEV_TFVARS: ${{ secrets.DEV_TFVARS }}

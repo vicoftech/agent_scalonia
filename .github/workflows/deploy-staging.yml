@@ -43,7 +43,7 @@ jobs:
     with:
       environment_name: staging
       terraform_workspace: staging
-      run_alembic: ${{ needs.changes.outputs.migrations == 'true' || (github.event_name == 'workflow_dispatch' && inputs.run_migrations) }}
+      run_alembic: ${{ needs.changes.outputs.migrations == 'true' || (github.event_name == 'workflow_dispatch' && github.event.inputs.run_migrations == 'true') }}
     secrets:
       AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN_STAGING }}
       STAGING_TFVARS: ${{ secrets.STAGING_TFVARS }}
