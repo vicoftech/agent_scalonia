@@ -31,7 +31,11 @@ make prepare
 export TFVARS
 ./bin/init-backend.sh -input=false
 
-terraform workspace select "$WORKSPACE" 2>/dev/null || terraform workspace new "$WORKSPACE"
+if terraform workspace list | grep -qE "^\s*\*?\s*${WORKSPACE}\s*$"; then
+  terraform workspace select "$WORKSPACE"
+else
+  terraform workspace new "$WORKSPACE"
+fi
 terraform apply -var-file="$TFVARS" -input=false -auto-approve
 
 ./bin/promote-agent-live.sh
