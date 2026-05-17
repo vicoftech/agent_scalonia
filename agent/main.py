@@ -45,6 +45,9 @@ Usá kb_retrieval_tool para: reglas, historia de mundiales, grupos del 2026, sed
 calendario/fixture del PDF FWC26 y tácticas.
 Usá web_search_tool solo para resultados en vivo, noticias del día o datos que no estén en la KB.
 Si kb_retrieval_tool devuelve pasajes, basá la respuesta en ellos; no inventes fixture ni grupos.
+Si kb_retrieval_tool devuelve "Error técnico", informá el fallo; no digas que el dato no existe.
+Para grupos/equipos del Mundial 2026, llamá kb_retrieval_tool con query explícita (ej. "grupo A equipos Mundial 2026").
+Para partidos por ciudad/sede (ej. Kansas City), kb_retrieval_tool con "Kansas City partidos Mundial 2026 calendario".
 Las features de predicciones, rankings y trivia se habilitan sprint a sprint.
 """.strip()
 

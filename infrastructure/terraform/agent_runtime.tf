@@ -9,8 +9,8 @@ locals {
   agent_source_files = concat(
     [for f in sort(fileset("${local.repo_root}/agent", "**")) :
     "${local.repo_root}/agent/${f}" if !endswith(f, "/") && !strcontains(f, "__pycache__")],
-    [for f in sort(fileset("${local.repo_root}/src", "**")) :
-    "${local.repo_root}/src/${f}" if !endswith(f, "/") && !strcontains(f, "__pycache__")],
+    [for f in sort(fileset("${local.repo_root}/src/kb", "**")) :
+    "${local.repo_root}/src/kb/${f}" if !endswith(f, "/") && !strcontains(f, "__pycache__")],
   )
   agent_source_hash = sha256(join("", concat(
     [filesha256("${local.repo_root}/requirements-agent.txt")],
@@ -97,9 +97,10 @@ data "aws_iam_policy_document" "agent_runtime" {
   }
 
   statement {
-    sid = "DynamoDBRead"
+    sid = "DynamoDBCache"
     actions = [
       "dynamodb:GetItem",
+      "dynamodb:PutItem",
       "dynamodb:Query",
     ]
     resources = [
@@ -111,7 +112,16 @@ data "aws_iam_policy_document" "agent_runtime" {
   statement {
     sid       = "Secrets"
     actions   = ["secretsmanager:GetSecretValue"]
-    resources = [var.telegram_secret_arn]
+    resources = compact([var.telegram_secret_arn, var.tavily_secret_arn])
+  }
+
+  dynamic "statement" {
+    for_each = module.kb.kb_query_lambda_arn != "" ? [1] : []
+    content {
+      sid       = "KbQueryLambda"
+      actions   = ["lambda:InvokeFunction"]
+      resources = [module.kb.kb_query_lambda_arn]
+    }
   }
 
   statement {
@@ -147,13 +157,20 @@ resource "aws_bedrockagentcore_agent_runtime" "prode" {
   description        = "Prode Mundial 2026 — ${var.env} — code ${local.agent_source_hash}"
   role_arn           = aws_iam_role.agent_runtime.arn
 
-  environment_variables = {
-    DYNAMODB_TABLE      = module.prode_table.dynamodb_table_id
-    LOG_LEVEL           = "INFO"
-    BEDROCK_MODEL_ID    = var.bedrock_model_id
-    GUARDRAIL_ID        = module.guardrails.guardrail_id
-    GUARDRAIL_VERSION   = module.guardrails.guardrail_version
-  }
+  environment_variables = merge(
+    {
+      DYNAMODB_TABLE    = module.prode_table.dynamodb_table_id
+      LOG_LEVEL         = "INFO"
+      BEDROCK_MODEL_ID  = var.bedrock_model_id
+      GUARDRAIL_ID      = module.guardrails.guardrail_id
+      GUARDRAIL_VERSION = module.guardrails.guardrail_version
+      AWS_REGION        = var.aws_region
+    },
+    var.tavily_secret_arn != "" ? { TAVILY_SECRET_ARN = var.tavily_secret_arn } : {},
+    module.kb.kb_query_lambda_name != "" ? {
+      KB_QUERY_LAMBDA_NAME = module.kb.kb_query_lambda_name
+    } : {},
+  )
 
   agent_runtime_artifact {
     code_configuration {
@@ -177,6 +194,7 @@ resource "aws_bedrockagentcore_agent_runtime" "prode" {
     aws_s3_object.agent_runtime_code,
     module.prode_table,
     module.guardrails,
+    module.kb,
   ]
 }
 

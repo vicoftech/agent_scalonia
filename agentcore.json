@@ -7,7 +7,8 @@
     "AWS_REGION":        "us-east-1",
     "LOG_LEVEL":         "INFO",
     "GUARDRAIL_ID":      "",
-    "GUARDRAIL_VERSION": ""
+    "GUARDRAIL_VERSION": "",
+    "KB_QUERY_LAMBDA_NAME": ""
   },
   "guardrail_config": {
     "guardrail_id":      "{{SSM:/prode-mundial/dev/guardrail_id}}",
@@ -17,8 +18,7 @@
   "secrets": [
     "SCALONIA_TELEGRAM_BOT_TOKEN",
     "TEAMS_WEBHOOK_URL",
-    "BEDROCK_KB_ID",
-    "AURORA_READER_SECRET_ARN"
+    "KB_QUERY_LAMBDA_NAME"
   ],
   "observability": {
     "cloudwatch_enabled":         true,

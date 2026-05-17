@@ -25,3 +25,7 @@ agentcore-build/
 .idea/
 .vscode/settings.json
 knowledge-base/raw/
+# PDFs se suben a S3 (kb-sync); no versionar binarios grandes
+*.pdf
+terraform.tfstate
+terraform.tfstate.*

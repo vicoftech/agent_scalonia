@@ -1,0 +1,527 @@
+---
+description: SPEC-017 — Knowledge Base: ingesta, almacenamiento y tool de búsqueda web. Aplicar cuando se trabaja en agent/tools/web_search_tool.py, src/kb/, infrastructure/terraform/kb/ o knowledge-base/.
+globs: agent/tools/web_search_tool.py, src/kb/**/*.py, infrastructure/terraform/kb/**/*.tf, knowledge-base/**/*.md
+alwaysApply: false
+---
+
+# SPEC-2026-017 — Knowledge Base: Ingesta, Almacenamiento y Web Search Tool
+
+**SPEC-ID**: SPEC-2026-017 | **Sprint**: Sprint 1-2 | **IaC**: Terraform
+
+---
+
+## Arquitectura de almacenamiento — dos capas
+
+```
+web_search_tool (Strands @tool)
+    │
+    ├── Busca en Bedrock Knowledge Base (RAG sobre S3)
+    │   para conocimiento histórico y estructurado
+    │
+    └── Busca en la web en tiempo real
+        para fixture, resultados, noticias del Mundial 2026
+            │
+            └── Persiste en S3 (documento enriquecido)
+                    │
+                    └── DynamoDB CACHE# (TTL 24h para datos volátiles)
+```
+
+### Cuándo usar cada capa
+
+| Tipo de dato | Storage | TTL | Trigger de actualización |
+|-------------|---------|-----|-------------------------|
+| Historia mundiales 1930-2022 | S3 + Bedrock KB | Permanente | Manual o pipeline |
+| Reglas del juego IFAB | S3 + Bedrock KB | Permanente | Nueva edición IFAB |
+| Tácticas y formaciones | S3 + Bedrock KB | Permanente | Manual |
+| Jugadores históricos | S3 + Bedrock KB | Permanente | Manual |
+| Fixture Mundial 2026 | S3 + DynamoDB cache | 6h | Consulta del agente |
+| Resultados partidos 2026 | DynamoDB CACHE# | 10min (partido en vivo) / 24h (finalizado) | Consulta del agente |
+| Estadísticas equipos 2026 | DynamoDB CACHE# | 6h | Consulta del agente |
+| Noticias y novedades | DynamoDB CACHE# | 2h | Consulta del agente |
+
+---
+
+## Dominios cubiertos y fuentes mapeadas
+
+### Dominio 1 — Fútbol General
+
+| Sub-dominio | Fuentes primarias | Archivo KB destino |
+|-------------|------------------|-------------------|
+| Reglas del juego (17 leyes) | theifab.com/laws-of-the-game-documents/ | `knowledge-base/reglas/laws-of-the-game.md` |
+| Historia del fútbol | en.wikipedia.org/wiki/Association_football | `knowledge-base/futbol/historia-futbol.md` |
+| Evolución tácticas | everybodysoccer.com, thefalse9.com, escored.com | `knowledge-base/tacticas/evolucion-tacticas.md` |
+| Formaciones clásicas | the-footballanalyst.com, majorsportscruises.com | `knowledge-base/tacticas/formaciones.md` |
+| Tiki-Taka | the-footballanalyst.com/tiki-taka-football-tactics-explained/ | `knowledge-base/tacticas/tiki-taka.md` |
+| Gegenpressing | escored.com/features/how-football-tactics-are-evolving/ | `knowledge-base/tacticas/gegenpressing.md` |
+| Total Football | everybodysoccer.com (evolución tácticas) | `knowledge-base/tacticas/total-football.md` |
+| Catenaccio | bu1sport.com/blogs/magazine/evolution-of-football-tactics | `knowledge-base/tacticas/catenaccio.md` |
+| Grandes entrenadores | Wikipedia, Britannica | `knowledge-base/futbol/grandes-entrenadores.md` |
+
+### Dominio 2 — Mundiales FIFA
+
+| Sub-dominio | Fuentes primarias | Archivo KB destino |
+|-------------|------------------|-------------------|
+| Historia general | en.wikipedia.org/wiki/FIFA_World_Cup | `knowledge-base/mundiales/historia-general.md` |
+| Récords y estadísticas | wikipedia.org/wiki/FIFA_World_Cup_records_and_statistics | `knowledge-base/mundiales/records-estadisticas.md` |
+| Todos los ganadores | worldcupstats.football/history/ | `knowledge-base/mundiales/ganadores.md` |
+| Goleadores históricos | britannica.com/sports/FIFA-World-Cup-Records | `knowledge-base/mundiales/goleadores.md` |
+| Por edición (1930-2022) | footballhistory.org, historicalsoccer.com | `knowledge-base/mundiales/ediciones/` (22 archivos) |
+| Sedes Mundial 2026 | en.wikipedia.org/wiki/2026_FIFA_World_Cup | `knowledge-base/mundiales/2026/sedes.md` |
+| Grupos Mundial 2026 | roadtrips.com/world-cup/2026-world-cup-packages/schedule/ | `knowledge-base/mundiales/2026/grupos.md` |
+| Fixture (datos estáticos) | nynjfwc26.com/schedule/, fwcschedule.com | `knowledge-base/mundiales/2026/fixture.md` |
+| Televisación | en.wikipedia.org/wiki/2026_FIFA_World_Cup (sección broadcast) | `knowledge-base/mundiales/2026/television.md` |
+
+---
+
+## web_search_tool — implementación completa
+
+```python
+# agent/tools/web_search_tool.py
+import hashlib
+import json
+import logging
+import os
+from datetime import datetime, timezone
+from typing import Optional
+
+import boto3
+import httpx
+from strands import tool
+
+logger = logging.getLogger(__name__)
+
+DYNAMODB_TABLE = os.environ["DYNAMODB_TABLE"]
+_dynamodb = boto3.resource("dynamodb")
+
+# TTLs en segundos según el tipo de consulta
+TTL_LIVE_MATCH    = 60 * 10        # 10 minutos — partido en vivo
+TTL_RECENT_RESULT = 60 * 60 * 24  # 24 horas — resultado finalizado
+TTL_FIXTURE       = 60 * 60 * 6   # 6 horas — horarios
+TTL_STATS         = 60 * 60 * 6   # 6 horas — estadísticas
+TTL_NEWS          = 60 * 60 * 2   # 2 horas — noticias
+
+
+@tool
+def web_search_tool(
+    query: str,
+    search_type: str = "general",
+) -> str:
+    """
+    Busca información actualizada sobre fútbol y el Mundial 2026.
+    Primero consulta el cache en DynamoDB. Si no hay hit, realiza la búsqueda
+    y persiste el resultado según el TTL correspondiente al tipo de búsqueda.
+
+    search_type:
+        "live_match"    — partido en vivo (cache 10 min)
+        "result"        — resultado finalizado (cache 24h)
+        "fixture"       — horarios y fixture (cache 6h)
+        "stats"         — estadísticas (cache 6h)
+        "news"          — noticias y novedades (cache 2h)
+        "general"       — búsqueda general (cache 6h)
+
+    Temas habilitados: fútbol y mundiales FIFA únicamente.
+    """
+    # 1. Verificar cache
+    cache_key = _make_cache_key(query)
+    cached = _get_from_cache(cache_key)
+    if cached:
+        logger.debug("Cache hit: %s", cache_key[:20])
+        return cached
+
+    # 2. Determinar TTL según search_type
+    ttl_map = {
+        "live_match": TTL_LIVE_MATCH,
+        "result":     TTL_RECENT_RESULT,
+        "fixture":    TTL_FIXTURE,
+        "stats":      TTL_STATS,
+        "news":       TTL_NEWS,
+        "general":    TTL_STATS,
+    }
+    ttl_seconds = ttl_map.get(search_type, TTL_STATS)
+
+    # 3. Realizar búsqueda
+    result = _perform_search(query)
+
+    # 4. Persistir en cache
+    if result:
+        _save_to_cache(cache_key, query, result, ttl_seconds)
+
+    return result or "No encontré información relevante para esa consulta."
+
+
+def _make_cache_key(query: str) -> str:
+    return "CACHE#" + hashlib.sha256(query.lower().strip().encode()).hexdigest()[:32]
+
+
+def _get_from_cache(cache_key: str) -> Optional[str]:
+    try:
+        table = _dynamodb.Table(DYNAMODB_TABLE)
+        resp = table.get_item(
+            Key={"partition_key": cache_key, "sort_key": "RESULT"}
+        )
+        item = resp.get("Item")
+        if not item:
+            return None
+        # Verificar que no expiró (DynamoDB TTL puede tardar hasta 48h en eliminar)
+        ttl = item.get("ttl_expiry", 0)
+        now = int(datetime.now(tz=timezone.utc).timestamp())
+        if ttl > 0 and now > ttl:
+            return None
+        return item.get("result_text")
+    except Exception as e:
+        logger.warning("Cache read error: %s", type(e).__name__)
+        return None
+
+
+def _save_to_cache(cache_key: str, query: str, result: str, ttl_seconds: int) -> None:
+    try:
+        table = _dynamodb.Table(DYNAMODB_TABLE)
+        now = int(datetime.now(tz=timezone.utc).timestamp())
+        table.put_item(Item={
+            "partition_key": cache_key,
+            "sort_key":      "RESULT",
+            "query":         query,
+            "result_text":   result[:10000],   # límite 10KB por item
+            "cached_at":     datetime.now(tz=timezone.utc).isoformat(),
+            "ttl_expiry":    now + ttl_seconds,
+        })
+    except Exception as e:
+        logger.warning("Cache write error: %s", type(e).__name__)
+
+
+def _perform_search(query: str) -> Optional[str]:
+    """
+    Realiza la búsqueda web real.
+    Implementar con la API de búsqueda disponible (Tavily, Serper, etc.)
+    o mediante scraping de fuentes confiables.
+    """
+    # TODO: implementar con la API de búsqueda elegida
+    # Ejemplo con Tavily API (recomendada para agentes):
+    # api_key = boto3.client("secretsmanager").get_secret_value(
+    #     SecretId="TAVILY_API_KEY")["SecretString"]
+    # resp = httpx.post("https://api.tavily.com/search",
+    #     json={"api_key": api_key, "query": query,
+    #           "search_depth": "advanced", "max_results": 5})
+    # results = resp.json().get("results", [])
+    # return "\n\n".join(f"{r['title']}\n{r['content']}" for r in results)
+    raise NotImplementedError("TASK-017-004 — implementar con API de búsqueda")
+```
+
+---
+
+## Pipeline de ingesta de la Knowledge Base
+
+### Script de ingesta
+
+```python
+# src/kb/ingest_kb.py
+"""
+Pipeline de ingesta: web → markdown → S3 → Bedrock KB sync.
+Ejecutar manualmente o vía GitHub Actions kb-sync.yml.
+"""
+import httpx
+from pathlib import Path
+
+SOURCES = {
+    # Reglas del juego
+    "knowledge-base/reglas/laws-of-the-game.md": {
+        "url": "https://www.theifab.com/laws-of-the-game-documents/",
+        "type": "web_scrape",
+        "description": "17 Leyes del Juego IFAB 2024/25",
+    },
+    # Historia mundiales
+    "knowledge-base/mundiales/historia-general.md": {
+        "url": "https://en.wikipedia.org/wiki/FIFA_World_Cup",
+        "type": "web_scrape",
+        "description": "Historia completa del Mundial FIFA",
+    },
+    "knowledge-base/mundiales/records-estadisticas.md": {
+        "url": "https://en.wikipedia.org/wiki/FIFA_World_Cup_records_and_statistics",
+        "type": "web_scrape",
+        "description": "Récords y estadísticas históricas",
+    },
+    "knowledge-base/mundiales/2026/sedes.md": {
+        "url": "https://en.wikipedia.org/wiki/2026_FIFA_World_Cup",
+        "type": "web_scrape",
+        "description": "Sedes, estadios y formato del Mundial 2026",
+    },
+    "knowledge-base/mundiales/2026/grupos.md": {
+        "url": "https://www.roadtrips.com/world-cup/2026-world-cup-packages/schedule/",
+        "type": "web_scrape",
+        "description": "Grupos y fixture del Mundial 2026",
+    },
+    # Tácticas
+    "knowledge-base/tacticas/evolucion-tacticas.md": {
+        "url": "https://escored.com/features/how-football-tactics-are-evolving/",
+        "type": "web_scrape",
+        "description": "Evolución del fútbol: Tiki-Taka al Gegenpressing",
+    },
+    "knowledge-base/tacticas/total-football.md": {
+        "url": "https://everybodysoccer.com/even-the-goalkeepers-like-to/2024/8/19/the-evolution-of-soccer-tactics-from-total-football-to-modern-high-pressing",
+        "type": "web_scrape",
+        "description": "Total Football: historia y legado",
+    },
+    "knowledge-base/tacticas/tiki-taka.md": {
+        "url": "https://the-footballanalyst.com/tiki-taka-football-tactics-explained/",
+        "type": "web_scrape",
+        "description": "Tiki-Taka: principios y evolución",
+    },
+}
+
+# Los 22 mundiales se generan programáticamente
+MUNDIALES_YEARS = [
+    1930, 1934, 1938, 1950, 1954, 1958, 1962, 1966,
+    1970, 1974, 1978, 1982, 1986, 1990, 1994, 1998,
+    2002, 2006, 2010, 2014, 2018, 2022,
+]
+
+for year in MUNDIALES_YEARS:
+    SOURCES[f"knowledge-base/mundiales/ediciones/{year}.md"] = {
+        "url": f"https://en.wikipedia.org/wiki/{year}_FIFA_World_Cup",
+        "type": "web_scrape",
+        "description": f"Mundial FIFA {year} — historia completa",
+    }
+```
+
+### Estructura de archivos KB generados
+
+```
+knowledge-base/
+  reglas/
+    laws-of-the-game.md        ← 17 leyes IFAB 2024/25
+  futbol/
+    historia-futbol.md          ← orígenes hasta el presente
+    grandes-entrenadores.md     ← Michels, Sacchi, Guardiola, Klopp, etc.
+  tacticas/
+    formaciones.md              ← 4-3-3, 4-4-2, 4-2-3-1, 3-5-2, etc.
+    evolucion-tacticas.md       ← del Pyramid al Gegenpressing
+    total-football.md
+    tiki-taka.md
+    gegenpressing.md
+    catenaccio.md
+  mundiales/
+    historia-general.md         ← visión global, 8 campeones, récords
+    records-estadisticas.md     ← Klose 16 goles, Fontaine 13 en un torneo, etc.
+    ganadores.md                ← tabla completa por año
+    goleadores.md               ← top scorers históricos
+    ediciones/
+      1930.md  1934.md  1938.md  1950.md  1954.md  1958.md
+      1962.md  1966.md  1970.md  1974.md  1978.md  1982.md
+      1986.md  1990.md  1994.md  1998.md  2002.md  2006.md
+      2010.md  2014.md  2018.md  2022.md
+    2026/
+      sedes.md                  ← 16 estadios, USA/CAN/MEX
+      grupos.md                 ← 12 grupos, 48 equipos
+      fixture.md                ← 104 partidos, 11 jun - 19 jul
+      television.md             ← Fox, NBC, Bell Media, TikTok
+```
+
+### Template estándar para documentos de mundiales
+
+```markdown
+# Mundial FIFA {AÑO} — {SEDE}
+
+## Datos generales
+- **Fecha**: {fecha inicio} – {fecha fin}
+- **Sede**: {país(es)}
+- **Equipos participantes**: {N}
+- **Campeón**: {equipo}
+- **Subcampeón**: {equipo}
+- **Tercer lugar**: {equipo}
+- **Goleador**: {jugador} ({N} goles)
+- **Mejor jugador**: {jugador} (Balón de Oro)
+- **Total de goles**: {N} en {M} partidos
+
+## Contexto histórico
+{párrafo sobre el contexto político, económico y futbolístico de la época}
+
+## Hechos históricos y anécdotas
+{2-3 párrafos con los momentos más memorables}
+
+## Jugadores destacados
+{listado con breve descripción de cada jugador clave}
+
+## El partido final
+{descripción del partido final con resultado y momentos clave}
+
+## Curiosidades
+{datos poco conocidos y hechos sorprendentes}
+
+## Fuente
+{URL de Wikipedia o fuente oficial}
+```
+
+---
+
+## Infraestructura Terraform — S3 + Bedrock KB
+
+```hcl
+# infrastructure/terraform/kb/main.tf
+
+# Bucket S3 para los documentos de la KB
+resource "aws_s3_bucket" "kb_documents" {
+  bucket = "${var.project_name}-knowledge-base-${var.env}"
+  tags = {
+    Project     = var.project_name
+    Environment = var.env
+    ManagedBy   = "terraform"
+  }
+}
+
+resource "aws_s3_bucket_versioning" "kb_documents" {
+  bucket = aws_s3_bucket.kb_documents.id
+  versioning_configuration { status = "Enabled" }
+}
+
+# Bedrock Knowledge Base
+resource "aws_bedrockagent_knowledge_base" "prode_kb" {
+  name     = "${var.project_name}-kb-${var.env}"
+  role_arn = aws_iam_role.bedrock_kb.arn
+
+  knowledge_base_configuration {
+    type = "VECTOR"
+    vector_knowledge_base_configuration {
+      embedding_model_arn = "arn:aws:bedrock:us-east-1::foundation-model/amazon.titan-embed-text-v2:0"
+    }
+  }
+
+  storage_configuration {
+    type = "OPENSEARCH_SERVERLESS"
+    opensearch_serverless_configuration {
+      collection_arn    = aws_opensearchserverless_collection.kb_vectors.arn
+      vector_index_name = "prode-kb-index"
+      field_mapping {
+        vector_field   = "embedding"
+        text_field     = "text"
+        metadata_field = "metadata"
+      }
+    }
+  }
+}
+
+# Data source — apunta al S3
+resource "aws_bedrockagent_data_source" "kb_s3" {
+  knowledge_base_id = aws_bedrockagent_knowledge_base.prode_kb.id
+  name              = "prode-kb-s3-source"
+
+  data_source_configuration {
+    type = "S3"
+    s3_configuration {
+      bucket_arn = aws_s3_bucket.kb_documents.arn
+    }
+  }
+
+  vector_ingestion_configuration {
+    chunking_configuration {
+      chunking_strategy = "FIXED_SIZE"
+      fixed_size_chunking_configuration {
+        max_tokens         = 1000
+        overlap_percentage = 20
+      }
+    }
+  }
+}
+
+# Lambda para sincronización automática al hacer push en S3
+resource "aws_lambda_function" "kb_sync" {
+  function_name = "${var.project_name}-kb-sync-${var.env}"
+  handler       = "handler.handler"
+  runtime       = "python3.12"
+  role          = aws_iam_role.lambda_kb_sync.arn
+  timeout       = 300
+
+  environment {
+    variables = {
+      KNOWLEDGE_BASE_ID = aws_bedrockagent_knowledge_base.prode_kb.id
+      DATA_SOURCE_ID    = aws_bedrockagent_data_source.kb_s3.data_source_id
+    }
+  }
+}
+
+# Trigger: S3 PutObject → Lambda kb_sync
+resource "aws_s3_bucket_notification" "kb_sync_trigger" {
+  bucket = aws_s3_bucket.kb_documents.id
+  lambda_function {
+    lambda_function_arn = aws_lambda_function.kb_sync.arn
+    events              = ["s3:ObjectCreated:*", "s3:ObjectRemoved:*"]
+  }
+}
+
+# SSM — IDs para el agente
+resource "aws_ssm_parameter" "kb_id" {
+  name  = "/${var.project_name}/${var.env}/bedrock_kb_id"
+  type  = "String"
+  value = aws_bedrockagent_knowledge_base.prode_kb.id
+}
+
+resource "aws_ssm_parameter" "kb_s3_bucket" {
+  name  = "/${var.project_name}/${var.env}/kb_s3_bucket"
+  type  = "String"
+  value = aws_s3_bucket.kb_documents.bucket
+}
+```
+
+---
+
+## Gherkin Acceptance Criteria
+
+```gherkin
+Scenario SC-01 — Cache hit en web_search_tool
+  Given existe CACHE#<hash> en DynamoDB con TTL futuro
+  When el agente invoca web_search_tool(query="Argentina 2026 goles")
+  Then retorna el resultado cacheado sin hacer llamada externa
+  And el log indica "Cache hit"
+
+Scenario SC-02 — Cache miss → búsqueda y persistencia
+  Given no existe caché para la query
+  When el agente invoca web_search_tool(query="resultado ARG vs BRA 2026")
+  Then realiza la búsqueda web
+  And persiste el resultado en DynamoDB CACHE# con TTL correcto
+  And retorna el resultado al agente
+
+Scenario SC-03 — TTL diferenciado por search_type
+  When se cachea un resultado con search_type="live_match"
+  Then ttl_expiry = now + 600 segundos (10 min)
+  When se cachea con search_type="result"
+  Then ttl_expiry = now + 86400 segundos (24h)
+
+Scenario SC-04 — KB tiene documentos de todos los dominios
+  Given la KB está sincronizada con S3
+  When se hace retrieval "goles Maradona Mundial 1986"
+  Then retorna contexto relevante del archivo ediciones/1986.md
+  And la latencia de retrieval es < 1.5s p95
+
+Scenario SC-05 — Ingesta automática al hacer push en S3
+  When se sube un nuevo archivo .md al bucket S3
+  Then S3 trigger invoca kb_sync Lambda
+  And Lambda inicia StartIngestionJob en Bedrock KB
+  And el documento está disponible para retrieval en < 5 minutos
+
+Scenario SC-06 — Datos del Mundial 2026 siempre frescos
+  When el agente pregunta por el fixture del partido de mañana
+  Then web_search_tool verifica el cache (TTL 6h para fixture)
+  And si expiró, realiza nueva búsqueda y actualiza el cache
+  And retorna datos actualizados al agente
+```
+
+---
+
+## Tasks
+
+| TASK-ID | Descripción | Modo | Est. |
+|---------|-------------|------|------|
+| TASK-017-001 | `infrastructure/terraform/kb/main.tf` — S3 + Bedrock KB + trigger | Humano | 5h |
+| TASK-017-002 | `infrastructure/lambdas/kb_sync/handler.py` — StartIngestionJob | IA-Assisted | 2h |
+| TASK-017-003 | `src/kb/ingest_kb.py` — scraper + generador de markdown | IA-Assisted | 6h |
+| TASK-017-004 | `agent/tools/web_search_tool.py` — implementar con API de búsqueda | IA-Assisted | 4h |
+| TASK-017-005 | Generar 22 archivos mundiales + KB estática (reglas, tácticas) | IA-Assisted | 8h |
+| TASK-017-006 | `agent/tools/kb_retrieval_tool.py` — calibrar para queries mundialistas | IA-Assisted | 3h |
+| TASK-017-007 | Tests: `tests/unit/test_kb/test_web_search_tool.py` — SC-01 a SC-06 | IA-Assisted | 3h |
+
+## Constraints
+- web_search_tool NUNCA busca temas fuera de dominio — los guardrails ya lo previenen a nivel del agente, pero la tool también debe tener validación interna
+- El cache DynamoDB usa el patrón PK=`CACHE#<hash>` SK=`RESULT` — consistente con el Single-Table Design
+- Los documentos de la KB son Markdown — chunking de 1000 tokens con 20% overlap
+- La Lambda kb_sync usa un StartIngestionJob, no crea la KB desde cero en cada push
+- El bucket S3 tiene versioning habilitado — rollback posible si se sube contenido incorrecto
+- Los resultados de búsqueda se truncan a 10KB por item de DynamoDB (límite de la capa de cache)

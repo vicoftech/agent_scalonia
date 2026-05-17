@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Empaqueta agent/ + src/ + dependencias para AgentCore Runtime (Linux ARM64).
+# Empaqueta agent/ + src/kb para AgentCore Runtime (Linux ARM64 obligatorio).
 set -euo pipefail
 
 REPO_ROOT="${1:?repo root}"
@@ -10,19 +10,32 @@ trap 'rm -rf "$BUILD_DIR"' EXIT
 
 echo "Building agent package for Linux ARM64 in ${BUILD_DIR}"
 
-# AgentCore Runtime solo acepta arm64 (Graviton). pip en macOS instala *-darwin.so → CREATE_FAILED.
-python3 -m pip install -q -r "${REPO_ROOT}/requirements-agent.txt" -t "${BUILD_DIR}" --upgrade \
+python3 -m pip install -q --no-cache-dir \
+  -r "${REPO_ROOT}/requirements-agent.txt" \
+  -t "${BUILD_DIR}" \
+  --upgrade \
   --platform manylinux2014_aarch64 \
   --python-version 3.12 \
   --implementation cp \
   --only-binary=:all:
 
-cp -R "${REPO_ROOT}/agent" "${REPO_ROOT}/src" "${BUILD_DIR}/"
+# Solo código necesario en runtime (no src/dao ni jobs).
+cp -R "${REPO_ROOT}/agent" "${BUILD_DIR}/"
+mkdir -p "${BUILD_DIR}/src"
+cp -R "${REPO_ROOT}/src/kb" "${BUILD_DIR}/src/"
+touch "${BUILD_DIR}/src/__init__.py"
 find "${BUILD_DIR}" -type d -name __pycache__ -prune -exec rm -rf {} + 2>/dev/null || true
 
 mkdir -p "$(dirname "$OUT_ZIP")"
 OUT_ZIP="$(cd "$(dirname "$OUT_ZIP")" && pwd)/$(basename "$OUT_ZIP")"
 rm -f "$OUT_ZIP"
-(cd "$BUILD_DIR" && zip -qr "$OUT_ZIP" .)
+(cd "${BUILD_DIR}" && zip -qr "${OUT_ZIP}" .)
 
-echo "Created ${OUT_ZIP} ($(du -h "$OUT_ZIP" | cut -f1))"
+# Fallar si quedó algún binario macOS (causa CREATE_FAILED en AgentCore).
+if unzip -l "${OUT_ZIP}" | grep -qiE 'darwin|macosx'; then
+  echo "ERROR: el ZIP contiene binarios macOS — no usar en AgentCore ARM64" >&2
+  exit 1
+fi
+
+SIZE="$(du -h "${OUT_ZIP}" | cut -f1)"
+echo "Created ${OUT_ZIP} (${SIZE})"
