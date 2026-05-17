@@ -26,9 +26,12 @@ def kb_retrieval_tool(query: str, max_results: int = 5) -> str:
             "La Knowledge Base no está configurada (falta KB_QUERY_LAMBDA_NAME). "
             "Usá web_search_tool para consultas actuales."
         )
-    except Exception:
-        logger.warning("KB retrieval error", exc_info=True)
-        return "No pude consultar la Knowledge Base en este momento."
+    except Exception as exc:
+        logger.warning("KB retrieval error: %s", exc, exc_info=True)
+        return (
+            "Error técnico al consultar la Knowledge Base (no es que falte el dato). "
+            f"Detalle: {exc}"
+        )
 
     if not rows:
         return "No encontré pasajes relevantes en la Knowledge Base para esa consulta."

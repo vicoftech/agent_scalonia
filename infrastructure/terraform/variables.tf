@@ -154,3 +154,4 @@ variable "github_actions_environment" {
   default     = ""
   description = "Nombre del GitHub Environment (development | staging | production). Vacío = inferido desde var.env."
 }
+
