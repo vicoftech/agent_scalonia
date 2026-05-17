@@ -19,6 +19,8 @@ prepare:
 	@mkdir -p .build
 	./bin/build-agent-zip.sh ../.. $(CURDIR)/.build/agent-runtime.zip
 	./bin/build-telegram-lambda.sh ../lambdas/telegram_webhook $(CURDIR)/.build/telegram_webhook.zip
+	./bin/build-kb-lambda.sh ../.. kb_ingest $(CURDIR)/.build/kb_ingest.zip
+	./bin/build-kb-lambda.sh ../.. kb_query $(CURDIR)/.build/kb_query.zip
 
 plan: prepare init
 	@. ./bin/tf-env.sh && \
