@@ -111,6 +111,7 @@ data "aws_iam_policy_document" "github_actions_deploy" {
       "bedrock:*",
       "bedrock-agentcore:*",
       "bedrock-agentcore-control:*",
+      "cloudwatch:*",
       "kms:Decrypt",
       "kms:Encrypt",
       "kms:GenerateDataKey",
@@ -123,6 +124,11 @@ data "aws_iam_policy_document" "github_actions_deploy" {
     sid    = "IAMForStack"
     effect = "Allow"
     actions = [
+      "iam:GetOpenIDConnectProvider",
+      "iam:ListOpenIDConnectProviders",
+      "iam:CreateOpenIDConnectProvider",
+      "iam:DeleteOpenIDConnectProvider",
+      "iam:UpdateOpenIDConnectProviderThumbprint",
       "iam:CreateRole",
       "iam:DeleteRole",
       "iam:GetRole",
