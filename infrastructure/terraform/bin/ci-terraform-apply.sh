@@ -31,11 +31,15 @@ make prepare
 export TFVARS
 ./bin/init-backend.sh -input=false
 
-if terraform workspace list | grep -qE "^\s*\*?\s*${WORKSPACE}\s*$"; then
+# TF_WORKSPACE (p. ej. en GitHub Actions) fija el workspace; no usar workspace select.
+if [[ -n "${TF_WORKSPACE:-}" ]]; then
+  echo "Terraform workspace: ${TF_WORKSPACE} (TF_WORKSPACE)"
+elif terraform workspace list | grep -qE "^\s*\*?\s*${WORKSPACE}\s*$"; then
   terraform workspace select "$WORKSPACE"
 else
   terraform workspace new "$WORKSPACE"
 fi
+
 terraform apply -var-file="$TFVARS" -input=false -auto-approve
 
 ./bin/promote-agent-live.sh
