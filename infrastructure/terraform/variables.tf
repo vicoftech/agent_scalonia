@@ -47,3 +47,15 @@ variable "bedrock_model_id" {
   default     = "us.amazon.nova-pro-v1:0"
   description = "Inference profile Bedrock (evitar Anthropic en cuentas reseller). Nova Lite: us.amazon.nova-lite-v1:0"
 }
+
+variable "project_name" {
+  type        = string
+  default     = "prode-mundial"
+  description = "Prefijo SSM y nombres del guardrail Bedrock (SPEC-2026-015)."
+}
+
+variable "sns_alerts_arn" {
+  type        = string
+  default     = ""
+  description = "ARN SNS para alarma de bloqueos de guardrail (vacío = sin notificación)."
+}

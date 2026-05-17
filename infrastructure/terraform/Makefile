@@ -1,3 +1,11 @@
+.PHONY: bootstrap init prepare plan apply guardrail-env
+
+guardrail-env:
+	@. ./bin/tf-env.sh 2>/dev/null || true; \
+	eval "$$(./bin/load-guardrail-ssm.sh $$(terraform workspace show 2>/dev/null || echo dev))"; \
+	echo "GUARDRAIL_ID=$$GUARDRAIL_ID"; \
+	echo "GUARDRAIL_VERSION=$$GUARDRAIL_VERSION"
+
 .PHONY: bootstrap init prepare plan apply
 
 bootstrap:

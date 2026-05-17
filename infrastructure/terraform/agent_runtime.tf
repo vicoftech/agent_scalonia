@@ -88,6 +88,15 @@ data "aws_iam_policy_document" "agent_runtime" {
   }
 
   statement {
+    sid = "BedrockGuardrail"
+    actions = [
+      "bedrock:GetGuardrail",
+      "bedrock:ApplyGuardrail",
+    ]
+    resources = [module.guardrails.guardrail_arn]
+  }
+
+  statement {
     sid = "DynamoDBRead"
     actions = [
       "dynamodb:GetItem",
@@ -139,9 +148,11 @@ resource "aws_bedrockagentcore_agent_runtime" "prode" {
   role_arn           = aws_iam_role.agent_runtime.arn
 
   environment_variables = {
-    DYNAMODB_TABLE   = module.prode_table.dynamodb_table_id
-    LOG_LEVEL        = "INFO"
-    BEDROCK_MODEL_ID = var.bedrock_model_id
+    DYNAMODB_TABLE      = module.prode_table.dynamodb_table_id
+    LOG_LEVEL           = "INFO"
+    BEDROCK_MODEL_ID    = var.bedrock_model_id
+    GUARDRAIL_ID        = module.guardrails.guardrail_id
+    GUARDRAIL_VERSION   = module.guardrails.guardrail_version
   }
 
   agent_runtime_artifact {
@@ -165,6 +176,7 @@ resource "aws_bedrockagentcore_agent_runtime" "prode" {
   depends_on = [
     aws_s3_object.agent_runtime_code,
     module.prode_table,
+    module.guardrails,
   ]
 }
 

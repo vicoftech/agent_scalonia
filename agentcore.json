@@ -3,9 +3,16 @@
   "entrypoint": "agent/main.py",
   "requirements_file": "requirements-agent.txt",
   "environment_variables": {
-    "DYNAMODB_TABLE": "ProdeTable-dev",
-    "AWS_REGION":     "us-east-1",
-    "LOG_LEVEL":      "INFO"
+    "DYNAMODB_TABLE":    "ProdeTable-dev",
+    "AWS_REGION":        "us-east-1",
+    "LOG_LEVEL":         "INFO",
+    "GUARDRAIL_ID":      "",
+    "GUARDRAIL_VERSION": ""
+  },
+  "guardrail_config": {
+    "guardrail_id":      "{{SSM:/prode-mundial/dev/guardrail_id}}",
+    "guardrail_version": "{{SSM:/prode-mundial/dev/guardrail_version}}",
+    "trace":             "enabled"
   },
   "secrets": [
     "SCALONIA_TELEGRAM_BOT_TOKEN",

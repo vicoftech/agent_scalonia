@@ -80,3 +80,27 @@ output "agent_runtime_endpoint_arn" {
 output "agent_code_s3_bucket" {
   value = aws_s3_bucket.agent_code.id
 }
+
+# --- Bedrock Guardrails (SPEC-2026-015) ---
+
+output "guardrail_id" {
+  description = "Bedrock Guardrail ID — SSM /prode-mundial/{env}/guardrail_id"
+  value       = module.guardrails.guardrail_id
+}
+
+output "guardrail_version" {
+  description = "Bedrock Guardrail published version"
+  value       = module.guardrails.guardrail_version
+}
+
+output "guardrail_arn" {
+  value = module.guardrails.guardrail_arn
+}
+
+output "guardrail_ssm_id_parameter" {
+  value = module.guardrails.ssm_guardrail_id_name
+}
+
+output "guardrail_ssm_version_parameter" {
+  value = module.guardrails.ssm_guardrail_version_name
+}
