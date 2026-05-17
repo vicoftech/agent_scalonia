@@ -15,10 +15,24 @@
 --   Índices:   idx_<tabla>_<columna(s)>
 --
 -- Ejecutar: alembic upgrade head (en CI/CD, nunca en Lambda runtime)
+-- Schema:  prode (no usar public para tablas/vistas del producto)
+-- Teardown (solo objetos de este DDL en public): aurora_schema_drop.sql
 -- =============================================================================
 
 -- =============================================================================
--- EXTENSIONES
+-- ESQUEMA
+-- =============================================================================
+
+CREATE SCHEMA IF NOT EXISTS prode;
+
+COMMENT ON SCHEMA prode IS
+    'Schema dedicado del Prode Mundial 2026. Tablas, vistas, tipos y funciones viven aquí; '
+    'las extensiones permanecen en public.';
+
+SET search_path TO prode, public;
+
+-- =============================================================================
+-- EXTENSIONES (en public; visibles vía search_path)
 -- =============================================================================
 
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";    -- gen_random_uuid()
@@ -525,21 +539,17 @@ BEGIN
 END
 $$;
 
+GRANT USAGE ON SCHEMA prode TO prode_sync, prode_reader;
+
 -- prode_sync: solo INSERT y UPDATE (nunca DELETE en producción)
-GRANT INSERT, UPDATE ON TABLE
-    users, matches, match_results, predictions,
-    groups, group_members, trivia_sessions, ranking_history
-TO prode_sync;
+GRANT INSERT, UPDATE ON ALL TABLES IN SCHEMA prode TO prode_sync;
+GRANT USAGE ON ALL SEQUENCES IN SCHEMA prode TO prode_sync;
 
-GRANT USAGE ON ALL SEQUENCES IN SCHEMA public TO prode_sync;
+-- prode_reader: solo SELECT (tablas + vistas)
+GRANT SELECT ON ALL TABLES IN SCHEMA prode TO prode_reader;
 
--- prode_reader: solo SELECT
-GRANT SELECT ON TABLE
-    users, matches, match_results, predictions,
-    groups, group_members, trivia_sessions, ranking_history,
-    v_group_ranking, v_user_prediction_history,
-    v_user_score_summary, v_members_without_prediction
-TO prode_reader;
+ALTER ROLE prode_sync SET search_path TO prode, public;
+ALTER ROLE prode_reader SET search_path TO prode, public;
 
 
 -- =============================================================================

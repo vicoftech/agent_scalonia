@@ -22,46 +22,48 @@ Pasos ordenados desde cero hasta tener **Telegram → API Gateway → Lambda →
 - **Perfil** local (ej. `asap_dev`) y región **`us-east-1`** (o la que uses de forma consistente).
 - **Python 3.12**, **Poetry**, **Terraform ≥ 1.6**, **AWS CLI v2**.
 - **Cluster Aurora PostgreSQL** accesible (ej. `aurora-pg-asap-dev`). Ideal: **RDS Proxy** para el string de conexión que use Alembic/Lambdas según steering.
-- Bot de Telegram y el **token** del bot (guardalo solo en Secrets Manager, nunca en el repo).
+- Bot de Telegram **Scalonia** ya provisionado: el token vive en Secrets Manager como **`SCALONIA_TELEGRAM_BOT_TOKEN`** (no crear un secreto `TELEGRAM_BOT_TOKEN` nuevo).
 
 ---
 
-## 3. Token de Telegram en Secrets Manager
+## 3. Token de Telegram (`SCALONIA_TELEGRAM_BOT_TOKEN`)
 
-La Lambda del webhook lee el secreto por id **lógico** `TELEGRAM_BOT_TOKEN` (ver `infrastructure/lambdas/telegram_webhook/handler.py`). Lo más simple es crear el secreto con **ese nombre**.
+Este proyecto reutiliza el **mismo bot** que la aplicación Scalonia. La Lambda del webhook lee el secreto por id lógico **`SCALONIA_TELEGRAM_BOT_TOKEN`** (ver `infrastructure/lambdas/telegram_webhook/handler.py` y la env `TELEGRAM_SECRET_ID` en Terraform).
 
-Ejemplo (reemplazá `BOT_TOKEN` y el perfil/región):
-
-```bash
-aws secretsmanager create-secret \
-  --name TELEGRAM_BOT_TOKEN \
-  --secret-string "BOT_TOKEN" \
-  --profile asap_dev \
-  --region us-east-1
-```
-
-Si el secreto ya existe, actualizá el valor:
-
-```bash
-aws secretsmanager put-secret-value \
-  --secret-id TELEGRAM_BOT_TOKEN \
-  --secret-string "BOT_TOKEN" \
-  --profile asap_dev \
-  --region us-east-1
-```
-
-Obtené el **ARN** para Terraform (variable `telegram_secret_arn`):
+**Si el secreto ya existe** (caso habitual), solo necesitás el ARN para `dev.tfvars` (paso 5):
 
 ```bash
 aws secretsmanager describe-secret \
-  --secret-id TELEGRAM_BOT_TOKEN \
+  --secret-id SCALONIA_TELEGRAM_BOT_TOKEN \
   --profile asap_dev \
   --region us-east-1 \
   --query ARN \
   --output text
 ```
 
-En la política IAM de la Lambda, Terraform usa ese ARN en `GetSecretValue`.
+**Si aún no está en Secrets Manager** (solo en el primer despliegue de Scalonia), crealo una vez con el token del bot existente:
+
+```bash
+aws secretsmanager create-secret \
+  --name SCALONIA_TELEGRAM_BOT_TOKEN \
+  --secret-string "BOT_TOKEN" \
+  --profile asap_dev \
+  --region us-east-1
+```
+
+Para rotar o actualizar el valor:
+
+```bash
+aws secretsmanager put-secret-value \
+  --secret-id SCALONIA_TELEGRAM_BOT_TOKEN \
+  --secret-string "BOT_TOKEN" \
+  --profile asap_dev \
+  --region us-east-1
+```
+
+En la política IAM de la Lambda, Terraform usa el **ARN** del secreto (`variable telegram_secret_arn`) en `GetSecretValue`.
+
+> **Webhook único:** Telegram permite **una** URL de webhook por bot. Si la app Scalonia ya registró `setWebhook` a otra URL, al apuntar este MVP a `telegram_webhook_url` la otra dejará de recibir updates hasta que vuelvas a configurar su webhook (o uses otro bot solo para Prode).
 
 ---
 
@@ -106,61 +108,163 @@ Esto aplica la revisión `0001_initial_schema` (tablas + vistas). Si algo falla 
 
 ## 5. Terraform (DynamoDB, Cognito, Lambda Telegram, HTTP API)
 
+### 5.1 Variables (`dev.tfvars`)
+
+Terraform **no carga solo** `dev.tfvars`: hay que pasarlo con `-var-file=dev.tfvars` en cada `plan` / `apply` (o copiar el archivo a `terraform.tfvars`, que sí se carga automático).
+
 ```bash
 cd infrastructure/terraform
-cp terraform.tfvars.example terraform.tfvars
+cp dev.tfvars.example dev.tfvars
 ```
 
-Editá `terraform.tfvars`, mínimo:
+Editá `dev.tfvars` con valores reales:
 
-- `env` — ej. `dev` → tabla `ProdeTable-dev`.
-- `aws_region` — ej. `us-east-1`.
-- `aurora_cluster_identifier` — ej. `aurora-pg-asap-dev` (solo data source / outputs; **no crea** el cluster).
-- `telegram_secret_arn` — ARN del paso 3.
-- `agentcore_agent_id` — **después** del primer `agentcore deploy` (podés dejar un placeholder y volver a `apply` cuando tengas el ID real).
+| Variable | Ejemplo / notas |
+|----------|-----------------|
+| `env` | `"dev"` → tabla DynamoDB `ProdeTable-dev` |
+| `aws_region` | `"us-east-1"` (tiene default en Terraform; conviene fijarlo igual) |
+| `aws_profile` | `"asap_dev"` — **obligatorio en local**; el provider AWS lo usa para credenciales (sin esto suele fallar por permisos) |
+| `aurora_cluster_identifier` | `"aurora-pg-asap-dev"` (solo data source / outputs; **no crea** el cluster). `""` si no querés outputs Aurora |
+| `telegram_secret_arn` | ARN del paso 3 (`SCALONIA_TELEGRAM_BOT_TOKEN`) |
+| `terraform_state_bucket` | Bucket S3 del state (output `state_bucket_name` del bootstrap) |
+| `terraform_state_lock_table` | Tabla DynamoDB lock (`prode-terraform-state-lock`) |
+| `terraform_state_key` | `"prode/terraform.tfstate"` (default; no suele cambiar) |
 
-Perfil AWS:
+Ejemplo completo en `infrastructure/terraform/dev.tfvars.example`.
+
+### 5.2 Backend remoto (S3 + DynamoDB lock) — obligatorio antes del primer apply
+
+El state de Terraform **no puede** quedar solo en tu disco: hace falta un **bucket S3** y una **tabla DynamoDB** para el lock. Eso **no** lo crea el stack principal: lo crea el **bootstrap** (una vez por cuenta AWS).
+
+#### Paso A — Bootstrap (crear bucket + tabla lock)
+
+```bash
+cd infrastructure/terraform
+cp dev.tfvars.example dev.tfvars   # si aún no existe
+export AWS_PROFILE=asap_dev
+
+./bin/bootstrap.sh
+# equivalente: make bootstrap
+```
+
+Crea:
+
+| Recurso | Nombre |
+|---------|--------|
+| Bucket S3 | `prode-terraform-state-<ACCOUNT_ID>` |
+| Tabla DynamoDB lock | `prode-terraform-state-lock` |
+
+El bootstrap usa estado **local** en `bootstrap/` (normal: el bucket aún no existe).
+
+#### Paso B — Init del stack principal (usa ese bucket)
+
+```bash
+# mismo directorio: infrastructure/terraform
+./bin/init-backend.sh
+# equivalente: make init
+```
+
+El script lee `aws_profile` de `dev.tfvars`, completa `terraform_state_bucket` con tu cuenta AWS, verifica que existan bucket y tabla, genera `backend/dev.hcl` y corre `terraform init` sin prompts.
+
+Si saltás el bootstrap, `init-backend.sh` falla con un mensaje indicando que corras `./bin/bootstrap.sh` primero.
+
+**No uses** `terraform init` a secas: el backend S3 está vacío en código y Terraform pedirá `bucket` por teclado. Siempre `./bin/init-backend.sh` o:
+
+```bash
+terraform init -input=false -reconfigure -backend-config=backend/dev.hcl
+```
+
+Opcional (para que `terraform init` tome el backend sin flags): `source env.sh` y luego `./bin/init-backend.sh` una vez para generar `backend/dev.hcl`.
+
+Si ya habías corrido `plan` con **estado local** y querés subirlo a S3:
+
+```bash
+./bin/init-backend.sh -migrate-state
+```
+
+Elegí workspace `dev` (el estado remoto queda bajo `env:/dev/...`):
+
+```bash
+terraform workspace select dev || terraform workspace new dev
+```
+
+| Recurso | Nombre por defecto |
+|---------|-------------------|
+| Bucket S3 | `prode-terraform-state-<ACCOUNT_ID>` |
+| Tabla lock DynamoDB | `prode-terraform-state-lock` |
+| Key del state | `prode/terraform.tfstate` (prefijo workspace: `env:/dev/...`) |
+
+Detalle: `infrastructure/terraform/bootstrap/README.md`.
+
+### 5.3 Perfil AWS
+
+El provider usa **`aws_profile`** en `dev.tfvars` (`asap_dev`). El backend S3 usa la misma cadena de credenciales si exportás:
 
 ```bash
 export AWS_PROFILE=asap_dev
-export AWS_DEFAULT_REGION=us-east-1
+aws sts get-caller-identity --profile asap_dev
 ```
 
-Workspace (estado separado por entorno):
+### 5.4 Plan y apply (sin prompts interactivos)
+
+El stack incluye **AgentCore Runtime** (`agent_runtime.tf`): empaqueta `agent/` + dependencias, sube a S3 y crea runtime + endpoint `LIVE`. No hace falta `agentcore deploy`.
 
 ```bash
-terraform init
+cd infrastructure/terraform
+make prepare   # construye ZIPs del agente y de la Lambda webhook (primera vez o tras cambios en código)
+make plan      # init backend + plan
+make apply     # apply con -auto-approve
+```
+
+Equivalente manual:
+
+```bash
+./bin/build-agent-zip.sh ../.. .build/agent-runtime.zip
+./bin/build-telegram-lambda.sh ../lambdas/telegram_webhook .build/telegram_webhook.zip
+./bin/init-backend.sh
 terraform workspace select dev || terraform workspace new dev
-terraform plan
-terraform apply
+terraform apply -var-file=dev.tfvars -input=false -auto-approve
 ```
 
-Salidas útiles:
+Cada `plan` / `apply` requiere haber corrido `./bin/init-backend.sh` (o `make init`) y **`make prepare`** si cambiaste `agent/` o el handler.
+
+**Alternativa:** si preferís no usar `-var-file` en cada comando:
 
 ```bash
-terraform output telegram_webhook_url
+cp dev.tfvars terraform.tfvars   # también está en .gitignore
+terraform plan  -input=false
+terraform apply -input=false
+```
+
+### 5.5 Outputs
+
+```bash
+terraform output -raw telegram_webhook_url
 terraform output dynamodb_table_name
 ```
 
-Configurá **`agentcore.json`** (o variables del deploy) para que **`DYNAMODB_TABLE`** coincida con el nombre real (ej. `ProdeTable-dev`). La Lambda ya recibe el nombre desde Terraform.
-
-> **Backend remoto:** para equipo/CI, configurá S3 + lock DynamoDB (ver `infrastructure/terraform/backend.tf.example`). En local podés usar estado local al principio.
+Configurá **`agentcore.json`** (o variables del deploy) para que **`DYNAMODB_TABLE`** coincida con el output (ej. `ProdeTable-dev`). La Lambda ya recibe el nombre desde Terraform.
 
 ---
 
-## 6. AgentCore (agente)
+## 6. AgentCore (agente) — incluido en Terraform
 
-En la raíz del repo:
+El runtime del agente se crea en el mismo `terraform apply` (recurso `aws_bedrockagentcore_agent_runtime` + endpoint `LIVE`).
+
+Outputs útiles:
+
+```bash
+terraform output agent_runtime_endpoint_arn
+terraform output agent_runtime_id
+```
+
+**Desarrollo local** (opcional, sin Terraform):
 
 ```bash
 pip install bedrock-agentcore-starter-toolkit
-poetry install
-
 agentcore configure --entrypoint agent/main.py --name prode-mundial-2026
-agentcore deploy --env dev
+agentcore launch --local
 ```
-
-Anotá el **agent id** y repetí `terraform apply` actualizando `agentcore_agent_id` en `terraform.tfvars` si hace falta.
 
 ---
 
@@ -172,9 +276,16 @@ La URL debe ser exactamente la del API HTTP (incluye stage `$default`):
 https://xxxx.execute-api.us-east-1.amazonaws.com/webhook/telegram
 ```
 
-Obtené la URL con `terraform output -raw telegram_webhook_url` y registrá el webhook:
+Obtené la URL (desde `infrastructure/terraform`):
 
 ```bash
+terraform output -raw telegram_webhook_url
+```
+
+Registrá el webhook:
+
+```bash
+# Sustituí <BOT_TOKEN> por el valor del secreto SCALONIA_TELEGRAM_BOT_TOKEN (solo en tu máquina, no en el repo)
 curl -X POST "https://api.telegram.org/bot<BOT_TOKEN>/setWebhook" \
   -H "Content-Type: application/json" \
   -d "{\"url\": \"<telegram_webhook_url>\"}"
@@ -185,6 +296,8 @@ Verificá:
 ```bash
 curl "https://api.telegram.org/bot<BOT_TOKEN>/getWebhookInfo"
 ```
+
+El token es el mismo que usa Scalonia; no generes un bot nuevo salvo que quieras separar webhooks.
 
 ---
 
@@ -203,13 +316,16 @@ Hasta entonces, DynamoDB y Aurora pueden convivir sin sync automático; el MVP *
 
 | Paso | Acción |
 |------|--------|
-| 1 | Crear/actualizar secreto `TELEGRAM_BOT_TOKEN` y copiar ARN |
+| 1 | Confirmar secreto `SCALONIA_TELEGRAM_BOT_TOKEN` en SM y copiar ARN a `telegram_secret_arn` |
 | 2 | Crear secreto DB (`AURORA_SYNC_SECRET_ARN`) + definir `RDS_PROXY_ENDPOINT` |
 | 3 | `poetry run alembic upgrade head` (o DDL manual único con `aurora_schema.sql`) |
-| 4 | `terraform workspace` + `terraform apply` con `tfvars` completo |
-| 5 | `agentcore deploy` y alinear `agentcore_agent_id` + `DYNAMODB_TABLE` |
-| 6 | `setWebhook` con `telegram_webhook_url` |
-| 7 | (Cuando exista) enganchar DynamoDB stream → Lambda sync |
+| 4a | `./bin/bootstrap.sh` — crea bucket S3 + tabla lock DynamoDB |
+| 4b | `./bin/init-backend.sh` — init remoto (requiere 4a) |
+| 4c | `terraform apply -var-file=dev.tfvars` — stack principal |
+| 5 | `make apply` (incluye AgentCore Runtime + endpoint LIVE) |
+| 6 | Alinear `DYNAMODB_TABLE` en `agentcore.json` con `terraform output dynamodb_table_name` (solo para CLI local) |
+| 7 | `setWebhook` con `terraform output -raw telegram_webhook_url` |
+| 8 | (Cuando exista) enganchar DynamoDB stream → Lambda sync |
 
 ---
 
@@ -220,6 +336,9 @@ Hasta entonces, DynamoDB y Aurora pueden convivir sin sync automático; el MVP *
 | `infrastructure/db/aurora_schema.sql` | DDL de referencia (y ejecución manual opcional) |
 | `migrations/versions/0001_initial_schema.py` | Schema aplicado por **Alembic** (recomendado) |
 | `infrastructure/terraform/` | Data layer + webhook HTTP |
+| `infrastructure/terraform/dev.tfvars.example` | Plantilla de variables para `plan` / `apply` en dev |
+| `infrastructure/terraform/bootstrap/` | Crea bucket S3 + tabla lock DynamoDB para el state |
+| `infrastructure/terraform/bin/init-backend.sh` | `terraform init` leyendo `terraform_state_*` de `dev.tfvars` |
 | `agentcore.json` | Entrypoint y variables del agente |
 
 Si querés, el siguiente paso es ampliar Terraform para incluir la Lambda `sync` + event stream mapping en el mismo checklist.

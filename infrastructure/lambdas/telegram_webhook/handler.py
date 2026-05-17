@@ -1,9 +1,7 @@
 """
 infrastructure/lambdas/telegram_webhook/handler.py
-Recibe Updates de Telegram → invoca AgentCore → sendMessage.
+Recibe Updates de Telegram → invoca AgentCore Runtime → sendMessage.
 SPEC: SPEC-2026-011 | TASK: TASK-000-003 | Modo: IA-Assisted
-
-Solo stdlib + boto3 (runtime Lambda) — sin httpx para empaquetado Terraform ZIP simple.
 """
 from __future__ import annotations
 
@@ -22,16 +20,16 @@ logger = logging.getLogger(__name__)
 logger.setLevel(os.getenv("LOG_LEVEL", "INFO"))
 
 DYNAMODB_TABLE = os.environ["DYNAMODB_TABLE"]
-AGENTCORE_AGENT_ID = os.environ["AGENTCORE_AGENT_ID"]
-AGENTCORE_AGENT_ALIAS = os.environ.get("AGENTCORE_AGENT_ALIAS", "LIVE")
+AGENTCORE_RUNTIME_ARN = os.environ["AGENTCORE_RUNTIME_ARN"]
+AGENTCORE_RUNTIME_QUALIFIER = os.environ.get("AGENTCORE_RUNTIME_QUALIFIER", "LIVE")
 AWS_REGION = os.environ.get("AWS_REGION", "us-east-1")
-TELEGRAM_SECRET = "TELEGRAM_BOT_TOKEN"
+TELEGRAM_SECRET = os.environ.get("TELEGRAM_SECRET_ID", "SCALONIA_TELEGRAM_BOT_TOKEN")
 TG_API = "https://api.telegram.org"
 MAX_TG_LEN = 4096
 
 _dynamodb = boto3.resource("dynamodb", region_name=AWS_REGION)
 _secrets_mgr = boto3.client("secretsmanager", region_name=AWS_REGION)
-_agentcore = boto3.client("bedrock-agent-runtime", region_name=AWS_REGION)
+_agentcore = boto3.client("bedrock-agentcore", region_name=AWS_REGION)
 _tg_token: str | None = None
 
 
@@ -94,23 +92,59 @@ def _resolve_user_id(platform_id_hash: str) -> str | None:
         return None
 
 
+def _read_agent_stream(response: dict[str, Any]) -> str:
+    """Acumula respuesta de invoke_agent_runtime (SSE o JSON)."""
+    content_type = response.get("contentType", "")
+    stream = response.get("response")
+    if stream is None:
+        return ""
+
+    if "text/event-stream" in content_type:
+        parts: list[str] = []
+        for line in stream.iter_lines(chunk_size=1):
+            if not line:
+                continue
+            decoded = line.decode("utf-8")
+            if decoded.startswith("data: "):
+                decoded = decoded[6:]
+            if decoded.startswith('"') and decoded.endswith('"'):
+                decoded = decoded[1:-1]
+            decoded = decoded.replace("\\n", "\n")
+            parts.append(decoded)
+        return "".join(parts).strip()
+
+    body = stream.read()
+    if not body:
+        return ""
+    try:
+        data = json.loads(body)
+        if isinstance(data, str):
+            return data.strip()
+        return json.dumps(data, ensure_ascii=False)
+    except json.JSONDecodeError:
+        return body.decode("utf-8", errors="replace").strip()
+
+
 def _invoke_agent(user_id: str, session_id: str, prompt: str) -> str:
     try:
-        response = _agentcore.invoke_agent(
-            agentId=AGENTCORE_AGENT_ID,
-            agentAliasId=AGENTCORE_AGENT_ALIAS,
-            sessionId=session_id,
-            inputText=prompt,
-            sessionState={"sessionAttributes": {"user_id": user_id, "platform": "TELEGRAM"}},
+        payload = json.dumps({
+            "prompt": prompt,
+            "user_id": user_id,
+            "platform": "TELEGRAM",
+            "session_id": session_id,
+        }).encode("utf-8")
+
+        response = _agentcore.invoke_agent_runtime(
+            agentRuntimeArn=AGENTCORE_RUNTIME_ARN,
+            qualifier=AGENTCORE_RUNTIME_QUALIFIER,
+            runtimeSessionId=session_id,
+            payload=payload,
+            contentType="application/json",
         )
-        text = ""
-        for event in response.get("completion", []):
-            chunk = event.get("chunk", {})
-            if "bytes" in chunk:
-                text += chunk["bytes"].decode("utf-8")
-        return text.strip() or "No pude generar una respuesta. Intentá de nuevo."
+        text = _read_agent_stream(response)
+        return text or "No pude generar una respuesta. Intentá de nuevo."
     except Exception:
-        logger.exception("invoke_agent error")
+        logger.exception("invoke_agent_runtime error")
         return "Hubo un error. Por favor intentá de nuevo en unos segundos."
 
 

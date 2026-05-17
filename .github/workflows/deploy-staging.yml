@@ -13,9 +13,7 @@ jobs:
           aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: us-east-1
-      - run: |
-          pip install poetry bedrock-agentcore-starter-toolkit
-          poetry install
+      - run: poetry install
       - name: Run Alembic migrations
         run: poetry run alembic upgrade head
         env:
@@ -23,11 +21,17 @@ jobs:
           RDS_PROXY_ENDPOINT: ${{ secrets.RDS_PROXY_ENDPOINT_STAGING }}
       - uses: hashicorp/setup-terraform@v3
         with: { terraform_wrapper: false }
-      - run: terraform -chdir=infrastructure/terraform init -input=false
-      - run: |
-          terraform -chdir=infrastructure/terraform apply -auto-approve -input=false \
+      - name: Terraform apply (incl. AgentCore Runtime)
+        run: |
+          cd infrastructure/terraform
+          chmod +x bin/*.sh
+          make prepare
+          terraform init -input=false
+          terraform workspace select staging || terraform workspace new staging
+          terraform apply -auto-approve -input=false \
             -var=env=staging \
             -var=telegram_secret_arn=${{ secrets.TELEGRAM_SECRET_ARN_STAGING }} \
-            -var=agentcore_agent_id=${{ secrets.AGENTCORE_AGENT_ID_STAGING }} \
-            -var=aurora_cluster_identifier=${{ secrets.AURORA_CLUSTER_IDENTIFIER_STAGING }}
-      - run: agentcore deploy --env staging
+            -var=aurora_cluster_identifier=${{ secrets.AURORA_CLUSTER_IDENTIFIER_STAGING }} \
+            -var=terraform_state_bucket=${{ secrets.TF_STATE_BUCKET_STAGING }} \
+            -var=terraform_state_lock_table=${{ secrets.TF_STATE_LOCK_TABLE_STAGING }} \
+            -var=terraform_state_key=prode/terraform.tfstate

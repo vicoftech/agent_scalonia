@@ -1,19 +1,23 @@
 # Lambda Telegram + HTTP API POST /webhook/telegram — TASK-000-004
 
-variable "telegram_secret_arn" {
-  type        = string
-  description = "ARN del secreto TELEGRAM_BOT_TOKEN en Secrets Manager."
+locals {
+  telegram_lambda_dir = "${path.module}/../lambdas/telegram_webhook"
+  telegram_lambda_zip = "${path.module}/.build/telegram_webhook.zip"
+  telegram_lambda_hash = sha256(join("", [
+    filesha256("${local.telegram_lambda_dir}/handler.py"),
+    filesha256("${local.telegram_lambda_dir}/requirements.txt"),
+  ]))
 }
 
-variable "agentcore_agent_id" {
-  type        = string
-  description = "ID del agente Bedrock AgentCore (invoke_agent)."
-}
+resource "null_resource" "telegram_lambda_package" {
+  triggers = {
+    hash = local.telegram_lambda_hash
+  }
 
-data "archive_file" "telegram_webhook_zip" {
-  type        = "zip"
-  source_file = "${path.module}/../lambdas/telegram_webhook/handler.py"
-  output_path = "${path.module}/.build/telegram_webhook.zip"
+  provisioner "local-exec" {
+    command     = "${path.module}/bin/build-telegram-lambda.sh ${local.telegram_lambda_dir} ${local.telegram_lambda_zip}"
+    interpreter = ["bash", "-c"]
+  }
 }
 
 data "aws_iam_policy_document" "lambda_assume" {
@@ -56,9 +60,14 @@ data "aws_iam_policy_document" "telegram_webhook_inline" {
   }
 
   statement {
-    sid       = "BedrockInvokeAgent"
-    actions   = ["bedrock:InvokeAgent"]
-    resources = ["*"]
+    sid = "AgentCoreInvoke"
+    actions = [
+      "bedrock-agentcore:InvokeAgentRuntime",
+    ]
+    resources = [
+      aws_bedrockagentcore_agent_runtime.prode.agent_runtime_arn,
+      aws_bedrockagentcore_agent_runtime_endpoint.live.agent_runtime_endpoint_arn,
+    ]
   }
 }
 
@@ -74,18 +83,23 @@ resource "aws_lambda_function" "telegram_webhook" {
   handler       = "handler.handler"
   runtime       = "python3.12"
 
-  filename         = data.archive_file.telegram_webhook_zip.output_path
-  source_code_hash = data.archive_file.telegram_webhook_zip.output_base64sha256
+  filename         = local.telegram_lambda_zip
+  source_code_hash = local.telegram_lambda_hash
 
   environment {
     variables = {
-      DYNAMODB_TABLE        = module.prode_table.dynamodb_table_id
-      AGENTCORE_AGENT_ID    = var.agentcore_agent_id
-      AGENTCORE_AGENT_ALIAS = "LIVE"
-      AWS_REGION            = var.aws_region
-      LOG_LEVEL             = "INFO"
+      DYNAMODB_TABLE              = module.prode_table.dynamodb_table_id
+      AGENTCORE_RUNTIME_ARN       = aws_bedrockagentcore_agent_runtime_endpoint.live.agent_runtime_endpoint_arn
+      AGENTCORE_RUNTIME_QUALIFIER = aws_bedrockagentcore_agent_runtime_endpoint.live.name
+      LOG_LEVEL                   = "INFO"
+      TELEGRAM_SECRET_ID          = "SCALONIA_TELEGRAM_BOT_TOKEN"
     }
   }
+
+  depends_on = [
+    null_resource.telegram_lambda_package,
+    aws_bedrockagentcore_agent_runtime_endpoint.live,
+  ]
 }
 
 resource "aws_apigatewayv2_api" "http" {

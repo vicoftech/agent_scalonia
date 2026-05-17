@@ -1,8 +1,8 @@
 """tests/unit/test_agent/test_main.py — Tests MVP del agente."""
 import os
 os.environ.setdefault("DYNAMODB_TABLE", "ProdeTable-test")
-os.environ.setdefault("AGENTCORE_AGENT_ID", "test-id")
-os.environ.setdefault("AGENTCORE_AGENT_ALIAS", "LIVE")
+os.environ.setdefault("AGENTCORE_RUNTIME_ARN", "arn:aws:bedrock-agentcore:us-east-1:123456789012:runtime/test")
+os.environ.setdefault("AGENTCORE_RUNTIME_QUALIFIER", "LIVE")
 
 
 class TestEchoTool:

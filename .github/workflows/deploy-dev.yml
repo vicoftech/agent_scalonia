@@ -12,9 +12,7 @@ jobs:
           aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID_DEV }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY_DEV }}
           aws-region:            us-east-1
-      - run: |
-          pip install poetry bedrock-agentcore-starter-toolkit
-          poetry install
+      - run: poetry install
       - name: Run Alembic migrations (dev)
         run: poetry run alembic upgrade head
         env:
@@ -25,11 +23,20 @@ jobs:
       - name: Terraform workspace dev + apply
         run: |
           cd infrastructure/terraform
-          terraform init -input=false
+          chmod +x bin/*.sh
+          TFVARS=dev.tfvars ./bin/init-backend.sh -input=false || \
+          terraform init -input=false \
+            -backend-config="bucket=${{ secrets.TF_STATE_BUCKET_DEV }}" \
+            -backend-config="key=prode/terraform.tfstate" \
+            -backend-config="region=us-east-1" \
+            -backend-config="dynamodb_table=${{ secrets.TF_STATE_LOCK_TABLE_DEV }}" \
+            -backend-config="encrypt=true"
+          make prepare
           terraform workspace select dev || terraform workspace new dev
           terraform apply -auto-approve -input=false \
             -var=env=dev \
             -var=aurora_cluster_identifier=aurora-pg-asap-dev \
             -var=telegram_secret_arn=${{ secrets.TELEGRAM_SECRET_ARN_DEV }} \
-            -var=agentcore_agent_id=${{ secrets.AGENTCORE_AGENT_ID_DEV }}
-      - run: agentcore deploy --env dev
+            -var=terraform_state_bucket=${{ secrets.TF_STATE_BUCKET_DEV }} \
+            -var=terraform_state_lock_table=${{ secrets.TF_STATE_LOCK_TABLE_DEV }} \
+            -var=terraform_state_key=prode/terraform.tfstate

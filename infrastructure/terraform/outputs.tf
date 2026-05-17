@@ -59,3 +59,24 @@ output "telegram_webhook_url" {
 output "telegram_lambda_function_name" {
   value = aws_lambda_function.telegram_webhook.function_name
 }
+
+# --- AgentCore Runtime (Terraform) ---
+
+output "agent_runtime_id" {
+  description = "ID del AgentCore Runtime"
+  value       = aws_bedrockagentcore_agent_runtime.prode.agent_runtime_id
+}
+
+output "agent_runtime_arn" {
+  description = "ARN del AgentCore Runtime"
+  value       = aws_bedrockagentcore_agent_runtime.prode.agent_runtime_arn
+}
+
+output "agent_runtime_endpoint_arn" {
+  description = "ARN del endpoint LIVE — invocar con bedrock-agentcore:InvokeAgentRuntime"
+  value       = aws_bedrockagentcore_agent_runtime_endpoint.live.agent_runtime_endpoint_arn
+}
+
+output "agent_code_s3_bucket" {
+  value = aws_s3_bucket.agent_code.id
+}

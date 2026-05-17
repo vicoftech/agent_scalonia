@@ -8,7 +8,7 @@
     "LOG_LEVEL":      "INFO"
   },
   "secrets": [
-    "TELEGRAM_BOT_TOKEN",
+    "SCALONIA_TELEGRAM_BOT_TOKEN",
     "TEAMS_WEBHOOK_URL",
     "BEDROCK_KB_ID",
     "AURORA_READER_SECRET_ARN"

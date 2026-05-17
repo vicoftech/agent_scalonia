@@ -70,3 +70,12 @@ conectado a Telegram. Sin features de negocio. Solo validar el stack.
 - Lambda webhook SIEMPRE retorna 200 a Telegram, incluso con errores internos
 - platform_id hasheado con SHA-256 antes de cualquier log o almacenamiento
 - session_id = "tg-" + sha256(chat_id)[:32] para continuidad de conversación
+- Token del bot: secreto existente **`SCALONIA_TELEGRAM_BOT_TOKEN`** en AWS Secrets Manager (mismo bot que la app Scalonia). La Lambda lee ese id vía `GetSecretValue`; Terraform recibe el **ARN** en `telegram_secret_arn`. No crear un secreto `TELEGRAM_BOT_TOKEN` separado.
+
+## Infra — Secrets Manager
+
+| Recurso | Valor |
+|---------|--------|
+| Secret id (lógico) | `SCALONIA_TELEGRAM_BOT_TOKEN` |
+| Variable Terraform | `telegram_secret_arn` → ARN del secreto anterior |
+| Env Lambda | `TELEGRAM_SECRET_ID=SCALONIA_TELEGRAM_BOT_TOKEN` (default en handler) |

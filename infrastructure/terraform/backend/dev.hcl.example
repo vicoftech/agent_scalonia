@@ -1,0 +1,4 @@
+# Obsoleto: los valores del backend viven en dev.tfvars (terraform_state_*).
+# Init:
+#   ./bin/init-backend.sh
+#   ./bin/init-backend.sh -migrate-state

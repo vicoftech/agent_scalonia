@@ -13,6 +13,10 @@ infrastructure/terraform/*.tfstate
 infrastructure/terraform/*.tfstate.*
 infrastructure/terraform/.terraform.tfstate.lock.info
 infrastructure/terraform/terraform.tfvars
+infrastructure/terraform/dev.tfvars
+infrastructure/terraform/bootstrap/.terraform/
+infrastructure/terraform/bootstrap/*.tfstate
+infrastructure/terraform/bootstrap/*.tfstate.*
 infrastructure/terraform/crash.log
 infrastructure/terraform/.build/
 .agentcore/
