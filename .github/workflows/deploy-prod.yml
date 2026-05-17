@@ -1,37 +1,65 @@
 name: Deploy Production
+
 on:
   push:
     tags: ["v*.*.*"]
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
     environment: production
+    permissions:
+      id-token: write
+      contents: read
     steps:
       - uses: actions/checkout@v4
-      - uses: aws-actions/configure-aws-credentials@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID_PROD }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY_PROD }}
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN_PROD }}
           aws-region: us-east-1
-      - run: poetry install
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: snok/install-poetry@v1
+        with:
+          version: "1.8.2"
+
       - name: Run Alembic migrations (prod)
-        run: poetry run alembic upgrade head
+        run: poetry install && poetry run alembic upgrade head
         env:
           AURORA_SYNC_SECRET_ARN: ${{ secrets.AURORA_SYNC_SECRET_ARN_PROD }}
           RDS_PROXY_ENDPOINT: ${{ secrets.RDS_PROXY_ENDPOINT_PROD }}
+
       - uses: hashicorp/setup-terraform@v3
-        with: { terraform_wrapper: false }
+        with:
+          terraform_wrapper: false
+
       - name: Terraform apply (incl. AgentCore Runtime)
+        env:
+          PROD_TFVARS: ${{ secrets.PROD_TFVARS }}
+          TELEGRAM_SECRET_ARN: ${{ secrets.TELEGRAM_SECRET_ARN_PROD }}
+          TF_STATE_BUCKET: ${{ secrets.TF_STATE_BUCKET_PROD }}
+          TF_STATE_LOCK_TABLE: ${{ secrets.TF_STATE_LOCK_TABLE_PROD }}
+        working-directory: infrastructure/terraform
         run: |
-          cd infrastructure/terraform
+          set -euo pipefail
           chmod +x bin/*.sh
-          make prepare
-          terraform init -input=false
-          terraform workspace select prod || terraform workspace new prod
-          terraform apply -auto-approve -input=false \
-            -var=env=prod \
-            -var=telegram_secret_arn=${{ secrets.TELEGRAM_SECRET_ARN_PROD }} \
-            -var=aurora_cluster_identifier=${{ secrets.AURORA_CLUSTER_IDENTIFIER_PROD }} \
-            -var=terraform_state_bucket=${{ secrets.TF_STATE_BUCKET_PROD }} \
-            -var=terraform_state_lock_table=${{ secrets.TF_STATE_LOCK_TABLE_PROD }} \
-            -var=terraform_state_key=prode/terraform.tfstate
+          if [[ -n "${PROD_TFVARS:-}" ]]; then
+            printf '%s\n' "$PROD_TFVARS" > dev.tfvars
+          else
+            {
+              echo 'env = "prod"'
+              echo 'aws_region = "us-east-1"'
+              echo 'aws_profile = ""'
+              echo "telegram_secret_arn = \"${TELEGRAM_SECRET_ARN}\""
+              echo "terraform_state_bucket = \"${TF_STATE_BUCKET}\""
+              echo "terraform_state_lock_table = \"${TF_STATE_LOCK_TABLE}\""
+              echo 'terraform_state_key = "prode/terraform.tfstate"'
+            } > dev.tfvars
+          fi
+          export TF_WORKSPACE=prod
+          ./bin/ci-terraform-apply.sh

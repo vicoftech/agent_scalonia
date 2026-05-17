@@ -1,0 +1,118 @@
+# Reutilizable: build (agent + lambdas) + terraform apply + promote LIVE (auth OIDC).
+name: Reusable Terraform Apply
+
+on:
+  workflow_call:
+    inputs:
+      environment_name:
+        description: GitHub Environment (development, staging, production)
+        required: true
+        type: string
+      terraform_workspace:
+        description: Terraform workspace (dev, staging, prod)
+        required: true
+        type: string
+      aws_region:
+        description: AWS region
+        required: false
+        type: string
+        default: us-east-1
+      run_alembic:
+        description: Ejecutar alembic upgrade head antes del apply
+        required: false
+        type: boolean
+        default: false
+    secrets:
+      AWS_ROLE_ARN:
+        description: ARN del rol IAM (trust OIDC GitHub → AWS)
+        required: true
+      DEV_TFVARS:
+        description: Contenido completo de dev.tfvars (workspace dev)
+        required: false
+      STAGING_TFVARS:
+        description: Contenido completo de staging.tfvars (workspace staging)
+        required: false
+      AURORA_SYNC_SECRET_ARN:
+        required: false
+      RDS_PROXY_ENDPOINT:
+        required: false
+      TELEGRAM_SECRET_ARN:
+        required: false
+      TF_STATE_BUCKET:
+        required: false
+      TF_STATE_LOCK_TABLE:
+        required: false
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment_name }}
+    concurrency:
+      group: terraform-${{ inputs.terraform_workspace }}
+      cancel-in-progress: false
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ inputs.aws_region }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: snok/install-poetry@v1
+        if: inputs.run_alembic
+        with:
+          version: "1.8.2"
+
+      - name: Run Alembic migrations
+        if: inputs.run_alembic
+        run: poetry install && poetry run alembic upgrade head
+        env:
+          AURORA_SYNC_SECRET_ARN: ${{ secrets.AURORA_SYNC_SECRET_ARN }}
+          RDS_PROXY_ENDPOINT: ${{ secrets.RDS_PROXY_ENDPOINT }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+
+      - name: Terraform apply (agent + lambdas)
+        working-directory: infrastructure/terraform
+        env:
+          DEV_TFVARS: ${{ secrets.DEV_TFVARS }}
+          STAGING_TFVARS: ${{ secrets.STAGING_TFVARS }}
+          TF_WORKSPACE: ${{ inputs.terraform_workspace }}
+          TELEGRAM_SECRET_ARN: ${{ secrets.TELEGRAM_SECRET_ARN }}
+          TF_STATE_BUCKET: ${{ secrets.TF_STATE_BUCKET }}
+          TF_STATE_LOCK_TABLE: ${{ secrets.TF_STATE_LOCK_TABLE }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${DEV_TFVARS:-}" && -n "${STAGING_TFVARS:-}" ]]; then
+            export DEV_TFVARS="${STAGING_TFVARS}"
+          fi
+          if [[ -z "${DEV_TFVARS:-}" ]]; then
+            echo "::warning::DEV_TFVARS/STAGING_TFVARS no configurado; usando tfvars mínimo desde secrets sueltos"
+            {
+              echo "env = \"${{ inputs.terraform_workspace }}\""
+              echo "aws_region = \"${{ inputs.aws_region }}\""
+              echo 'aws_profile = ""'
+              echo "telegram_secret_arn = \"${TELEGRAM_SECRET_ARN}\""
+              echo "terraform_state_bucket = \"${TF_STATE_BUCKET}\""
+              echo "terraform_state_lock_table = \"${TF_STATE_LOCK_TABLE}\""
+              echo 'terraform_state_key = "prode/terraform.tfstate"'
+            } > dev.tfvars
+          fi
+          chmod +x bin/ci-terraform-apply.sh bin/*.sh
+          ./bin/ci-terraform-apply.sh
+
+      - name: Verify guardrail SSM (dev)
+        if: inputs.terraform_workspace == 'dev'
+        run: |
+          aws ssm get-parameter --name /prode-mundial/dev/guardrail_id --region "${{ inputs.aws_region }}"
+          aws ssm get-parameter --name /prode-mundial/dev/guardrail_version --region "${{ inputs.aws_region }}"

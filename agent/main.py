@@ -3,6 +3,7 @@ agent/main.py — Prode Mundial 2026
 ====================================
 Entrypoint del agente en Bedrock AgentCore Runtime.
 Deploy: agentcore deploy  |  Local: agentcore launch --local
+CI: push a dev dispara deploy-dev.yml (OIDC).
 
 Patrón oficial de streaming:
   @app.entrypoint async def + agent.stream_async() + yield
@@ -28,6 +29,8 @@ from agent.guardrails.constants import (
 )
 from agent.guardrails.detect import is_guardrail_block_event
 from agent.tools.echo_tool import echo_tool
+from agent.tools.kb_retrieval_tool import kb_retrieval_tool
+from agent.tools.web_search_tool import web_search_tool
 
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 logger = logging.getLogger(__name__)
@@ -37,8 +40,12 @@ Sos el asistente del Prode Mundial 2026 ⚽
 Ayudás a los usuarios a predecir partidos, consultar rankings, jugar trivia y explorar la historia de los mundiales.
 Respondé siempre en el idioma del usuario. Sé conciso. Usá emojis con moderación.
 
-Estado actual: MVP — agente base funcionando.
-Las features de predicciones, rankings, grupos y trivia se habilitan sprint a sprint.
+Estado actual: MVP con Knowledge Base y búsqueda web cacheada.
+Usá kb_retrieval_tool para: reglas, historia de mundiales, grupos del 2026, sedes,
+calendario/fixture del PDF FWC26 y tácticas.
+Usá web_search_tool solo para resultados en vivo, noticias del día o datos que no estén en la KB.
+Si kb_retrieval_tool devuelve pasajes, basá la respuesta en ellos; no inventes fixture ni grupos.
+Las features de predicciones, rankings y trivia se habilitan sprint a sprint.
 """.strip()
 
 SYSTEM_PROMPT = f"{_BASE_PROMPT}\n\n{GUARDRAIL_SECTION}"
@@ -79,7 +86,7 @@ def _build_agent() -> Agent:
     return Agent(
         model=BedrockModel(**model_kw),
         system_prompt=SYSTEM_PROMPT,
-        tools=[echo_tool],
+        tools=[echo_tool, kb_retrieval_tool, web_search_tool],
     )
 
 

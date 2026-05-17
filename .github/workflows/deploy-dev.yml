@@ -1,46 +1,55 @@
+# Deploy automático a dev: agente AgentCore + Lambdas (auth OIDC, sin access keys).
 name: Deploy Dev
+
 on:
+  push:
+    branches: [dev, main]
+    paths:
+      - "agent/**"
+      - "infrastructure/lambdas/**"
+      - "src/**"
+      - "requirements-agent.txt"
+      - "pyproject.toml"
+      - "poetry.lock"
+      - "migrations/**"
+      - "alembic.ini"
+      - "infrastructure/terraform/**"
+      - ".github/workflows/deploy-dev.yml"
+      - ".github/workflows/reusable-terraform-apply.yml"
   workflow_dispatch:
+    inputs:
+      run_migrations:
+        description: Ejecutar Alembic antes del deploy
+        type: boolean
+        default: false
+
 jobs:
-  deploy:
+  changes:
     runs-on: ubuntu-latest
-    environment: development
+    outputs:
+      migrations: ${{ steps.filter.outputs.migrations }}
     steps:
       - uses: actions/checkout@v4
-      - uses: aws-actions/configure-aws-credentials@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
         with:
-          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID_DEV }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY_DEV }}
-          aws-region:            us-east-1
-      - run: poetry install
-      - name: Run Alembic migrations (dev)
-        run: poetry run alembic upgrade head
-        env:
-          AURORA_SYNC_SECRET_ARN: ${{ secrets.AURORA_SYNC_SECRET_ARN_DEV }}
-          RDS_PROXY_ENDPOINT:     ${{ secrets.RDS_PROXY_ENDPOINT_DEV }}
-      - uses: hashicorp/setup-terraform@v3
-        with: { terraform_wrapper: false }
-      - name: Terraform workspace dev + apply
-        run: |
-          cd infrastructure/terraform
-          chmod +x bin/*.sh
-          TFVARS=dev.tfvars ./bin/init-backend.sh -input=false || \
-          terraform init -input=false \
-            -backend-config="bucket=${{ secrets.TF_STATE_BUCKET_DEV }}" \
-            -backend-config="key=prode/terraform.tfstate" \
-            -backend-config="region=us-east-1" \
-            -backend-config="dynamodb_table=${{ secrets.TF_STATE_LOCK_TABLE_DEV }}" \
-            -backend-config="encrypt=true"
-          make prepare
-          terraform workspace select dev || terraform workspace new dev
-          terraform apply -auto-approve -input=false \
-            -var=env=dev \
-            -var=aurora_cluster_identifier=aurora-pg-asap-dev \
-            -var=telegram_secret_arn=${{ secrets.TELEGRAM_SECRET_ARN_DEV }} \
-            -var=terraform_state_bucket=${{ secrets.TF_STATE_BUCKET_DEV }} \
-            -var=terraform_state_lock_table=${{ secrets.TF_STATE_LOCK_TABLE_DEV }} \
-            -var=terraform_state_key=prode/terraform.tfstate
-      - name: Verify guardrail SSM (SPEC-015)
-        run: |
-          aws ssm get-parameter --name /prode-mundial/dev/guardrail_id --region us-east-1
-          aws ssm get-parameter --name /prode-mundial/dev/guardrail_version --region us-east-1
+          filters: |
+            migrations:
+              - "migrations/**"
+              - "alembic.ini"
+
+  deploy:
+    needs: changes
+    uses: ./.github/workflows/reusable-terraform-apply.yml
+    with:
+      environment_name: development
+      terraform_workspace: dev
+      run_alembic: ${{ needs.changes.outputs.migrations == 'true' || (github.event_name == 'workflow_dispatch' && inputs.run_migrations) }}
+    secrets:
+      AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN_DEV }}
+      DEV_TFVARS: ${{ secrets.DEV_TFVARS }}
+      AURORA_SYNC_SECRET_ARN: ${{ secrets.AURORA_SYNC_SECRET_ARN_DEV }}
+      RDS_PROXY_ENDPOINT: ${{ secrets.RDS_PROXY_ENDPOINT_DEV }}
+      TELEGRAM_SECRET_ARN: ${{ secrets.TELEGRAM_SECRET_ARN_DEV }}
+      TF_STATE_BUCKET: ${{ secrets.TF_STATE_BUCKET_DEV }}
+      TF_STATE_LOCK_TABLE: ${{ secrets.TF_STATE_LOCK_TABLE_DEV }}

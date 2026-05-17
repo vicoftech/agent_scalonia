@@ -31,16 +31,20 @@ _tf_get_var() {
   echo "$val"
 }
 
-export AWS_PROFILE="$(_tf_get_var aws_profile)"
-AWS_PROFILE="${AWS_PROFILE:-asap_dev}"
 export AWS_DEFAULT_REGION="$(_tf_get_var aws_region)"
 AWS_DEFAULT_REGION="${AWS_DEFAULT_REGION:-us-east-1}"
-
-# Access keys en el entorno ganan al perfil; suelen ser el origen del user CICD equivocado.
-unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN
-
-export AWS_PROFILE
 export AWS_DEFAULT_REGION
+
+# CI (GitHub Actions): usar AWS_ACCESS_KEY_ID del job, sin perfil ~/.aws.
+if [[ -n "${GITHUB_ACTIONS:-}" ]]; then
+  unset AWS_PROFILE
+else
+  export AWS_PROFILE="$(_tf_get_var aws_profile)"
+  AWS_PROFILE="${AWS_PROFILE:-asap_dev}"
+  # En local, forzar perfil y no mezclar con keys sueltas en el shell.
+  unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN
+  export AWS_PROFILE
+fi
 
 if command -v aws >/dev/null 2>&1; then
   _acct=$(aws sts get-caller-identity --query Account --output text 2>/dev/null) || _acct="?"

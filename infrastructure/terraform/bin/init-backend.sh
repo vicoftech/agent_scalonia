@@ -37,7 +37,9 @@ set_var_in_tfvars() {
 }
 
 PROFILE=$(get_var aws_profile)
-PROFILE="${PROFILE:-asap_dev}"
+if [[ -z "${GITHUB_ACTIONS:-}" ]]; then
+  PROFILE="${PROFILE:-asap_dev}"
+fi
 REGION=$(get_var aws_region)
 REGION="${REGION:-us-east-1}"
 
@@ -46,8 +48,16 @@ if ! command -v aws >/dev/null 2>&1; then
   exit 1
 fi
 
-ACCOUNT_ID=$(aws sts get-caller-identity --profile "$PROFILE" --query Account --output text)
-echo "AWS profile=${PROFILE} account_id=${ACCOUNT_ID}"
+aws_cli() {
+  if [[ -n "${PROFILE}" ]]; then
+    aws --profile "$PROFILE" "$@"
+  else
+    aws "$@"
+  fi
+}
+
+ACCOUNT_ID=$(aws_cli sts get-caller-identity --query Account --output text)
+echo "AWS profile=${PROFILE:-<env-keys>} account_id=${ACCOUNT_ID}"
 
 BUCKET=$(get_var terraform_state_bucket)
 LOCK=$(get_var terraform_state_lock_table)
@@ -63,12 +73,12 @@ if [[ -z "$BUCKET" || "$BUCKET" == *"ACCOUNT_ID"* ]]; then
 fi
 
 bucket_ok=false
-if aws s3api head-bucket --bucket "$BUCKET" --profile "$PROFILE" 2>/dev/null; then
+if aws_cli s3api head-bucket --bucket "$BUCKET" 2>/dev/null; then
   bucket_ok=true
 fi
 
 lock_ok=false
-if aws dynamodb describe-table --table-name "$LOCK" --profile "$PROFILE" --region "$REGION" >/dev/null 2>&1; then
+if aws_cli dynamodb describe-table --table-name "$LOCK" --region "$REGION" >/dev/null 2>&1; then
   lock_ok=true
 fi
 

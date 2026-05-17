@@ -59,3 +59,98 @@ variable "sns_alerts_arn" {
   default     = ""
   description = "ARN SNS para alarma de bloqueos de guardrail (vacío = sin notificación)."
 }
+
+variable "aurora_sync_secret_arn" {
+  type        = string
+  default     = ""
+  description = "ARN secreto DB KB. Vacío si manage_aurora_secret=true."
+}
+
+variable "manage_aurora_secret" {
+  type        = bool
+  default     = false
+  description = "Crear secret prode-mundial/{env}/aurora-sync (aurora_db_password en tfvars)."
+}
+
+variable "aurora_db_username" {
+  type    = string
+  default = "dev_master"
+}
+
+variable "aurora_db_password" {
+  type      = string
+  default   = ""
+  sensitive = true
+}
+
+variable "lambda_vpc_subnet_ids" {
+  type        = list(string)
+  default     = []
+  description = "Subnets privadas para Lambdas KB (acceso RDS Proxy)."
+}
+
+variable "lambda_vpc_security_group_ids" {
+  type        = list(string)
+  default     = []
+  description = "Security groups para Lambdas KB."
+}
+
+variable "rds_proxy_endpoint" {
+  type        = string
+  default     = ""
+  description = "Host RDS Proxy (si el secret no incluye host)."
+}
+
+variable "db_name" {
+  type        = string
+  default     = "prode"
+  description = "Base de datos Aurora."
+}
+
+variable "enable_kb_vpc_endpoints" {
+  type        = bool
+  default     = true
+  description = "Crear VPC endpoints S3/Secrets/Bedrock para Lambdas KB."
+}
+
+variable "kb_aurora_security_group_id" {
+  type        = string
+  default     = ""
+  description = "SG de aurora-pg-dev (ingress 5432 desde CIDR de la VPC Lambda)."
+}
+
+variable "kb_ingest_timeout" {
+  type        = number
+  default     = 300
+  description = "Timeout kb_ingest (segundos). 300 = 5 minutos."
+}
+
+variable "kb_ingest_reserved_concurrency" {
+  type        = number
+  default     = 3
+  description = "Máx. ejecuciones paralelas kb_ingest (throttling Bedrock)."
+}
+
+variable "tavily_secret_arn" {
+  type        = string
+  default     = ""
+  description = "Secrets Manager con API key Tavily para web_search_tool (opcional)."
+}
+
+variable "enable_github_oidc" {
+  type        = bool
+  default     = true
+  description = "Crear proveedor OIDC de GitHub y rol IAM para CI (provider IAM solo en workspace dev)."
+}
+
+variable "github_repository" {
+  type        = string
+  default     = "vicoftech/agent_scalonia"
+  description = "Repositorio GitHub org/repo para el claim sub de OIDC."
+}
+
+variable "github_actions_environment" {
+  type        = string
+  default     = ""
+  description = "Nombre del GitHub Environment (development | staging | production). Vacío = inferido desde var.env."
+}

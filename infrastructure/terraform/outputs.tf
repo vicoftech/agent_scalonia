@@ -104,3 +104,33 @@ output "guardrail_ssm_id_parameter" {
 output "guardrail_ssm_version_parameter" {
   value = module.guardrails.ssm_guardrail_version_name
 }
+
+# --- Knowledge Base (SPEC-2026-017) ---
+
+output "kb_s3_bucket" {
+  value = module.kb.kb_s3_bucket
+}
+
+output "kb_s3_ssm_parameter" {
+  value = module.kb.ssm_kb_s3_bucket_name
+}
+
+output "kb_query_lambda_name" {
+  value = module.kb.kb_query_lambda_name
+}
+
+output "kb_ingest_lambda_name" {
+  value = module.kb.kb_ingest_lambda_name
+}
+
+# --- GitHub Actions OIDC ---
+
+output "github_actions_role_arn" {
+  description = "ARN del rol IAM para GitHub Actions (secret AWS_ROLE_ARN_* en el environment de GitHub)"
+  value       = try(aws_iam_role.github_actions[0].arn, null)
+}
+
+output "github_actions_oidc_sub" {
+  description = "Claim sub exigido en el trust policy (repo + GitHub Environment)"
+  value       = var.enable_github_oidc ? local.github_oidc_sub : null
+}

@@ -1,21 +1,30 @@
 name: KB Sync
+
 on:
   push:
-    branches: [main]
+    branches: [main, dev]
     paths: ["knowledge-base/**"]
+  workflow_dispatch:
+
 jobs:
   sync:
     runs-on: ubuntu-latest
+    environment: development
+    permissions:
+      id-token: write
+      contents: read
     steps:
       - uses: actions/checkout@v4
-      - uses: aws-actions/configure-aws-credentials@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN_DEV }}
           aws-region: us-east-1
-      - run: aws s3 sync knowledge-base/ s3://prode-knowledge-base-staging/ --delete
-      - run: |
-          aws lambda invoke \
-            --function-name ProdeKBSync-staging \
-            --payload '{"source":"github-actions"}' /tmp/out.json
-          cat /tmp/out.json
+
+      - name: Sync markdown to S3 (dispara Lambda kb_ingest)
+        run: |
+          BUCKET=$(aws ssm get-parameter \
+            --name /prode-mundial/dev/kb_s3_bucket \
+            --query Parameter.Value --output text)
+          aws s3 sync knowledge-base/ "s3://${BUCKET}/knowledge-base/" --delete
