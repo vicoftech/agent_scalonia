@@ -53,7 +53,7 @@ output "aurora_cluster_resource_id" {
 
 output "telegram_webhook_url" {
   description = "URL para setWebhook de Telegram"
-  value       = "${aws_apigatewayv2_stage.default.invoke_url}/webhook/telegram"
+  value       = "${trimsuffix(aws_apigatewayv2_stage.default.invoke_url, "/")}/webhook/telegram"
 }
 
 output "telegram_lambda_function_name" {

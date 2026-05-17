@@ -9,6 +9,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import time
 import urllib.error
 import urllib.request
@@ -61,16 +62,14 @@ def _post_json(url: str, body: dict[str, Any], timeout: float = 10) -> tuple[int
 
 
 def _send_message(chat_id: int, text: str, token: str) -> None:
-    """Envía en MarkdownV2. Parte si > 4096 chars. Retry en 429."""
+    """Texto plano (sin MarkdownV2) para no romper con respuestas del LLM."""
     for chunk in [text[i : i + MAX_TG_LEN] for i in range(0, len(text), MAX_TG_LEN)]:
         for attempt in range(3):
             url = f"{TG_API}/bot{token}/sendMessage"
-            code, j = _post_json(url, {"chat_id": chat_id, "text": chunk, "parse_mode": "MarkdownV2"})
+            code, j = _post_json(url, {"chat_id": chat_id, "text": chunk})
             if code == 429:
                 time.sleep(float(j.get("parameters", {}).get("retry_after", 2)))
                 continue
-            if code == 400 and attempt == 0:
-                _post_json(url, {"chat_id": chat_id, "text": chunk})
             break
 
 
@@ -92,37 +91,165 @@ def _resolve_user_id(platform_id_hash: str) -> str | None:
         return None
 
 
+def _iter_json_objects(raw: str):
+    """Varios eventos Strands/AgentCore vienen concatenados en un mismo chunk."""
+    decoder = json.JSONDecoder()
+    pos = 0
+    while pos < len(raw):
+        while pos < len(raw) and raw[pos].isspace():
+            pos += 1
+        if pos >= len(raw):
+            break
+        if raw[pos] != "{":
+            next_obj = raw.find("{", pos + 1)
+            if next_obj == -1:
+                break
+            pos = next_obj
+            continue
+        try:
+            obj, idx = decoder.raw_decode(raw, pos)
+        except json.JSONDecodeError:
+            next_obj = raw.find("{", pos + 1)
+            if next_obj == -1:
+                break
+            pos = next_obj
+            continue
+        yield obj
+        pos += idx
+
+
+_THINKING_RE = re.compile(r"<thinking>.*?</thinking>\s*", re.DOTALL | re.IGNORECASE)
+
+
+def _strip_thinking(text: str) -> str:
+    return _THINKING_RE.sub("", text).strip()
+
+
+def _message_text_from_event(event: dict[str, Any]) -> str:
+    msg = event.get("message")
+    if not isinstance(msg, dict):
+        return ""
+    parts: list[str] = []
+    for block in msg.get("content") or []:
+        if isinstance(block, dict) and isinstance(block.get("text"), str):
+            parts.append(block["text"])
+    return _strip_thinking("".join(parts)) if parts else ""
+
+
+def _delta_text_from_event(event: dict[str, Any]) -> str:
+    nested = event.get("event")
+    if isinstance(nested, dict):
+        block = nested.get("contentBlockDelta")
+        if isinstance(block, dict):
+            delta = block.get("delta") or {}
+            if isinstance(delta.get("text"), str):
+                return delta["text"]
+    return ""
+
+
+def _error_from_event(event: dict[str, Any]) -> str | None:
+    if event.get("error"):
+        return str(event.get("message") or event["error"])
+    if event.get("force_stop"):
+        return str(event.get("force_stop_reason") or "force_stop")
+    return None
+
+
+def _friendly_agent_error(reason: str) -> str:
+    low = reason.lower()
+    if "model identifier is invalid" in low:
+        return "El modelo de IA no está configurado correctamente. Avisá al administrador."
+    if "accessdenied" in low or "not authorized" in low:
+        return "Sin permisos para invocar el modelo. Avisá al administrador."
+    return "Hubo un error procesando tu mensaje. Intentá de nuevo en unos segundos."
+
+
+def _parse_agent_stream_payload(raw: str) -> str:
+    deltas: list[str] = []
+    final_message = ""
+    errors: list[str] = []
+    for event in _iter_json_objects(raw):
+        if not isinstance(event, dict):
+            continue
+        err = _error_from_event(event)
+        if err:
+            errors.append(err)
+            continue
+        if event.keys() <= {"init_event_loop"} or event.keys() <= {"start"} or event.keys() <= {"start_event_loop"}:
+            continue
+        msg = _message_text_from_event(event)
+        if msg:
+            final_message = msg
+        chunk = _delta_text_from_event(event)
+        if chunk:
+            deltas.append(chunk)
+    if final_message:
+        return final_message
+    if deltas:
+        return _strip_thinking("".join(deltas))
+    if errors:
+        return _friendly_agent_error(errors[-1])
+    return ""
+
+
+def _parse_sse_events(stream) -> str:
+    """Un evento JSON por línea ``data: {...}`` (formato AgentCore)."""
+    deltas: list[str] = []
+    final_message = ""
+    errors: list[str] = []
+    for line in stream.iter_lines():
+        if not line:
+            continue
+        decoded = line.decode("utf-8").strip()
+        if not decoded.startswith("data: "):
+            continue
+        payload = decoded[6:].strip()
+        if not payload.startswith("{"):
+            continue
+        try:
+            event = json.loads(payload)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(event, dict):
+            continue
+        err = _error_from_event(event)
+        if err:
+            errors.append(err)
+            continue
+        msg = _message_text_from_event(event)
+        if msg:
+            final_message = msg
+        chunk = _delta_text_from_event(event)
+        if chunk:
+            deltas.append(chunk)
+    if final_message:
+        return final_message
+    if deltas:
+        return _strip_thinking("".join(deltas))
+    if errors:
+        return _friendly_agent_error(errors[-1])
+    return ""
+
+
 def _read_agent_stream(response: dict[str, Any]) -> str:
-    """Acumula respuesta de invoke_agent_runtime (SSE o JSON)."""
+    """Extrae texto legible del stream Strands (ignora eventos internos)."""
     content_type = response.get("contentType", "")
     stream = response.get("response")
     if stream is None:
         return ""
 
-    if "text/event-stream" in content_type:
-        parts: list[str] = []
-        for line in stream.iter_lines(chunk_size=1):
-            if not line:
-                continue
-            decoded = line.decode("utf-8")
-            if decoded.startswith("data: "):
-                decoded = decoded[6:]
-            if decoded.startswith('"') and decoded.endswith('"'):
-                decoded = decoded[1:-1]
-            decoded = decoded.replace("\\n", "\n")
-            parts.append(decoded)
-        return "".join(parts).strip()
-
-    body = stream.read()
-    if not body:
-        return ""
     try:
-        data = json.loads(body)
-        if isinstance(data, str):
-            return data.strip()
-        return json.dumps(data, ensure_ascii=False)
-    except json.JSONDecodeError:
-        return body.decode("utf-8", errors="replace").strip()
+        if "text/event-stream" in content_type:
+            parsed = _parse_sse_events(stream)
+        else:
+            body = stream.read()
+            parsed = _parse_agent_stream_payload(
+                body.decode("utf-8", errors="replace") if body else ""
+            )
+    except Exception:
+        logger.exception("stream parse error")
+        return ""
+    return parsed.strip()
 
 
 def _invoke_agent(user_id: str, session_id: str, prompt: str) -> str:

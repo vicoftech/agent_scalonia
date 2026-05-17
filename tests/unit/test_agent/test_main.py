@@ -27,9 +27,28 @@ class TestAgentEntrypoint:
         assert isinstance(app, BedrockAgentCoreApp)
 
     def test_agent_tiene_echo_tool(self):
-        from agent.main import agent
-        tool_names = [getattr(t, "__name__", str(t)) for t in agent.tools]
+        from agent.main import _build_agent
+        tool_names = [getattr(t, "__name__", str(t)) for t in _build_agent().tools]
         assert any("echo" in n.lower() for n in tool_names)
+
+
+class TestTelegramStreamParser:
+    def test_extrae_texto_desde_message_event(self):
+        from infrastructure.lambdas.telegram_webhook.handler import _parse_agent_stream_payload
+
+        raw = (
+            '{"message": {"role": "assistant", "content": [{"text": "Hola mundo"}]}}'
+        )
+        assert _parse_agent_stream_payload(raw) == "Hola mundo"
+
+    def test_error_modelo_amigable(self):
+        from infrastructure.lambdas.telegram_webhook.handler import _parse_agent_stream_payload
+
+        raw = (
+            '{"force_stop": true, "force_stop_reason": '
+            '"ValidationException: model identifier is invalid"}'
+        )
+        assert "modelo" in _parse_agent_stream_payload(raw).lower()
 
 
 class TestTelegramWebhook:

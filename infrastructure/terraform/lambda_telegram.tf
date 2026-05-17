@@ -82,6 +82,8 @@ resource "aws_lambda_function" "telegram_webhook" {
   role          = aws_iam_role.telegram_webhook.arn
   handler       = "handler.handler"
   runtime       = "python3.12"
+  timeout       = 60
+  memory_size   = 256
 
   filename         = local.telegram_lambda_zip
   source_code_hash = local.telegram_lambda_hash
@@ -89,7 +91,8 @@ resource "aws_lambda_function" "telegram_webhook" {
   environment {
     variables = {
       DYNAMODB_TABLE              = module.prode_table.dynamodb_table_id
-      AGENTCORE_RUNTIME_ARN       = aws_bedrockagentcore_agent_runtime_endpoint.live.agent_runtime_endpoint_arn
+      # invoke_agent_runtime espera el ARN del runtime, no del endpoint (qualifier=LIVE).
+      AGENTCORE_RUNTIME_ARN       = aws_bedrockagentcore_agent_runtime.prode.agent_runtime_arn
       AGENTCORE_RUNTIME_QUALIFIER = aws_bedrockagentcore_agent_runtime_endpoint.live.name
       LOG_LEVEL                   = "INFO"
       TELEGRAM_SECRET_ID          = "SCALONIA_TELEGRAM_BOT_TOKEN"

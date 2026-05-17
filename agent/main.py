@@ -13,6 +13,7 @@ import sys
 from pathlib import Path
 
 from strands import Agent
+from strands.models.bedrock import BedrockModel
 from bedrock_agentcore import BedrockAgentCoreApp
 
 # Repo root en sys.path (AgentCore ejecuta agent/main.py)
@@ -21,14 +22,6 @@ if str(_root) not in sys.path:
     sys.path.insert(0, str(_root))
 
 from agent.tools.echo_tool import echo_tool
-# Sprint 1+: descomenzar conforme se implementan
-# from tools.prediction_tool  import prediction_tool
-# from tools.ranking_tool     import ranking_tool
-# from tools.group_tool       import group_tool
-# from tools.scoring_tool     import scoring_tool
-# from tools.trivia_tool      import trivia_tool
-# from tools.kb_retrieval_tool import kb_retrieval_tool
-# from tools.web_search_tool  import web_search_tool
 
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 logger = logging.getLogger(__name__)
@@ -42,13 +35,21 @@ Estado actual: MVP — agente base funcionando.
 Las features de predicciones, rankings, grupos y trivia se habilitan sprint a sprint.
 """.strip()
 
-agent = Agent(
-    model="us.anthropic.claude-sonnet-4-20250514",
-    system_prompt=SYSTEM_PROMPT,
-    tools=[echo_tool],   # agregar tools aquí conforme se implementan
-)
+# Cuentas reseller: sin Anthropic. Nova Pro ≈ Sonnet.
+_DEFAULT_MODEL = "us.amazon.nova-pro-v1:0"
+_BEDROCK_REGION = "us-east-1"
 
 app = BedrockAgentCoreApp()
+
+
+def _build_agent() -> Agent:
+    model_id = os.getenv("BEDROCK_MODEL_ID", _DEFAULT_MODEL)
+    logger.info("Bedrock model_id=%s region=%s", model_id, _BEDROCK_REGION)
+    return Agent(
+        model=BedrockModel(model_id=model_id, region_name=_BEDROCK_REGION),
+        system_prompt=SYSTEM_PROMPT,
+        tools=[echo_tool],
+    )
 
 
 @app.entrypoint
@@ -68,7 +69,8 @@ async def agent_invocation(payload: dict):
 
     logger.info("Invocación | platform=%s | user_prefix=%s", platform, user_id[:8])
 
-    stream = agent.stream_async(prompt)
+    # Nuevo Agent por invoke: evita microVM cacheado con modelo/código viejo.
+    stream = _build_agent().stream_async(prompt)
     async for event in stream:
         yield event
 

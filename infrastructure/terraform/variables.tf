@@ -41,3 +41,9 @@ variable "terraform_state_key" {
   default     = "prode/terraform.tfstate"
   description = "Key del objeto .tfstate en S3 (workspace agrega prefijo env:/<ws>/)."
 }
+
+variable "bedrock_model_id" {
+  type        = string
+  default     = "us.amazon.nova-pro-v1:0"
+  description = "Inference profile Bedrock (evitar Anthropic en cuentas reseller). Nova Lite: us.amazon.nova-lite-v1:0"
+}

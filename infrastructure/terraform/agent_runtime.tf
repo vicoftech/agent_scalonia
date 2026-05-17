@@ -80,7 +80,11 @@ data "aws_iam_policy_document" "agent_runtime" {
       "bedrock:Converse",
       "bedrock:ConverseStream",
     ]
-    resources = ["*"]
+    resources = [
+      "*",
+      "arn:aws:bedrock:${var.aws_region}::foundation-model/*",
+      "arn:aws:bedrock:${var.aws_region}:${data.aws_caller_identity.current.account_id}:inference-profile/*",
+    ]
   }
 
   statement {
@@ -131,13 +135,13 @@ resource "aws_iam_role_policy" "agent_runtime" {
 
 resource "aws_bedrockagentcore_agent_runtime" "prode" {
   agent_runtime_name = "prode_mundial_${var.env}"
-  description        = "Prode Mundial 2026 — Strands agent (${var.env})"
+  description        = "Prode Mundial 2026 — ${var.env} — code ${local.agent_source_hash}"
   role_arn           = aws_iam_role.agent_runtime.arn
 
   environment_variables = {
-    DYNAMODB_TABLE = module.prode_table.dynamodb_table_id
-    AWS_REGION     = var.aws_region
-    LOG_LEVEL      = "INFO"
+    DYNAMODB_TABLE   = module.prode_table.dynamodb_table_id
+    LOG_LEVEL        = "INFO"
+    BEDROCK_MODEL_ID = var.bedrock_model_id
   }
 
   agent_runtime_artifact {
@@ -165,9 +169,10 @@ resource "aws_bedrockagentcore_agent_runtime" "prode" {
 }
 
 resource "aws_bedrockagentcore_agent_runtime_endpoint" "live" {
-  name             = "LIVE"
-  description      = "Endpoint estable para webhooks (${var.env})"
-  agent_runtime_id = aws_bedrockagentcore_agent_runtime.prode.agent_runtime_id
+  name                  = "LIVE"
+  description           = "Endpoint estable para webhooks (${var.env})"
+  agent_runtime_id      = aws_bedrockagentcore_agent_runtime.prode.agent_runtime_id
+  agent_runtime_version = aws_bedrockagentcore_agent_runtime.prode.agent_runtime_version
 
   depends_on = [aws_bedrockagentcore_agent_runtime.prode]
 }
