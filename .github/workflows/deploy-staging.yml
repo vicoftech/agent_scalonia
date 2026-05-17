@@ -39,6 +39,7 @@ jobs:
 
   deploy:
     needs: changes
+    environment: staging
     uses: ./.github/workflows/reusable-terraform-apply.yml
     with:
       environment_name: staging

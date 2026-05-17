@@ -3,7 +3,7 @@ agent/main.py — Prode Mundial 2026
 ====================================
 Entrypoint del agente en Bedrock AgentCore Runtime.
 Deploy: agentcore deploy  |  Local: agentcore launch --local
-CI: push a dev dispara deploy-dev.yml (OIDC).
+CI: push a dev dispara deploy-dev.yml.
 
 Patrón oficial de streaming:
   @app.entrypoint async def + agent.stream_async() + yield

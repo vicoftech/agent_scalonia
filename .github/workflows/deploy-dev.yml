@@ -40,6 +40,7 @@ jobs:
 
   deploy:
     needs: changes
+    environment: development
     uses: ./.github/workflows/reusable-terraform-apply.yml
     with:
       environment_name: development
