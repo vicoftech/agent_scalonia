@@ -1,4 +1,4 @@
-# Deploy automático a dev: agente AgentCore + Lambdas (auth OIDC, sin access keys).
+# Deploy automático a dev: agente AgentCore + Lambdas (OIDC).
 name: Deploy Dev
 
 on:
@@ -15,7 +15,6 @@ on:
       - "alembic.ini"
       - "infrastructure/terraform/**"
       - ".github/workflows/deploy-dev.yml"
-      - ".github/workflows/reusable-terraform-apply.yml"
   workflow_dispatch:
     inputs:
       run_migrations:
@@ -40,17 +39,69 @@ jobs:
 
   deploy:
     needs: changes
+    runs-on: ubuntu-latest
     environment: development
-    uses: ./.github/workflows/reusable-terraform-apply.yml
-    with:
-      environment_name: development
-      terraform_workspace: dev
-      run_alembic: ${{ needs.changes.outputs.migrations == 'true' || (github.event_name == 'workflow_dispatch' && github.event.inputs.run_migrations == 'true') }}
-    secrets:
-      AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN_DEV }}
-      DEV_TFVARS: ${{ secrets.DEV_TFVARS }}
-      AURORA_SYNC_SECRET_ARN: ${{ secrets.AURORA_SYNC_SECRET_ARN_DEV }}
-      RDS_PROXY_ENDPOINT: ${{ secrets.RDS_PROXY_ENDPOINT_DEV }}
-      TELEGRAM_SECRET_ARN: ${{ secrets.TELEGRAM_SECRET_ARN_DEV }}
-      TF_STATE_BUCKET: ${{ secrets.TF_STATE_BUCKET_DEV }}
-      TF_STATE_LOCK_TABLE: ${{ secrets.TF_STATE_LOCK_TABLE_DEV }}
+    concurrency:
+      group: terraform-dev
+      cancel-in-progress: false
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN_DEV }}
+          aws-region: us-east-1
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: snok/install-poetry@v1
+        if: needs.changes.outputs.migrations == 'true'
+        with:
+          version: "1.8.2"
+
+      - name: Run Alembic migrations
+        if: needs.changes.outputs.migrations == 'true'
+        run: poetry install && poetry run alembic upgrade head
+        env:
+          AURORA_SYNC_SECRET_ARN: ${{ secrets.AURORA_SYNC_SECRET_ARN_DEV }}
+          RDS_PROXY_ENDPOINT: ${{ secrets.RDS_PROXY_ENDPOINT_DEV }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+
+      - name: Terraform apply (agent + lambdas)
+        working-directory: infrastructure/terraform
+        env:
+          DEV_TFVARS: ${{ secrets.DEV_TFVARS }}
+          TF_WORKSPACE: dev
+          TELEGRAM_SECRET_ARN: ${{ secrets.TELEGRAM_SECRET_ARN_DEV }}
+          TF_STATE_BUCKET: ${{ secrets.TF_STATE_BUCKET_DEV }}
+          TF_STATE_LOCK_TABLE: ${{ secrets.TF_STATE_LOCK_TABLE_DEV }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${DEV_TFVARS:-}" ]]; then
+            echo "::warning::DEV_TFVARS no configurado; usando tfvars mínimo"
+            {
+              echo 'env = "dev"'
+              echo 'aws_region = "us-east-1"'
+              echo 'aws_profile = ""'
+              echo "telegram_secret_arn = \"${TELEGRAM_SECRET_ARN}\""
+              echo "terraform_state_bucket = \"${TF_STATE_BUCKET}\""
+              echo "terraform_state_lock_table = \"${TF_STATE_LOCK_TABLE}\""
+              echo 'terraform_state_key = "prode/terraform.tfstate"'
+            } > dev.tfvars
+          fi
+          chmod +x bin/ci-terraform-apply.sh bin/*.sh
+          ./bin/ci-terraform-apply.sh
+
+      - name: Verify guardrail SSM
+        run: |
+          aws ssm get-parameter --name /prode-mundial/dev/guardrail_id --region us-east-1
+          aws ssm get-parameter --name /prode-mundial/dev/guardrail_version --region us-east-1
