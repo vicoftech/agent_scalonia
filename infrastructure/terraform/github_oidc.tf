@@ -106,6 +106,7 @@ data "aws_iam_policy_document" "github_actions_deploy" {
       "logs:*",
       "events:*",
       "sns:*",
+      "sqs:*",
       "ec2:*",
       "rds:*",
       "bedrock:*",
