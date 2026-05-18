@@ -4,10 +4,14 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from src.dao.dynamo.group_dao import GLOBAL_GROUP_ID, GroupDAO
+from src.dao.dynamo.group_dao import GroupDAO
 from src.dao.dynamo.invitation_dao import InvitationDAO
 from src.dao.dynamo.user_dao import UserDAO
-from src.services.auth_service import INACTIVE_USER_MESSAGE, USER_STATUS_ACTIVE
+from src.services.auth_service import (
+    INACTIVE_USER_MESSAGE,
+    INVITATION_REQUIRED_MESSAGE,
+    USER_STATUS_ACTIVE,
+)
 from src.services.invitation_service import InvitationService
 from src.utils.telegram_start import parse_start_payload
 
@@ -68,7 +72,4 @@ def handle_start_command(chat_id: int, text: str) -> str | None:
             f"Te uniste al grupo {result['group_name']}."
         )
 
-    new_user_id = str(uuid4())
-    users.create_telegram_user(new_user_id, platform_id_hash)
-    groups.add_member(GLOBAL_GROUP_ID, new_user_id)
-    return "¡Bienvenido al Prode Mundial 2026! Entraste al grupo general."
+    return INVITATION_REQUIRED_MESSAGE

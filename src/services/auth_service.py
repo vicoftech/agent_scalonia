@@ -9,7 +9,12 @@ USER_STATUS_ACTIVE = "ACTIVE"
 # Mensaje genérico: no revelar si falta registro, invitación o baneo.
 INACTIVE_USER_MESSAGE = (
     "No encontramos tu cuenta entre los usuarios activos del Prode Mundial 2026. "
-    "Si es tu primera vez, enviá /start o usá el link de invitación que te compartieron."
+    "Si es tu primera vez, usá el link de invitación que te compartieron (t.me/...?start=...)."
+)
+
+INVITATION_REQUIRED_MESSAGE = (
+    "Para unirte al Prode Mundial 2026 necesitás una invitación. "
+    "Pedile a quien te invitó el link de Telegram con el código de invitación."
 )
 
 
