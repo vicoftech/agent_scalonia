@@ -1,38 +1,23 @@
-"""agent/tools/kb_retrieval_tool.py — RAG + web search con enriquecimiento (SPEC-023)."""
+"""agent/tools/kb_retrieval_tool.py — RAG + web search con enriquecimiento (SPEC-023, ISSUE-024)."""
 from __future__ import annotations
 
 import logging
 
 from strands import tool
 
-from src.kb.domain import is_football_domain_query
-from src.kb.enrichment_queue import enqueue_enrichment
-from src.kb.kb_enrichment_service import KB_RESULT_MIN_CHARS, classify_query
-
 logger = logging.getLogger(__name__)
-
-_WEB_FAILURE_PREFIXES = (
-    "No encontré información relevante",
-    "No pude completar la búsqueda",
-    "Solo puedo buscar información sobre fútbol",
-    "La Knowledge Base no está configurada",
-)
-
-
-def _is_usable_web_result(text: str) -> bool:
-    if not text or len(text.strip()) < 80:
-        return False
-    return not any(text.startswith(p) for p in _WEB_FAILURE_PREFIXES)
 
 
 @tool
 def kb_retrieval_tool(query: str, max_results: int = 5) -> str:
     """
-    Busca en la Knowledge Base (pgvector): historia, reglas, tácticas, cultura.
+    Busca primero en la Knowledge Base (pgvector): historia, reglas, tácticas, cultura.
 
-    NO usar para fixture, horarios, rivales ni calendario de partidos — eso es match_tool.
+    Si no hay pasajes relevantes o la pregunta es comparativa/estadísticas/tendencias,
+    hace fallback automático a búsqueda web (Tavily) y puede encolar enriquecimiento de KB.
 
-    Para resultados en vivo del día, el agente puede usar web_search_tool directo.
+    NO usar para fixture, horarios, rivales ni calendario — eso es match_tool.
+    Para ampliar tras un prefetch débil, el agente puede llamar web_search_tool.
     """
     from src.services.match_query_intent import is_match_fixture_query
 
@@ -43,51 +28,36 @@ def kb_retrieval_tool(query: str, max_results: int = 5) -> str:
             "No uses kb_retrieval_tool ni web_search_tool para horarios ni rivales."
         )
 
-    kb_result = ""
     try:
-        from src.kb.lambda_client import search_kb
+        from src.kb.resolve import format_kb_web_miss_message, resolve_kb_then_web
 
-        rows = search_kb(query, limit=max(1, min(max_results, 10)))
-        if rows:
-            from src.kb.chunks_format import format_kb_chunks
+        resolved = resolve_kb_then_web(query, max_results=max_results, enqueue_on_web=True)
 
-            kb_result = format_kb_chunks(rows)
+        if resolved.web_text:
+            if resolved.kb_text:
+                return (
+                    f"{resolved.kb_text}\n\n"
+                    f"--- Información complementaria (web) ---\n\n{resolved.web_text}"
+                )
+            return resolved.web_text
+
+        if resolved.kb_text:
+            return resolved.kb_text
+
+        return format_kb_web_miss_message(
+            tavily_configured=resolved.tavily_configured,
+            had_kb_snippet=bool(resolved.kb_chunk_count),
+        )
+
     except RuntimeError as exc:
         logger.warning("KB retrieval config: %s", exc)
-        kb_result = ""
+        return (
+            "Error técnico al consultar la Knowledge Base (no es que falte el dato). "
+            f"Detalle: {exc}"
+        )
     except Exception as exc:
         logger.warning("KB retrieval error: %s", exc, exc_info=True)
         return (
             "Error técnico al consultar la Knowledge Base (no es que falte el dato). "
             f"Detalle: {exc}"
         )
-
-    if kb_result and len(kb_result) > KB_RESULT_MIN_CHARS:
-        return kb_result
-
-    if not is_football_domain_query(query):
-        return kb_result or (
-            "Solo puedo buscar información sobre fútbol y mundiales FIFA. "
-            "Reformulá la consulta en ese ámbito."
-        )
-
-    from agent.tools.web_search_tool import perform_web_search
-
-    try:
-        web_result = perform_web_search(query)
-    except Exception as exc:
-        logger.warning("web search fallback failed: %s", exc)
-        web_result = None
-
-    if not web_result or not _is_usable_web_result(web_result):
-        if kb_result:
-            return kb_result
-        return "No encontré información sobre eso en la Knowledge Base ni en la web."
-
-    data_type = classify_query(query)
-    try:
-        enqueue_enrichment(query, web_result, data_type)
-    except Exception:
-        logger.exception("enqueue enrichment failed")
-
-    return web_result

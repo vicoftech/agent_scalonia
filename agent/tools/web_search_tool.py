@@ -43,6 +43,11 @@ def _get_tavily_api_key() -> str:
     return raw
 
 
+def is_tavily_configured() -> bool:
+    """True si hay API key o secreto Tavily en el entorno."""
+    return bool(_get_tavily_api_key())
+
+
 def perform_web_search(query: str) -> Optional[str]:
     """Búsqueda Tavily; sin API key devuelve None (tests pueden mockear)."""
     api_key = _get_tavily_api_key()
@@ -77,11 +82,19 @@ def _resolve_search(query: str) -> Optional[str]:
 @tool
 def web_search_tool(query: str, search_type: str = "general") -> str:
     """
-    Busca información actualizada sobre fútbol y el Mundial 2026.
-    Usa cache DynamoDB; TTL según search_type (live_match 10m, result 24h, fixture 6h, news 2h).
+    Busca en la web (Tavily) sobre fútbol y mundiales cuando la KB no alcanza.
+
+    Usar para: comparativas entre jugadores/selecciones, estadísticas, tendencias,
+    noticias recientes, resultados en vivo, datos no indexados en la Knowledge Base.
+
+    Usa cache DynamoDB; TTL según search_type (live_match 10m, result 24h, fixture 6h,
+    stats 6h, news 2h, general 6h).
 
     search_type: live_match | result | fixture | stats | news | general
-  """
+
+    NO usar para calendario/fixture del Mundial 2026 — match_tool.
+    kb_retrieval_tool ya intenta web en automático; llamá esta tool si hace falta ampliar.
+    """
     from src.services.match_query_intent import is_match_fixture_query
 
     if is_match_fixture_query(query):

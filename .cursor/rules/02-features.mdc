@@ -103,8 +103,8 @@ SC-02: veda activa + usuario sin predicción → "⏰ Quedan 30 min para ARG vs 
 
 ## FEATURE-009 — Knowledge Base del Mundial  [Sprint 3]
 
-- US-026: Preguntas sobre mundiales → RAG desde Bedrock KB
-- US-027: Info del Mundial 2026 no en KB → web_search_tool complementa
+- US-026: Preguntas sobre mundiales → RAG desde Bedrock KB (`kb_retrieval_tool`)
+- US-027: Si la KB no alcanza (comparativas, stats, tendencias, noticias) → fallback automático a `web_search_tool` / Tavily; el agente no debe responder solo "no está en la KB" sin intentar web (ISSUE-024)
 
 ---
 

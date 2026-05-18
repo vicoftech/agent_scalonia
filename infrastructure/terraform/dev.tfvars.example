@@ -64,4 +64,6 @@ telegram_secret_arn = "arn:aws:secretsmanager:us-east-1:ACCOUNT_ID:secret:SCALON
 #
 # ► Cuenta asap_dev (solo si querés datos en cgxq84qu0b72 — sin acceso DBeaver fácil):
 # rds_proxy_endpoint            = "aurora-pg-dev.cluster-cgxq84qu0b72.us-east-1.rds.amazonaws.com"
-# tavily_secret_arn             = "arn:aws:secretsmanager:us-east-1:ACCOUNT_ID:secret:TAVILY_API_KEY-xxx"
+# Tavily (web search) — crear secreto en SM; NO poner la API key en tfvars:
+# aws secretsmanager create-secret --name prode-mundial/dev/tavily-api-key --secret-string "tvly-..."
+tavily_secret_arn = "arn:aws:secretsmanager:us-east-1:ACCOUNT_ID:secret:prode-mundial/dev/tavily-api-key-XXXX"

@@ -70,22 +70,29 @@ class TestWebSearchTool:
 
 
 class TestKbRetrievalTool:
-    def test_sin_lambda_intenta_web(self):
-        from agent.tools.kb_retrieval_tool import kb_retrieval_tool
+    def test_sin_datos_mensaje_claro(self):
+        import importlib
 
-        with patch(
-            "src.kb.lambda_client.search_kb",
-            side_effect=RuntimeError("KB_QUERY_LAMBDA_NAME no configurado"),
-        ):
-            with patch(
-                "agent.tools.web_search_tool.perform_web_search",
-                return_value=None,
-            ):
-                out = kb_retrieval_tool("goles Maradona en el Mundial 1986")
-        assert "No encontré" in out
+        krt = importlib.import_module("agent.tools.kb_retrieval_tool")
+
+        with patch("src.kb.resolve.resolve_kb_then_web") as mock_resolve:
+            from src.kb.resolve import KbWebResolveResult
+
+            mock_resolve.return_value = KbWebResolveResult(
+                kb_text="",
+                web_text=None,
+                kb_chunk_count=0,
+                kb_max_score=0.0,
+                web_fallback_used=False,
+                tavily_configured=False,
+            )
+            out = krt.kb_retrieval_tool("goles Maradona en el Mundial 1986")
+        assert "Tavily" in out or "suficiente" in out.lower()
 
     def test_sc04_pgvector_formatea_chunks(self):
-        from agent.tools.kb_retrieval_tool import kb_retrieval_tool
+        import importlib
+
+        krt = importlib.import_module("agent.tools.kb_retrieval_tool")
 
         long_content = "Maradona anotó 5 goles en 1986. " * 15
         rows = [
@@ -95,12 +102,42 @@ class TestKbRetrievalTool:
                 "score": 0.92,
             }
         ]
-        with patch("src.kb.lambda_client.search_kb", return_value=rows):
-            with patch("agent.tools.web_search_tool.perform_web_search") as mock_web:
-                out = kb_retrieval_tool("goles Maradona Mundial 1986")
+        with patch("src.kb.resolve.resolve_kb_then_web") as mock_resolve:
+            from src.kb.resolve import KbWebResolveResult
+
+            mock_resolve.return_value = KbWebResolveResult(
+                kb_text=long_content,
+                web_text=None,
+                kb_chunk_count=1,
+                kb_max_score=0.92,
+                web_fallback_used=False,
+                tavily_configured=True,
+            )
+            out = krt.kb_retrieval_tool("goles Maradona Mundial 1986")
         assert "5 goles" in out
         assert "1986" in out
-        mock_web.assert_not_called()
+
+    def test_comparativa_dispara_web_en_tool(self, monkeypatch):
+        import importlib
+
+        krt = importlib.import_module("agent.tools.kb_retrieval_tool")
+
+        monkeypatch.setenv("TAVILY_API_KEY", "test")
+        web = "Messi vs Haaland stats\n" + "x " * 50
+        with patch("src.kb.resolve.resolve_kb_then_web") as mock_resolve:
+            from src.kb.resolve import KbWebResolveResult
+
+            mock_resolve.return_value = KbWebResolveResult(
+                kb_text="",
+                web_text=web,
+                kb_chunk_count=0,
+                kb_max_score=0.4,
+                web_fallback_used=True,
+                tavily_configured=True,
+            )
+            out = krt.kb_retrieval_tool("Compará Messi y Haaland en goles")
+        assert "Haaland" in out
+        assert "Knowledge Base ni en la web" not in out
 
 
 class TestCacheKey:

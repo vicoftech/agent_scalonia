@@ -84,6 +84,15 @@ data "aws_iam_policy_document" "telegram_webhook_inline" {
   }
 
   dynamic "statement" {
+    for_each = var.tavily_secret_arn != "" ? [1] : []
+    content {
+      sid       = "TavilySecret"
+      actions   = ["secretsmanager:GetSecretValue"]
+      resources = [var.tavily_secret_arn]
+    }
+  }
+
+  dynamic "statement" {
     for_each = module.kb.kb_query_lambda_arn != "" ? [1] : []
     content {
       sid       = "KbQueryLambda"
@@ -136,6 +145,9 @@ resource "aws_lambda_function" "telegram_webhook" {
       },
       module.kb.kb_query_lambda_name != "" ? {
         KB_QUERY_LAMBDA_NAME = module.kb.kb_query_lambda_name
+      } : {},
+      var.tavily_secret_arn != "" ? {
+        TAVILY_SECRET_ARN = var.tavily_secret_arn
       } : {},
     )
   }

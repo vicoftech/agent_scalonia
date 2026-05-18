@@ -30,6 +30,14 @@ _TEAM_FIXTURE = re.compile(
 
 def is_match_fixture_query(text: str) -> bool:
     """True si la pregunta es sobre fixture/partidos del Mundial 2026."""
+    try:
+        from src.kb.query_intent import is_analytical_query
+
+        if is_analytical_query(text):
+            return False
+    except Exception:
+        pass
+
     q = (text or "").strip().lower()
     if len(q) < 4:
         return False
