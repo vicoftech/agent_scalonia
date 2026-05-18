@@ -28,7 +28,9 @@ class TestAgentEntrypoint:
 
     def test_agent_tiene_echo_tool(self):
         from agent.main import _build_agent
-        tool_names = [getattr(t, "__name__", str(t)) for t in _build_agent().tools]
+        agent = _build_agent("test-user")
+        tools = getattr(agent, "tools", None) or getattr(agent, "tool", [])
+        tool_names = [getattr(t, "__name__", str(t)) for t in tools]
         assert any("echo" in n.lower() for n in tool_names)
 
 

@@ -29,7 +29,7 @@ from agent.guardrails.constants import (
 )
 from agent.guardrails.detect import is_guardrail_block_event
 from agent.tools.echo_tool import echo_tool
-from agent.tools.invitation_tool import invitation_tool
+from agent.tools.invitation_tool import make_invitation_tool
 from agent.tools.kb_retrieval_tool import kb_retrieval_tool
 from agent.tools.web_search_tool import web_search_tool
 
@@ -49,7 +49,7 @@ Si kb_retrieval_tool devuelve pasajes, basá la respuesta en ellos; no inventes 
 Si kb_retrieval_tool devuelve "Error técnico", informá el fallo; no digas que el dato no existe.
 Para grupos/equipos del Mundial 2026, llamá kb_retrieval_tool con query explícita (ej. "grupo A equipos Mundial 2026").
 Para partidos por ciudad/sede (ej. Kansas City), kb_retrieval_tool con "Kansas City partidos Mundial 2026 calendario".
-Para invitar personas al grupo usá invitation_tool (create/list/revoke) con el user_id del payload.
+Para invitar personas usá invitation_tool (create/list/revoke/uses); no hace falta pasar user_id.
 Usuarios no ACTIVE o sin registro no llegan al agente (el webhook responde con mensaje fijo).
 Las features de predicciones, rankings y trivia se habilitan sprint a sprint.
 """.strip()
@@ -81,7 +81,7 @@ def _bedrock_model_kwargs() -> dict:
     return kwargs
 
 
-def _build_agent() -> Agent:
+def _build_agent(caller_user_id: str) -> Agent:
     model_kw = _bedrock_model_kwargs()
     logger.info(
         "Bedrock model_id=%s region=%s guardrail=%s",
@@ -92,7 +92,12 @@ def _build_agent() -> Agent:
     return Agent(
         model=BedrockModel(**model_kw),
         system_prompt=SYSTEM_PROMPT,
-        tools=[echo_tool, kb_retrieval_tool, web_search_tool, invitation_tool],
+        tools=[
+            echo_tool,
+            kb_retrieval_tool,
+            web_search_tool,
+            make_invitation_tool(caller_user_id),
+        ],
     )
 
 
@@ -114,7 +119,7 @@ async def agent_invocation(payload: dict):
     logger.info("Invocación | platform=%s | user_prefix=%s", platform, user_id[:8])
 
     # Nuevo Agent por invoke: evita microVM cacheado con modelo/código viejo.
-    stream = _build_agent().stream_async(prompt)
+    stream = _build_agent(user_id).stream_async(prompt)
     async for event in stream:
         if is_guardrail_block_event(event):
             logger.warning(
