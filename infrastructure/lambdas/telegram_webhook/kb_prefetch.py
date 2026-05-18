@@ -12,6 +12,20 @@ def enrich_prompt_with_kb(user_prompt: str) -> tuple[str, int]:
     Consulta kb_query y adjunta pasajes al prompt del agente.
     Retorna (prompt_enriquecido, cantidad_chunks).
     """
+    try:
+        from src.services.match_query_intent import is_match_fixture_query
+
+        if is_match_fixture_query(user_prompt):
+            logger.info("kb prefetch skipped: fixture query → match_tool")
+            return (
+                f"{user_prompt}\n\n"
+                "[Instrucción: consulta de PARTIDOS/FIXTURE. "
+                "Usá match_tool únicamente; no uses KB ni web_search para horarios o rivales.]",
+                0,
+            )
+    except Exception:
+        pass
+
     if not os.environ.get("KB_QUERY_LAMBDA_NAME", "").strip():
         return user_prompt, 0
     try:

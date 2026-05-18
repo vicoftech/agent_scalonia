@@ -82,6 +82,14 @@ def web_search_tool(query: str, search_type: str = "general") -> str:
 
     search_type: live_match | result | fixture | stats | news | general
   """
+    from src.services.match_query_intent import is_match_fixture_query
+
+    if is_match_fixture_query(query):
+        return (
+            "Para partidos, fixture, horarios y calendario del Mundial 2026 usá match_tool, "
+            "no web_search_tool."
+        )
+
     if not is_football_domain_query(query):
         return _OUT_OF_SCOPE_MSG
 

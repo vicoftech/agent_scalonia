@@ -28,12 +28,21 @@ def _is_usable_web_result(text: str) -> bool:
 @tool
 def kb_retrieval_tool(query: str, max_results: int = 5) -> str:
     """
-    Busca en la Knowledge Base (pgvector). Si no hay suficiente contexto,
-    consulta la web, responde al usuario y enriquece KB (histórico) o cache
-    (volátil) en background sin bloquear.
+    Busca en la Knowledge Base (pgvector): historia, reglas, tácticas, cultura.
+
+    NO usar para fixture, horarios, rivales ni calendario de partidos — eso es match_tool.
 
     Para resultados en vivo del día, el agente puede usar web_search_tool directo.
     """
+    from src.services.match_query_intent import is_match_fixture_query
+
+    if is_match_fixture_query(query):
+        return (
+            "Esta consulta es sobre partidos o fixture del Mundial 2026. "
+            "Debés usar match_tool (action=search|get|next|group|teams). "
+            "No uses kb_retrieval_tool ni web_search_tool para horarios ni rivales."
+        )
+
     kb_result = ""
     try:
         from src.kb.lambda_client import search_kb

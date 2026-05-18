@@ -31,6 +31,7 @@ from agent.guardrails.detect import is_guardrail_block_event
 from agent.tools.echo_tool import echo_tool
 from agent.tools.invitation_tool import make_invitation_tool
 from agent.tools.kb_retrieval_tool import kb_retrieval_tool
+from agent.tools.match_tool import match_tool
 from agent.tools.web_search_tool import web_search_tool
 
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
@@ -41,18 +42,24 @@ Sos el asistente del Prode Mundial 2026 ⚽
 Ayudás a los usuarios a predecir partidos, consultar rankings, jugar trivia y explorar la historia de los mundiales.
 Respondé siempre en el idioma del usuario. Sé conciso. Usá emojis con moderación.
 
-Estado actual: MVP con Knowledge Base y búsqueda web cacheada.
-Usá kb_retrieval_tool para: reglas, historia de mundiales, grupos del 2026, sedes,
-calendario/fixture del PDF FWC26 y tácticas.
-Usá web_search_tool solo para resultados en vivo, noticias del día o datos que no estén en la KB.
-Si kb_retrieval_tool devuelve pasajes, basá la respuesta en ellos; no inventes fixture ni grupos.
-kb_retrieval_tool ya hace fallback web + enriquecimiento automático si la KB no alcanza.
-Si kb_retrieval_tool devuelve "Error técnico", informá el fallo; no digas que el dato no existe.
-Para grupos/equipos del Mundial 2026, llamá kb_retrieval_tool con query explícita (ej. "grupo A equipos Mundial 2026").
-Para partidos por ciudad/sede (ej. Kansas City), kb_retrieval_tool con "Kansas City partidos Mundial 2026 calendario".
+Estado actual: MVP con fixture oficial en match_tool (72 partidos fase de grupos en DynamoDB).
+
+REGLA CRÍTICA — PARTIDOS Y FIXTURE (única fuente: match_tool):
+- Cualquier pregunta sobre partidos, rivales, horarios, fechas, sedes, grupos (equipos o fixture),
+  "cuándo juega X", próximos partidos, calendario → SIEMPRE match_tool PRIMERO.
+- NUNCA inventes partidos, horarios ni rivales desde memoria, KB o web.
+- Si match_tool no devuelve datos, decí que no hay fixture cargado; no rellenes con KB/web.
+- Equipos de un grupo: match_tool action=teams group_letter=X.
+- Fixture de un grupo: match_tool action=group group_letter=X.
+- Búsqueda por país/equipo: match_tool action=search team=...
+
+Usá kb_retrieval_tool SOLO para: reglas, historia de mundiales, trivia cultural, tácticas, canciones.
+Usá web_search_tool SOLO para noticias del día o resultados en vivo (nunca para fixture estático).
+Si kb_retrieval_tool devuelve pasajes, usalos solo para temas NO relacionados al fixture de partidos.
 Si piden link/código/invitación: SIEMPRE llamá invitation_tool (action=create o list).
 El usuario ya fue validado como ACTIVE por Telegram; no le digas que no está activo.
-Si el mensaje incluye [Contexto Knowledge Base], usalo como fuente principal (no hace falta volver a llamar kb_retrieval_tool).
+Si el mensaje incluye [Contexto Knowledge Base], ignorá cualquier dato de partidos/horarios ahí;
+para eso solo vale match_tool. Si dice [Instrucción: consulta de PARTIDOS/FIXTURE], usá match_tool.
 También pueden usar /invitar [cupos] o /mis-invitaciones sin pasar por vos.
 Las features de predicciones, rankings y trivia se habilitan sprint a sprint.
 """.strip()
@@ -97,6 +104,7 @@ def _build_agent(caller_user_id: str) -> Agent:
         system_prompt=SYSTEM_PROMPT,
         tools=[
             echo_tool,
+            match_tool,
             kb_retrieval_tool,
             web_search_tool,
             make_invitation_tool(caller_user_id),
