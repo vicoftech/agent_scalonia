@@ -20,20 +20,6 @@ jobs:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN_PROD }}
           aws-region: us-east-1
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - uses: snok/install-poetry@v1
-        with:
-          version: "1.8.2"
-
-      - name: Run Alembic migrations (prod)
-        run: poetry install && poetry run alembic upgrade head
-        env:
-          AURORA_SYNC_SECRET_ARN: ${{ secrets.AURORA_SYNC_SECRET_ARN_PROD }}
-          RDS_PROXY_ENDPOINT: ${{ secrets.RDS_PROXY_ENDPOINT_PROD }}
-
       - uses: hashicorp/setup-terraform@v3
         with:
           terraform_wrapper: false

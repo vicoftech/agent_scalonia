@@ -17,11 +17,6 @@ on:
         required: false
         type: string
         default: us-east-1
-      run_alembic:
-        description: Ejecutar alembic upgrade head antes del apply
-        required: false
-        type: boolean
-        default: false
     secrets:
       AWS_ROLE_ARN:
         description: ARN del rol IAM (trust OIDC GitHub → AWS)
@@ -31,10 +26,6 @@ on:
         required: false
       STAGING_TFVARS:
         description: Contenido completo de staging.tfvars (workspace staging)
-        required: false
-      AURORA_SYNC_SECRET_ARN:
-        required: false
-      RDS_PROXY_ENDPOINT:
         required: false
       TELEGRAM_SECRET_ARN:
         required: false
@@ -61,22 +52,6 @@ jobs:
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ inputs.aws_region }}
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - uses: snok/install-poetry@v1
-        if: inputs.run_alembic
-        with:
-          version: "1.8.2"
-
-      - name: Run Alembic migrations
-        if: inputs.run_alembic
-        run: poetry install && poetry run alembic upgrade head
-        env:
-          AURORA_SYNC_SECRET_ARN: ${{ secrets.AURORA_SYNC_SECRET_ARN }}
-          RDS_PROXY_ENDPOINT: ${{ secrets.RDS_PROXY_ENDPOINT }}
 
       - uses: hashicorp/setup-terraform@v3
         with:

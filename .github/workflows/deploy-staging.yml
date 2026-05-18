@@ -10,46 +10,21 @@ on:
       - "requirements-agent.txt"
       - "pyproject.toml"
       - "poetry.lock"
-      - "migrations/**"
-      - "alembic.ini"
       - "infrastructure/terraform/**"
       - ".github/workflows/deploy-staging.yml"
       - ".github/workflows/reusable-terraform-apply.yml"
   workflow_dispatch:
-    inputs:
-      run_migrations:
-        description: Ejecutar Alembic antes del deploy
-        type: boolean
-        default: true
 
 jobs:
-  changes:
-    runs-on: ubuntu-latest
-    outputs:
-      migrations: ${{ steps.filter.outputs.migrations }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dorny/paths-filter@v3
-        id: filter
-        with:
-          filters: |
-            migrations:
-              - "migrations/**"
-              - "alembic.ini"
-
   deploy:
-    needs: changes
     environment: staging
     uses: ./.github/workflows/reusable-terraform-apply.yml
     with:
       environment_name: staging
       terraform_workspace: staging
-      run_alembic: ${{ needs.changes.outputs.migrations == 'true' || (github.event_name == 'workflow_dispatch' && github.event.inputs.run_migrations == 'true') }}
     secrets:
       AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN_STAGING }}
       STAGING_TFVARS: ${{ secrets.STAGING_TFVARS }}
-      AURORA_SYNC_SECRET_ARN: ${{ secrets.AURORA_SYNC_SECRET_ARN_STAGING }}
-      RDS_PROXY_ENDPOINT: ${{ secrets.RDS_PROXY_ENDPOINT_STAGING }}
       TELEGRAM_SECRET_ARN: ${{ secrets.TELEGRAM_SECRET_ARN_STAGING }}
       TF_STATE_BUCKET: ${{ secrets.TF_STATE_BUCKET_STAGING }}
       TF_STATE_LOCK_TABLE: ${{ secrets.TF_STATE_LOCK_TABLE_STAGING }}
