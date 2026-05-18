@@ -40,12 +40,8 @@ resource "aws_bedrock_guardrail" "prode" {
       examples   = ["¿Cómo hago un loop en Python?", "¿Qué es un LLM?"]
       type       = "DENY"
     }
-    topics_config {
-      name       = "entretenimiento-no-futbol"
-      definition = "Música, cine, series, videojuegos y libros; no fútbol ni mundiales ni finales históricas"
-      examples   = ["¿Cuál es el mejor álbum de Taylor Swift?", "¿Qué serie de Netflix recomendás?"]
-      type       = "DENY"
-    }
+    # Sin topic "entretenimiento": bloqueaba falsos positivos ("mejor/peor final del mundial").
+    # El system prompt acota el alcance a fútbol y mundiales.
   }
 
   content_policy_config {

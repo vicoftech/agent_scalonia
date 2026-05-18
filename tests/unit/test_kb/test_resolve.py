@@ -6,7 +6,11 @@ import pytest
 
 os.environ.setdefault("DYNAMODB_TABLE", "ProdeTable-test")
 
-from src.kb.query_intent import is_analytical_query, suggested_web_search_type
+from src.kb.query_intent import (
+    is_analytical_query,
+    is_historical_football_query,
+    suggested_web_search_type,
+)
 from src.kb.resolve import (
     format_kb_web_miss_message,
     kb_is_sufficient,
@@ -22,6 +26,11 @@ class TestQueryIntent:
 
     def test_historia_no_es_analitica(self):
         assert not is_analytical_query("reglas del fuera de juego en el mundial")
+
+    def test_final_historica_es_historical_football(self):
+        q = "Cual fue la mejor final de la historia y cual fue la peor"
+        assert is_historical_football_query(q)
+        assert is_analytical_query(q)
 
 
 class TestKbSufficient:
@@ -63,6 +72,26 @@ class TestResolveKbThenWeb:
                 return_value="Titulo\nContenido web largo " * 10,
             ):
                 out = resolve_kb_then_web("Compará Messi y Haaland en selecciones")
+        assert out.web_fallback_used
+        assert out.web_text
+
+    def test_final_historica_fuerza_web_aunque_kb_alta(self, monkeypatch):
+        monkeypatch.setenv("TAVILY_API_KEY", "test-key")
+        rows = [
+            {
+                "source_path": "mundiales/finales.md",
+                "content": "La final de 1970 " * 40,
+                "score": 0.91,
+            }
+        ]
+        q = "Cual fue la mejor final de la historia y cual fue la peor"
+
+        with patch("src.kb.lambda_client.search_kb", return_value=rows):
+            with patch(
+                "src.kb.resolve.perform_web_search",
+                return_value="Brasil 1970 final Italia\n" + "data " * 50,
+            ):
+                out = resolve_kb_then_web(q)
         assert out.web_fallback_used
         assert out.web_text
 

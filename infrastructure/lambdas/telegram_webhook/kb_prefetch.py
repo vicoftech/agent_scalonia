@@ -25,11 +25,24 @@ _WEB_INSTRUCTION = (
 )
 
 
+def _prompt_with_football_scope(user_prompt: str) -> str:
+    """Ayuda al modelo/guardrail a no confundir finales del Mundial con entretenimiento."""
+    try:
+        from src.kb.domain import is_football_domain_query
+
+        if is_football_domain_query(user_prompt):
+            return f"[Alcance: fútbol y Mundial FIFA]\n{user_prompt}"
+    except Exception:
+        pass
+    return user_prompt
+
+
 def enrich_prompt_with_kb(user_prompt: str) -> tuple[str, int]:
     """
     Consulta KB (+ web si miss/baja relevancia) y adjunta contexto al prompt.
     Retorna (prompt_enriquecido, cantidad_chunks_kb).
     """
+    user_prompt = _prompt_with_football_scope(user_prompt)
     try:
         from src.services.match_query_intent import is_match_fixture_query
 

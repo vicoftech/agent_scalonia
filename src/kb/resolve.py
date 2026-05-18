@@ -10,7 +10,7 @@ from src.kb.chunks_format import format_kb_chunks
 from src.kb.domain import is_football_domain_query
 from src.kb.enrichment_queue import enqueue_enrichment
 from src.kb.kb_enrichment_service import KB_RESULT_MIN_CHARS, classify_query
-from src.kb.query_intent import is_analytical_query
+from src.kb.query_intent import is_analytical_query, is_historical_football_query
 
 logger = logging.getLogger(__name__)
 
@@ -112,7 +112,10 @@ def resolve_kb_then_web(
     kb_max = max_kb_score(rows)
     tavily_ok = is_tavily_configured()
 
-    if kb_is_sufficient(query, kb_text, kb_max):
+    # Finales históricas / mejor-peor: KB con score alto pero tangencial no debe cortar Tavily
+    force_web = is_football_domain_query(query) and is_historical_football_query(query)
+
+    if kb_is_sufficient(query, kb_text, kb_max) and not force_web:
         logger.info(
             "kb_resolve sufficient | chunks=%s max_score=%.3f analytical=%s",
             len(rows),
@@ -145,12 +148,13 @@ def resolve_kb_then_web(
                 logger.exception("enqueue enrichment failed")
 
     logger.info(
-        "kb_resolve fallback | chunks=%s max_score=%.3f web_used=%s tavily=%s analytical=%s",
+        "kb_resolve fallback | chunks=%s max_score=%.3f web_used=%s tavily=%s analytical=%s force_web=%s",
         len(rows),
         kb_max,
         web_used,
         tavily_ok,
         is_analytical_query(query),
+        force_web,
     )
 
     return KbWebResolveResult(

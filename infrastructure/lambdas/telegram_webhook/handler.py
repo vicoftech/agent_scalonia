@@ -2,7 +2,7 @@
 infrastructure/lambdas/telegram_webhook/handler.py
 Recibe Updates de Telegram → invoca AgentCore Runtime → sendMessage.
 SPEC: SPEC-2026-011 | TASK: TASK-000-003 | Modo: IA-Assisted
-# deploy-trigger: 2026-05-18
+# deploy-trigger: 2026-05-19
 """
 from __future__ import annotations
 

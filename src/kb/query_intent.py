@@ -14,6 +14,14 @@ _ANALYTICAL_PATTERNS = [
     r"\bentre\b.*\b(y|vs\.?|versus)\b",
 ]
 
+_HISTORICAL_FOOTBALL_PATTERN = re.compile(
+    r"\b("
+    r"final(?:es)?|semifinal(?:es)?|mundial(?:es)?|copa\s+del\s+mundo|"
+    r"historia|hist[oó]ric[oa]s?|partido\s+legendario|época\s+dorada"
+    r")\b",
+    re.IGNORECASE,
+)
+
 
 def is_analytical_query(text: str) -> bool:
     """Comparativas, stats agregadas, tendencias — suelen requerir web si la KB no es muy relevante."""
@@ -21,6 +29,11 @@ def is_analytical_query(text: str) -> bool:
     if len(q) < 8:
         return False
     return any(re.search(p, q, re.IGNORECASE) for p in _ANALYTICAL_PATTERNS)
+
+
+def is_historical_football_query(text: str) -> bool:
+    """Finales, historia de mundiales, etc. — suelen necesitar web además de KB."""
+    return bool(_HISTORICAL_FOOTBALL_PATTERN.search((text or "").strip()))
 
 
 def suggested_web_search_type(text: str) -> str:
