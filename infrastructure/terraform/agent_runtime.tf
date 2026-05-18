@@ -11,6 +11,10 @@ locals {
     "${local.repo_root}/agent/${f}" if !endswith(f, "/") && !strcontains(f, "__pycache__")],
     [for f in sort(fileset("${local.repo_root}/src/kb", "**")) :
     "${local.repo_root}/src/kb/${f}" if !endswith(f, "/") && !strcontains(f, "__pycache__")],
+    [for f in sort(fileset("${local.repo_root}/src/dao", "**")) :
+    "${local.repo_root}/src/dao/${f}" if !endswith(f, "/") && !strcontains(f, "__pycache__")],
+    [for f in sort(fileset("${local.repo_root}/src/services", "**")) :
+    "${local.repo_root}/src/services/${f}" if !endswith(f, "/") && !strcontains(f, "__pycache__")],
   )
   agent_source_hash = sha256(join("", concat(
     [filesha256("${local.repo_root}/requirements-agent.txt")],
@@ -101,7 +105,9 @@ data "aws_iam_policy_document" "agent_runtime" {
     actions = [
       "dynamodb:GetItem",
       "dynamodb:PutItem",
+      "dynamodb:UpdateItem",
       "dynamodb:Query",
+      "dynamodb:Scan",
     ]
     resources = [
       module.prode_table.dynamodb_table_arn,
@@ -164,11 +170,15 @@ resource "aws_bedrockagentcore_agent_runtime" "prode" {
       BEDROCK_MODEL_ID  = var.bedrock_model_id
       GUARDRAIL_ID      = module.guardrails.guardrail_id
       GUARDRAIL_VERSION = module.guardrails.guardrail_version
-      AWS_REGION        = var.aws_region
+      AWS_REGION             = var.aws_region
+      TELEGRAM_BOT_USERNAME  = var.telegram_bot_username
     },
     var.tavily_secret_arn != "" ? { TAVILY_SECRET_ARN = var.tavily_secret_arn } : {},
     module.kb.kb_query_lambda_name != "" ? {
       KB_QUERY_LAMBDA_NAME = module.kb.kb_query_lambda_name
+    } : {},
+    var.enable_invitation_notify_queue ? {
+      INVITATION_NOTIFY_QUEUE_URL = aws_sqs_queue.invitation_exhausted[0].url
     } : {},
   )
 

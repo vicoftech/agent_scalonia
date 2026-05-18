@@ -73,24 +73,6 @@ def _send_message(chat_id: int, text: str, token: str) -> None:
             break
 
 
-def _resolve_user_id(platform_id_hash: str) -> str | None:
-    table = _dynamodb.Table(DYNAMODB_TABLE)
-    try:
-        resp = table.query(
-            IndexName="GSI-1-platform",
-            KeyConditionExpression=(
-                boto3.dynamodb.conditions.Key("platform").eq("TELEGRAM")
-                & boto3.dynamodb.conditions.Key("platform_id_hash").eq(platform_id_hash)
-            ),
-            Limit=1,
-        )
-        items = resp.get("Items", [])
-        return items[0]["user_id"] if items else None
-    except Exception:
-        logger.exception("GSI-1 lookup error")
-        return None
-
-
 def _iter_json_objects(raw: str):
     """Varios eventos Strands/AgentCore vienen concatenados en un mismo chunk."""
     decoder = json.JSONDecoder()
@@ -292,6 +274,14 @@ def handler(event: dict, context) -> dict:
         logger.info("Telegram update recibido")
 
         token = _get_token()
+
+        if text.startswith("/start"):
+            from start_handler import handle_start_command
+
+            start_reply = handle_start_command(chat_id, text)
+            if start_reply:
+                _send_message(chat_id, start_reply, token)
+                return ok
         try:
             _post_json(
                 f"{TG_API}/bot{token}/sendChatAction",
@@ -302,9 +292,15 @@ def handler(event: dict, context) -> dict:
             pass
 
         platform_id_hash = hashlib.sha256(str(chat_id).encode()).hexdigest()
-        user_id = _resolve_user_id(platform_id_hash) or "unregistered"
-        session_id = f"tg-{platform_id_hash[:32]}"
 
+        from src.services.auth_service import AuthService
+
+        user_id, block_message = AuthService().resolve_telegram_access(platform_id_hash)
+        if block_message:
+            _send_message(chat_id, block_message, token)
+            return ok
+
+        session_id = f"tg-{platform_id_hash[:32]}"
         response_text = _invoke_agent(user_id, session_id, text)
         _send_message(chat_id, response_text, token)
 

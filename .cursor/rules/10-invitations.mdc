@@ -1,0 +1,568 @@
+---
+description: SPEC-020 — Sistema de invitaciones con deep link de Telegram, TTL 24h, cupo configurable y accountability en DynamoDB. Aplica cuando se trabaja en src/dao/dynamo/invitation_dao.py, src/services/invitation_service.py, agent/tools/invitation_tool.py o scripts/bootstrap_admin.py.
+globs: src/dao/dynamo/invitation_dao.py, src/services/invitation_service.py, src/services/auth_service.py, agent/tools/invitation_tool.py, scripts/bootstrap_admin.py, infrastructure/lambdas/telegram_webhook/handler.py, infrastructure/lambdas/telegram_webhook/start_handler.py
+alwaysApply: false
+---
+
+# SPEC-2026-020 — Sistema de Invitaciones
+
+**SPEC-ID**: SPEC-2026-020 | **Sprint**: Sprint 1 | **Modo**: IA-Assisted + Humano (bootstrap)
+**Dependencias**: SPEC-2026-018 (auth/access), SPEC-2026-019 (onboarding)
+
+---
+
+## Concepto central
+
+Una invitación es un short UUID de 8 chars que se convierte en un deep link de Telegram.
+El deep link es la unidad de distribución — el owner lo comparte, el invitado lo toca,
+el bot activa al usuario y arranca el onboarding. Todo ocurre en un solo click.
+
+**Invitación del admin global** → destino: grupo GLOBAL + GLOBAL (sin duplicado)
+**Invitación de un group owner** → destino: su grupo + GLOBAL automático
+
+---
+
+## Usuario activo — gate antes del agente (ahorro de tokens)
+
+Solo usuarios con `USER#<uuid>/PROFILE` y `status=ACTIVE` (SPEC-018) pueden invocar Bedrock.
+Si no hay perfil, `status != ACTIVE`, o `user_id` es `unregistered`/`anonymous` → **no** llamar a `invoke_agent_runtime`.
+
+Mensaje genérico (mismo para todos los casos; no revelar baneo vs. sin registro):
+
+```
+No encontramos tu cuenta entre los usuarios activos del Prode Mundial 2026.
+Si es tu primera vez, enviá /start o usá el link de invitación que te compartieron.
+```
+
+Implementación: `AuthService.resolve_telegram_access()` en el webhook **después** de `/start`
+y **antes** de `_invoke_agent`. `invitation_tool` usa `require_active_user_id()`.
+
+Excepciones (sin LLM):
+- `/start` nuevo → alta + respuesta fija de bienvenida (no pasa por el gate del agente).
+- `/start` con invitación inválida/expirada → mensaje fijo de invitación.
+
+---
+
+## Generación del invite_id
+
+```python
+import secrets, string
+
+def generate_invite_id() -> str:
+    """
+    Short UUID de 8 chars alfanumérico (A-Z a-z 0-9).
+    ~218 billones de combinaciones — colisión prácticamente imposible para este volumen.
+    Verificar unicidad con GetItem antes de devolver.
+    """
+    alphabet = string.ascii_letters + string.digits
+    for _ in range(5):   # max 5 intentos ante colisión (extremadamente improbable)
+        candidate = "".join(secrets.choice(alphabet) for _ in range(8))
+        if not invitation_dao.exists(candidate):
+            return candidate
+    raise RuntimeError("No se pudo generar invite_id único tras 5 intentos")
+```
+
+---
+
+## Deep link de Telegram
+
+```
+t.me/<BOT_USERNAME>?start=<invite_id>
+
+Ejemplo: t.me/ProdeBot?start=a3F9bC1d
+```
+
+Cuando el usuario toca el link:
+- Si tiene Telegram instalado: abre el bot y envía `/start a3F9bC1d` automáticamente
+- Si no tiene la app: redirige a la Play Store / App Store con el bot pre-seleccionado
+
+El webhook recibe:
+```json
+{
+  "message": {
+    "text": "/start a3F9bC1d",
+    "entities": [{"type": "bot_command", "offset": 0, "length": 6}]
+  }
+}
+```
+
+El handler parsea el parámetro del deep link:
+```python
+def parse_start_payload(text: str) -> str | None:
+    """Extrae el invite_id de '/start a3F9bC1d'. Retorna None si no hay payload."""
+    parts = text.strip().split(maxsplit=1)
+    if len(parts) == 2 and parts[0] == "/start":
+        return parts[1].strip()
+    return None
+```
+
+---
+
+## Ciclo de vida de una invitación
+
+```
+ACTIVE ──(cupo agotado)──▶ EXHAUSTED ──▶ notificación al admin
+ACTIVE ──(24h TTL)───────▶ EXPIRED
+ACTIVE ──(owner revoca)──▶ REVOKED
+```
+
+Invariantes:
+- Una invitación en estado no-ACTIVE rechaza nuevos usos con mensaje claro al usuario
+- Los registros en DynamoDB se conservan para accountability
+- TTL de limpieza automática: 30 días desde `expires_at` (atributo `ttl_expiry`)
+- El estado se actualiza atómicamente con `ConditionExpression`
+
+---
+
+## Modelo DynamoDB — dos tablas de invitaciones
+
+### INVITE#<invite_id> / DETAILS
+
+```python
+{
+    "partition_key": "INVITE#a3F9bC1d",
+    "sort_key":      "DETAILS",
+
+    # Identificación
+    "invite_id":     "a3F9bC1d",            # short UUID 8 chars
+    "group_id":      "GLOBAL",              # "GLOBAL" o "<group_uuid>"
+    "created_by":    "<user_id>",           # user_id del admin o del owner
+
+    # Cupo
+    "max_uses":      3,                     # cuántos slots tiene esta invitación
+    "uses_count":    0,                     # contador atómico — usa UpdateItem ADD
+
+    # Estado y tiempo
+    "status":        "ACTIVE",              # ACTIVE | EXHAUSTED | EXPIRED | REVOKED
+    "created_at":    "2026-06-15T10:00:00Z",
+    "expires_at":    "2026-06-16T10:00:00Z", # created_at + 24h
+    "ttl_expiry":    1750300000,            # Unix timestamp: expires_at + 30d (auto-limpieza DynamoDB)
+
+    # Metadata
+    "group_name":    "Mundial 2026 — General",  # desnormalizado para notificaciones
+    "inviter_alias": "GolazoAdmin",             # desnormalizado para notificaciones
+}
+```
+
+### INVITE_USE#<invite_id> / USER#<user_id>
+
+```python
+{
+    "partition_key": "INVITE_USE#a3F9bC1d",
+    "sort_key":      "USER#550e8400-...",
+
+    # Accountability
+    "invite_id":     "a3F9bC1d",
+    "user_id":       "550e8400-...",        # UUID interno del nuevo usuario
+    "used_at":       "2026-06-15T10:05:00Z",
+    "group_joined":  "GLOBAL",             # grupo al que se unió (siempre incluye GLOBAL)
+    "platform":      "TELEGRAM",
+}
+```
+
+---
+
+## GSI para consultas de accountability
+
+### GSI-5-invites-by-creator
+
+```
+PK: created_by (S)    SK: created_at (S)
+```
+
+Uso: `/mis-invitaciones` → listar todas las invitaciones generadas por un owner/admin,
+ordenadas por fecha de creación descendente.
+
+### GSI-6-invite-uses-by-invite
+
+```
+PK: invite_id (S)    SK: used_at (S)
+```
+
+Uso: ver quiénes usaron una invitación específica (accountability del admin).
+
+---
+
+## invitation_service.py — lógica de negocio
+
+```python
+# src/services/invitation_service.py
+
+class InvitationService:
+
+    def create_invitation(
+        self, creator_user_id: str, max_uses: int = 1
+    ) -> dict:
+        """
+        Crea una invitación. Valida cupo disponible antes de crear.
+        Retorna el dict con invite_id, link y expires_at.
+
+        Para admin global: group_id = "GLOBAL", sin límite.
+        Para owner FREE: group_id = su grupo, max_uses limitado a slots disponibles.
+        """
+
+    def validate_and_use(
+        self, invite_id: str, new_user_id: str
+    ) -> dict:
+        """
+        Valida la invitación y la consume atómicamente.
+
+        Pasos:
+        1. GetItem INVITE#<invite_id>/DETAILS
+        2. Verificar status=ACTIVE
+        3. Verificar expires_at > now()
+        4. UpdateItem: uses_count += 1 (ADD atómico)
+           ConditionExpression: uses_count < max_uses AND status = ACTIVE
+        5. Si uses_count == max_uses: status → EXHAUSTED
+        6. Crear INVITE_USE# para accountability
+        7. Crear membresías: grupo destino + GLOBAL
+        8. Si EXHAUSTED: disparar notificación al admin (async SQS)
+
+        Retorna: {group_id, group_name, is_new_group_member, is_global_member}
+        """
+
+    def revoke_invitation(
+        self, invite_id: str, revoker_user_id: str
+    ) -> bool:
+        """
+        Solo el creador de la invitación o el admin global puede revocarla.
+        UpdateItem status=REVOKED con ConditionExpression status=ACTIVE.
+        """
+
+    def list_my_invitations(
+        self, user_id: str, status_filter: str = None
+    ) -> list[dict]:
+        """
+        Query GSI-5-invites-by-creator para listar invitaciones del usuario.
+        Filtra opcionalmente por status (ACTIVE, EXHAUSTED, EXPIRED, REVOKED).
+        """
+
+    def get_invitation_uses(
+        self, invite_id: str, requester_user_id: str
+    ) -> list[dict]:
+        """
+        Solo el creador o el admin pueden ver los usos de una invitación.
+        Query GSI-6-invite-uses-by-invite.
+        """
+
+    def _check_creator_quota(
+        self, creator_user_id: str, max_uses: int
+    ) -> tuple[bool, str]:
+        """
+        Para owners FREE: verifica que max_uses <= slots libres del grupo.
+        slots_libres = max_members - current_members.
+        Para admin: siempre True.
+        """
+```
+
+---
+
+## Integración en el webhook de Telegram — gate + deep link
+
+```python
+# infrastructure/lambdas/telegram_webhook/handler.py (mensajes que NO son /start)
+
+platform_id_hash = hashlib.sha256(str(chat_id).encode()).hexdigest()
+user_id, block_message = AuthService().resolve_telegram_access(platform_id_hash)
+if block_message:
+    send_message(chat_id, block_message)  # sin invoke_agent_runtime
+    return
+
+_invoke_agent(user_id, session_id, text)
+```
+
+```python
+# infrastructure/lambdas/telegram_webhook/start_handler.py
+
+def handle_start_command(chat_id: int, text: str) -> str:
+    """
+    Maneja /start con o sin payload de invitación.
+    Retorna el mensaje de respuesta para el usuario.
+    """
+    invite_id = parse_start_payload(text)   # None si no hay payload
+
+    platform_id_hash = hashlib.sha256(str(chat_id).encode()).hexdigest()
+    existing_user = user_dao.get_by_platform_hash("TELEGRAM", platform_id_hash)
+
+    if existing_user:
+        if existing_user["status"] != "ACTIVE":
+            return INACTIVE_USER_MESSAGE  # genérico, sin LLM
+        return f"¡Hola de nuevo, {existing_user.alias}! Ya estás registrado."
+
+    if invite_id:
+        # Usuario nuevo con invitación
+        invite = invitation_dao.get(invite_id)
+
+        if not invite or invite["status"] != "ACTIVE":
+            return ("Esta invitación ya no está vigente. "
+                    "Pedile a quien te la mandó que genere una nueva.")
+
+        if invite["expires_at"] < datetime.now(tz=timezone.utc).isoformat():
+            invitation_dao.update_status(invite_id, "EXPIRED")
+            return "Esta invitación expiró (tenía 24hs de vigencia). Pedí una nueva."
+
+        # Crear usuario y consumir la invitación
+        new_user_id = str(uuid4())
+        user_dao.create(new_user_id, platform="TELEGRAM",
+                        platform_id_hash=platform_id_hash)
+        result = invitation_service.validate_and_use(invite_id, new_user_id)
+        # El onboarding M1 se dispara desde el agente en la siguiente invocación
+        return f"¡Bienvenido al Prode Mundial 2026! Te uniste al grupo {result['group_name']}."
+
+    else:
+        # Usuario nuevo sin invitación — solo entra al GLOBAL
+        new_user_id = str(uuid4())
+        user_dao.create(new_user_id, platform="TELEGRAM",
+                        platform_id_hash=platform_id_hash)
+        group_dao.add_member("GLOBAL", new_user_id)
+        return "¡Bienvenido al Prode Mundial 2026! Entraste al grupo general."
+```
+
+---
+
+## invitation_tool.py — @tool para el agente
+
+```python
+@tool
+def invitation_tool(
+    action: str,
+    max_uses: int = 1,
+    invite_id: str = None,
+    status_filter: str = None,
+) -> dict:
+    """
+    Gestiona invitaciones al grupo.
+
+    action='create'  → genera una nueva invitación con cupo max_uses (default 1).
+                       Retorna invite_id, link de Telegram y fecha de expiración.
+    action='list'    → lista mis invitaciones activas (y opcionalmente otras por status).
+    action='revoke'  → cancela una invitación activa (invite_id requerido).
+    action='uses'    → muestra quiénes usaron una invitación (solo admin/owner).
+
+    Ejemplos de uso en conversación:
+      "quiero invitar a 3 personas" → action='create', max_uses=3
+      "ver mis invitaciones" → action='list'
+      "cancelar la invitación a3F9bC1d" → action='revoke', invite_id='a3F9bC1d'
+    """
+```
+
+---
+
+## Mensaje del agente al crear una invitación
+
+```
+✅ Invitación creada
+
+Código: a3F9bC1d
+Slots disponibles: 3 de 3
+Expira: 15 jun 2026 a las 10:05 (24hs)
+Grupo destino: "Los Pibes del Laburo"
+
+📎 Link para compartir:
+t.me/ProdeBot?start=a3F9bC1d
+
+Cuando alguien lo use, te aviso. Podés cancelarla con /revocar a3F9bC1d
+```
+
+---
+
+## Bootstrap del admin global — script de un solo uso
+
+```python
+# scripts/bootstrap_admin.py
+"""
+Uso: python scripts/bootstrap_admin.py --chat-id 123456789 --env staging
+
+Qué hace:
+1. Genera UUID como user_id del admin
+2. Crea USER#<uuid>/PROFILE en DynamoDB con is_admin=True, status=ACTIVE,
+   tier=FREE, platform=TELEGRAM, platform_id_hash=SHA256(chat_id)
+3. Agrega membresía al grupo GLOBAL (GROUP#GLOBAL/MEMBER#<uuid>)
+4. Guarda admin_user_id en SSM Parameter Store: /prode-mundial/{env}/admin_user_id
+5. Guarda admin_platform_id_hash en SSM: /prode-mundial/{env}/admin_platform_id_hash
+
+Idempotente: si el admin ya existe (check por platform_id_hash), actualiza SSM
+y retorna sin duplicar.
+
+NUNCA almacena el chat_id en texto plano — solo el SHA-256.
+"""
+import argparse
+import hashlib
+import logging
+from uuid import uuid4
+
+import boto3
+
+logging.basicConfig(level=logging.INFO, format="%(levelname)s | %(message)s")
+logger = logging.getLogger(__name__)
+
+
+def bootstrap(chat_id: int, env: str) -> None:
+    dynamodb = boto3.resource("dynamodb")
+    ssm      = boto3.client("ssm")
+    table    = dynamodb.Table(f"ProdeTable-{env}")
+
+    platform_id_hash = hashlib.sha256(str(chat_id).encode()).hexdigest()
+
+    # Verificar si ya existe
+    existing = table.query(
+        IndexName="GSI-1-platform",
+        KeyConditionExpression=(
+            boto3.dynamodb.conditions.Key("platform").eq("TELEGRAM") &
+            boto3.dynamodb.conditions.Key("platform_id_hash").eq(platform_id_hash)
+        ),
+        Limit=1,
+    )
+    if existing.get("Items"):
+        admin_user_id = existing["Items"][0]["user_id"]
+        logger.info("Admin ya existe con user_id=%s — actualizando SSM", admin_user_id[:8])
+    else:
+        admin_user_id = str(uuid4())
+        table.put_item(Item={
+            "partition_key":     f"USER#{admin_user_id}",
+            "sort_key":          "PROFILE",
+            "user_id":           admin_user_id,
+            "alias":             "Admin",
+            "platform":          "TELEGRAM",
+            "platform_id_hash":  platform_id_hash,
+            "status":            "ACTIVE",
+            "tier":              "FREE",
+            "is_admin":          True,
+            "groups_owned":      0,
+            "invites_sent":      0,
+            "onboarding_stage":  "M3_COMPLETE",   # admin no necesita onboarding
+            "created_at":        __import__("datetime").datetime.now(
+                                     tz=__import__("datetime").timezone.utc
+                                 ).isoformat(),
+        })
+        # Membresía al GLOBAL
+        table.put_item(Item={
+            "partition_key": "GROUP#GLOBAL",
+            "sort_key":      f"MEMBER#{admin_user_id}",
+            "group_id":      "GLOBAL",
+            "user_id":       admin_user_id,
+            "joined_at":     __import__("datetime").datetime.now(
+                                 tz=__import__("datetime").timezone.utc
+                             ).isoformat(),
+        })
+        logger.info("Admin creado con user_id=%s", admin_user_id[:8])
+
+    # Guardar en SSM
+    for name, value in [
+        (f"/prode-mundial/{env}/admin_user_id",          admin_user_id),
+        (f"/prode-mundial/{env}/admin_platform_id_hash", platform_id_hash),
+    ]:
+        ssm.put_parameter(Name=name, Value=value, Type="String", Overwrite=True)
+        logger.info("SSM actualizado: %s", name)
+
+    logger.info("Bootstrap completado. El admin puede abrir el bot y empezar a usarlo.")
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--chat-id", type=int, required=True,
+                        help="Telegram chat_id del admin (se hashea con SHA-256)")
+    parser.add_argument("--env", default="staging", choices=["staging", "prod"])
+    args = parser.parse_args()
+    bootstrap(args.chat_id, args.env)
+```
+
+---
+
+## Gherkin Acceptance Criteria
+
+```gherkin
+Scenario SC-01 — Crear invitación con 1 slot (default)
+  Given usuario es owner de un grupo con 3/5 miembros
+  When ejecuta /invitar
+  Then sistema genera invite_id de 8 chars alfanumérico
+  And crea INVITE#<id>/DETAILS con max_uses=1, uses_count=0, status=ACTIVE
+  And agente responde con el link t.me/ProdeBot?start=<id> y fecha de expiración
+
+Scenario SC-02 — Crear invitación con múltiples slots
+  Given usuario es owner con 2/5 miembros (3 slots libres)
+  When ejecuta /invitar 3
+  Then sistema valida que 3 <= slots_libres (3) → ok
+  And crea invitación con max_uses=3
+
+Scenario SC-03 — Invitar más de los slots disponibles
+  Given usuario es owner con 4/5 miembros (1 slot libre)
+  When ejecuta /invitar 3
+  Then sistema rechaza: "Solo tenés 1 slot disponible en tu grupo"
+  And NO crea invitación
+
+Scenario SC-04 — Usar invitación válida
+  Given existe INVITE#a3F9bC1d con status=ACTIVE, uses_count=0, max_uses=1
+  When nuevo usuario toca t.me/ProdeBot?start=a3F9bC1d
+  Then usuario creado status=ACTIVE, membresía al grupo + GLOBAL
+  And uses_count → 1 (UpdateItem ADD atómico)
+  And status → EXHAUSTED (porque uses_count == max_uses)
+  And INVITE_USE# creado para accountability
+  And notificación al admin (async, fire-and-forget)
+  And onboarding M1 arranca
+
+Scenario SC-05 — Usar invitación ya exhausted
+  Given INVITE#a3F9bC1d con status=EXHAUSTED
+  When usuario toca el link
+  Then mensaje: "Esta invitación ya no está vigente. Pedile al que te la mandó que genere una nueva."
+  And NO se crea usuario
+
+Scenario SC-06 — Invitación expirada a las 24h
+  Given INVITE#xyz con expires_at < now()
+  When usuario toca el link
+  Then sistema detecta expiración → status → EXPIRED
+  And mensaje de expiración al usuario
+
+Scenario SC-07 — Admin invita al grupo GLOBAL
+  Given solicitante es admin global
+  When ejecuta /invitar 5
+  Then invitación creada con group_id="GLOBAL", max_uses=5
+  And sin límite de cupo del plan FREE (admin bypasea checks)
+
+Scenario SC-08 — Usar invitación cuando ya sos usuario
+  Given usuario ya registrado toca un link de invitación
+  Then mensaje: "¡Hola de nuevo, <alias>! Ya estás registrado."
+  And NO se crea duplicado
+
+Scenario SC-09 — Bootstrap del admin global
+  When se ejecuta bootstrap_admin.py --chat-id 123456789 --env staging
+  Then USER#<uuid>/PROFILE creado con is_admin=True, platform_id_hash=SHA256(chat_id)
+  And membresía GROUP#GLOBAL/MEMBER# creada
+  And SSM /prode-mundial/staging/admin_user_id actualizado
+  And script es idempotente — segunda ejecución actualiza SSM sin duplicar usuario
+
+Scenario SC-10 — Usuario no activo no consume tokens del agente
+  Given usuario sin PROFILE en DynamoDB (o status=BANNED)
+  When envía un mensaje que no es /start
+  Then webhook responde INACTIVE_USER_MESSAGE genérico
+  And NO se invoca invoke_agent_runtime (cero tokens LLM)
+  And invitation_tool con user_id=unregistered retorna el mismo mensaje sin llamar al servicio
+```
+
+---
+
+## Tasks
+
+| TASK-ID | Descripción | Modo | Est. |
+|---------|-------------|------|------|
+| TASK-020-001 | `src/dao/dynamo/invitation_dao.py` — create, get, update_status, list_by_creator, list_uses | IA-Autonomous | 4h |
+| TASK-020-002 | `src/services/invitation_service.py` — create_invitation, validate_and_use, revoke, list | Humano | 5h |
+| TASK-020-003 | `agent/tools/invitation_tool.py` — @tool con actions: create, list, revoke, uses | IA-Assisted | 3h |
+| TASK-020-004 | Integrar `parse_start_payload()` en `telegram_webhook/handler.py` | IA-Assisted | 3h |
+| TASK-020-005 | Agregar GSI-5 y GSI-6 al CDK DataStack | IA-Assisted | 2h |
+| TASK-020-006 | `scripts/bootstrap_admin.py` — script idempotente con SHA-256 y SSM | Humano | 2h |
+| TASK-020-007 | Notificación al admin cuando invitación se EXHAUST (SQS fire-and-forget) | IA-Assisted | 2h |
+| TASK-020-008 | `tests/unit/test_invitations/test_invitation_service.py` — SC-01 a SC-09 | IA-Assisted | 4h |
+| TASK-020-009 | Gate `AuthService.resolve_telegram_access` en webhook + `require_active_user_id` en tools | IA-Autonomous | 2h |
+| TASK-020-010 | Actualizar spec (sección usuario activo) + tests SC-10 | IA-Autonomous | 1h |
+
+## Constraints
+- `uses_count` SIEMPRE se incrementa con `UpdateItem ADD` — nunca leer-modificar-escribir
+- El chat_id NUNCA se almacena en texto plano — solo SHA-256 en todos los storages
+- La notificación al admin cuando se agota una invitación es fire-and-forget (SQS) — no bloquea
+- `validate_and_use()` usa `ConditionExpression` para garantizar atomicidad bajo concurrencia
+- El bootstrap_admin.py es idempotente — puede correrse múltiples veces sin duplicar
+- El invite_id es independiente del invite_code del grupo (son conceptos distintos)
+- TTL de DynamoDB para limpieza automática: 30 días post-expiración (no 24h — mantener accountability)
+- Mensajes fuera de `/start` sin `status=ACTIVE` → respuesta genérica fija; **nunca** invocar AgentCore (ahorro de tokens)
+- `INACTIVE_USER_MESSAGE` es idéntico para sin registro, baneo o `user_id` inválido — no filtrar el motivo al usuario

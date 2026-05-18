@@ -1,0 +1,270 @@
+---
+description: SPEC-018 — Autenticación, autorización y tiers de usuario. Modelo B (invite code por grupo). Aplica cuando se trabaja en src/dao/dynamo/user_dao.py, src/services/auth_service.py, agent/tools/group_tool.py o cualquier lógica de permisos.
+globs: src/services/auth_service.py, src/dao/dynamo/user_dao.py, agent/tools/group_tool.py, infrastructure/lambdas/cognito_triggers/**/*.py
+alwaysApply: false
+---
+
+# SPEC-2026-018 — Autenticación, Autorización y Tiers
+
+**SPEC-ID**: SPEC-2026-018 | **Sprint**: Sprint 1 | **Modo**: Humano (decisión de política)
+**Dependencia**: FEATURE-000 (agente MVP), precede a FEATURE-019 (onboarding)
+
+---
+
+## Modelo de acceso — Invite Code por grupo (Modelo B)
+
+El bot es accesible sin invitación. Lo que requiere código es unirse a un grupo específico al registrarse.
+Sin código → usuario activo en el grupo GLOBAL únicamente.
+Con código → usuario activo en el grupo del código + GLOBAL.
+
+```
+Usuario envía /start
+    │
+    ├── Con código de grupo → válido → ACTIVE + grupo + GLOBAL → onboarding
+    │                       → inválido → mensaje de error, puede continuar sin código
+    │
+    └── Sin código → ACTIVE + GLOBAL únicamente → onboarding
+                     (puede crear su propio grupo después con /crear-grupo)
+```
+
+---
+
+## Tiers de usuario
+
+| Tier | Grupos propios | Miembros por grupo | Quién asigna |
+|------|---------------|-------------------|--------------|
+| FREE | 1 | 5 | Default al registrarse |
+| PRO | Ilimitado (TBD) | Ilimitado (TBD) | Admin global (manual en v1) |
+| ADMIN | Ilimitado | Ilimitado | Configurado en SSM Parameter Store |
+
+---
+
+## Reglas de negocio — límites FREE (INMUTABLES hasta ADR)
+
+### Grupos
+- Un usuario FREE puede crear exactamente 1 grupo (`groups_owned <= 1`)
+- El grupo tiene máximo 5 miembros (sin contar al owner → 5 invitados)
+- Al superar cualquier límite: bloqueo duro + notificación al admin + mensaje al usuario
+
+### Grupo GLOBAL
+- Existe siempre. PK=`GROUP#GLOBAL` SK=`DETAILS`
+- Owner = admin global (configurado en SSM `/prode-mundial/{env}/admin_user_id`)
+- Todo usuario se agrega automáticamente al crearse
+- Sin límite de miembros
+- No puede ser disuelto ni modificado por nadie que no sea el admin global
+
+### Solicitudes de ampliación de límite
+- Trigger: usuario FREE intenta crear 2do grupo o invitar 6to miembro
+- Acción del agente: bloquea la operación, crea `LIMIT_REQ#<uuid>/DETAILS` en DynamoDB
+- Notificación al admin: Telegram sendMessage con botones inline
+  - `[✅ Aprobar]` → callback_data: `approve_limit_<req_id>`
+  - `[❌ Denegar]` → callback_data: `deny_limit_<req_id>`
+  - `[⭐ Upgradar a Pro]` → callback_data: `upgrade_pro_<user_id>`
+- Respuesta al usuario: "Tu pedido está pendiente de aprobación del administrador. Te avisamos cuando tengamos una respuesta."
+
+---
+
+## Matriz de permisos
+
+| Acción | FREE (member) | Group owner | Admin global |
+|--------|---------------|-------------|--------------|
+| Predecir, rankear, trivia | ✓ | ✓ | ✓ |
+| Ver ranking de su grupo | ✓ | ✓ | ✓ |
+| Crear grupo | ✓ (1 máx) | ya tiene 1 | ✓ ilimitado |
+| Invitar con código | ✓ (5 máx) | ✓ (5 máx) | ✓ ilimitado |
+| Ver miembros del grupo | ✗ | ✓ (su grupo) | ✓ todos |
+| Remover miembro | ✗ | ✓ (su grupo) | ✓ todos |
+| Disolver grupo | ✗ | ✓ (su grupo) | ✓ todos |
+| Aprobar solicitudes de límite | ✗ | ✗ | ✓ |
+| Upgradar tier de usuario | ✗ | ✗ | ✓ |
+| Banear usuario | ✗ | ✗ | ✓ |
+| Administrar grupo ajeno | ✗ | ✗ | ✓ |
+
+**Regla de escalada**: group owner puede hacer todo sobre SU grupo y sus miembros.
+Admin global puede hacer todo sobre CUALQUIER grupo y usuario.
+
+---
+
+## Modelo de datos DynamoDB — cambios respecto al steering anterior
+
+### USER#<uuid>/PROFILE — campos nuevos
+
+```python
+{
+    # ... campos existentes (alias, platform, etc.) ...
+    "status":        "ACTIVE",      # ACTIVE | BANNED
+    "tier":          "FREE",        # FREE | PRO (hook futuro)
+    "is_admin":      False,         # True solo para el admin global
+    "groups_owned":  0,             # contador — max 1 para FREE
+    "invites_sent":  0,             # contador — max 5 para FREE (por grupo creado)
+    "invite_code":   None,          # código 6 chars del grupo que usó para entrar
+}
+```
+
+### LIMIT_REQ#<uuid>/DETAILS — nuevo patrón
+
+```python
+{
+    "partition_key":    "LIMIT_REQ#<uuid>",
+    "sort_key":         "DETAILS",
+    "request_id":       "<uuid>",
+    "requester_user_id": "<uuid>",
+    "request_type":     "NEW_GROUP",  # NEW_GROUP | NEW_INVITE
+    "target_group_id":  "<uuid>",     # si aplica (NEW_INVITE)
+    "status":           "PENDING",    # PENDING | APPROVED | DENIED
+    "admin_response":   None,         # mensaje del admin al aprobar/denegar
+    "created_at":       "2026-06-15T...",
+    "resolved_at":      None,
+}
+```
+
+### GROUP#<uuid>/DETAILS — campos nuevos
+
+```python
+{
+    # ... campos existentes ...
+    "invite_code":    "AB3X9K",   # 6 chars alfanumérico único — generado al crear
+    "max_members":    5,           # 5 para FREE, override manual para PRO/ADMIN
+    "is_global":      False,       # True solo para GROUP#GLOBAL
+}
+```
+
+### Grupo GLOBAL — ítem permanente (seed en migrations)
+
+```python
+{
+    "partition_key": "GROUP#GLOBAL",
+    "sort_key":      "DETAILS",
+    "group_id":      "GLOBAL",
+    "name":          "Mundial 2026 — General",
+    "invite_code":   None,          # sin código — se une automáticamente
+    "owner_id":      "<admin_user_id>",
+    "max_members":   None,          # ilimitado
+    "is_global":     True,
+    "auto_join":     True,
+    "active":        True,
+    "created_at":    "2026-06-01T00:00:00Z",
+}
+```
+
+---
+
+## Admin global — configuración
+
+El admin global se identifica por su `user_id` interno (UUID), almacenado en:
+- SSM Parameter Store: `/prode-mundial/{env}/admin_user_id`
+- DynamoDB PROFILE: `is_admin=True`
+
+El webhook de Telegram mapea el `chat_id` del admin al `user_id` vía GSI-1 como cualquier otro usuario.
+La Lambda del webhook puede notificar al admin haciendo `sendMessage` al `platform_id_hash` del admin
+usando la misma lógica de lookup inverso en DynamoDB.
+
+---
+
+## Verificación de permisos en las @tools — patrón
+
+```python
+# src/services/auth_service.py
+class AuthService:
+    def check_can_create_group(self, user_id: str) -> tuple[bool, str]:
+        """Retorna (allowed, reason). Llama SIEMPRE antes de crear un grupo."""
+        user = user_dao.get_profile(user_id)
+        if user.is_admin or user.tier == "PRO":
+            return True, "ok"
+        if user.groups_owned >= 1:
+            return False, "LIMIT_REACHED_GROUPS"
+        return True, "ok"
+
+    def check_can_invite(self, user_id: str, group_id: str) -> tuple[bool, str]:
+        """Retorna (allowed, reason). Llama SIEMPRE antes de generar un código."""
+        user  = user_dao.get_profile(user_id)
+        group = group_dao.get_group(group_id)
+        if user.is_admin:
+            return True, "ok"
+        if group.owner_id != user_id:
+            return False, "NOT_GROUP_OWNER"
+        member_count = group_dao.count_members(group_id)
+        if member_count >= group.max_members:
+            return False, "LIMIT_REACHED_INVITES"
+        return True, "ok"
+
+    def is_admin_global(self, user_id: str) -> bool:
+        return user_dao.get_profile(user_id).is_admin
+
+    def is_group_owner(self, user_id: str, group_id: str) -> bool:
+        return group_dao.get_group(group_id).owner_id == user_id
+```
+
+---
+
+## Gherkin Acceptance Criteria
+
+```gherkin
+Scenario SC-01 — Registro con código válido
+  When usuario envía /start con código "AB3X9K" de un grupo
+  Then usuario creado con status=ACTIVE, tier=FREE
+  And agregado al grupo "AB3X9K" y al grupo GLOBAL automáticamente
+  And onboarding inicia
+
+Scenario SC-02 — Registro sin código
+  When usuario envía /start sin código
+  Then usuario creado con status=ACTIVE, tier=FREE
+  And agregado solo al grupo GLOBAL
+  And onboarding inicia (puede crear grupo después)
+
+Scenario SC-03 — Límite de grupos alcanzado
+  Given usuario FREE ya tiene 1 grupo propio
+  When intenta crear otro grupo via /crear-grupo
+  Then agente bloquea la operación
+  And crea LIMIT_REQ#<uuid>/DETAILS con status=PENDING
+  And notifica al admin con botones [Aprobar][Denegar][Upgradar a Pro]
+  And responde al usuario "Tu pedido está pendiente de aprobación"
+
+Scenario SC-04 — Límite de invitaciones alcanzado
+  Given grupo del usuario ya tiene 5 miembros
+  When owner intenta invitar un 6to miembro
+  Then agente bloquea y crea LIMIT_REQ con request_type=NEW_INVITE
+  And notifica al admin
+  And responde al usuario con mensaje de pendiente
+
+Scenario SC-05 — Admin aprueba solicitud
+  Given existe LIMIT_REQ con status=PENDING
+  When admin responde "✅ Aprobar" via Telegram
+  Then LIMIT_REQ actualizado a status=APPROVED
+  And usuario recibe notificación "Tu solicitud fue aprobada"
+  And límite del usuario o grupo incrementado según request_type
+
+Scenario SC-06 — Acceso de admin global a grupo ajeno
+  Given admin global intenta administrar grupo de otro owner
+  Then is_admin_global() retorna True
+  And la operación procede sin restricción de ownership
+
+Scenario SC-07 — Group owner no puede administrar grupo ajeno
+  Given usuario es owner de grupo G1
+  When intenta remover un miembro del grupo G2 (de otro owner)
+  Then is_group_owner(user_id, G2) retorna False
+  And agente responde "No tenés permisos sobre ese grupo"
+```
+
+---
+
+## Tasks
+
+| TASK-ID | Descripción | Modo | Est. |
+|---------|-------------|------|------|
+| TASK-018-001 | Extender `src/dao/dynamo/user_dao.py` — campos status, tier, is_admin, groups_owned, invites_sent | IA-Autonomous | 3h |
+| TASK-018-002 | `src/services/auth_service.py` — check_can_create_group, check_can_invite, is_admin, is_group_owner | Humano | 4h |
+| TASK-018-003 | `src/dao/dynamo/group_dao.py` — invite_code gen (6 chars), count_members, create_global_group | IA-Assisted | 4h |
+| TASK-018-004 | `src/dao/dynamo/limit_request_dao.py` — create, get, update_status | IA-Autonomous | 3h |
+| TASK-018-005 | Integrar permisos en `agent/tools/group_tool.py` — check antes de crear/invitar | Humano | 4h |
+| TASK-018-006 | Admin notification Lambda — sendMessage con inline keyboard (Aprobar/Denegar/Pro) | IA-Assisted | 4h |
+| TASK-018-007 | Admin callback handler — procesar respuesta del admin a las solicitudes | IA-Assisted | 4h |
+| TASK-018-008 | Seed del grupo GLOBAL en migrations/versions/0002_seed_global_group.py | IA-Autonomous | 1h |
+| TASK-018-009 | `tests/unit/test_auth/test_auth_service.py` — SC-01 a SC-07 | IA-Assisted | 4h |
+
+## Constraints
+- El admin global se identifica SOLO por `is_admin=True` en DynamoDB — nunca hardcodear un user_id en código
+- El grupo GLOBAL nunca puede ser disuelto ni modificado excepto por el admin global
+- `groups_owned` y `invites_sent` son contadores atómicos — usar `UpdateItem` con `ADD` para incrementar (no leer-modificar-escribir)
+- El invite_code es inmutable una vez generado — si se quiere regenerar, es una operación admin
+- La notificación al admin es fire-and-forget — no bloquear la respuesta al usuario esperando la notificación

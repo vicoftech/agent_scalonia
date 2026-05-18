@@ -19,10 +19,9 @@ python3 -m pip install -q --no-cache-dir \
   --implementation cp \
   --only-binary=:all:
 
-# Solo código necesario en runtime (no src/dao ni jobs).
 cp -R "${REPO_ROOT}/agent" "${BUILD_DIR}/"
 mkdir -p "${BUILD_DIR}/src"
-cp -R "${REPO_ROOT}/src/kb" "${BUILD_DIR}/src/"
+cp -R "${REPO_ROOT}/src/kb" "${REPO_ROOT}/src/dao" "${REPO_ROOT}/src/services" "${BUILD_DIR}/src/"
 touch "${BUILD_DIR}/src/__init__.py"
 find "${BUILD_DIR}" -type d -name __pycache__ -prune -exec rm -rf {} + 2>/dev/null || true
 

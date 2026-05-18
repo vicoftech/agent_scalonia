@@ -20,6 +20,10 @@ module "prode_table" {
     { name = "group_id", type = "S" },
     { name = "ranking_type", type = "S" },
     { name = "score", type = "N" },
+    { name = "created_by", type = "S" },
+    { name = "created_at", type = "S" },
+    { name = "invite_id", type = "S" },
+    { name = "used_at", type = "S" },
   ]
 
   global_secondary_indexes = [
@@ -62,6 +66,18 @@ module "prode_table" {
         "match_points",
         "trivia_points",
       ]
+    },
+    {
+      name            = "GSI-5-invites-by-creator"
+      hash_key        = "created_by"
+      range_key       = "created_at"
+      projection_type = "ALL"
+    },
+    {
+      name            = "GSI-6-invite-uses-by-invite"
+      hash_key        = "invite_id"
+      range_key       = "used_at"
+      projection_type = "ALL"
     },
   ]
 

@@ -1,12 +1,26 @@
 # Lambda Telegram + HTTP API POST /webhook/telegram — TASK-000-004
 
 locals {
-  telegram_lambda_dir = "${path.module}/../lambdas/telegram_webhook"
-  telegram_lambda_zip = "${path.module}/.build/telegram_webhook.zip"
-  telegram_lambda_hash = sha256(join("", [
-    filesha256("${local.telegram_lambda_dir}/handler.py"),
-    filesha256("${local.telegram_lambda_dir}/requirements.txt"),
-  ]))
+  telegram_lambda_dir  = "${path.module}/../lambdas/telegram_webhook"
+  telegram_lambda_zip  = "${path.module}/.build/telegram_webhook.zip"
+  telegram_repo_root   = abspath("${path.module}/../..")
+  telegram_src_files = concat(
+    [for f in sort(fileset("${local.telegram_repo_root}/src/dao", "**")) :
+    "${local.telegram_repo_root}/src/dao/${f}" if !endswith(f, "/") && !strcontains(f, "__pycache__")],
+    [for f in sort(fileset("${local.telegram_repo_root}/src/services", "**")) :
+    "${local.telegram_repo_root}/src/services/${f}" if !endswith(f, "/") && !strcontains(f, "__pycache__")],
+    [for f in sort(fileset("${local.telegram_repo_root}/src/utils", "**")) :
+    "${local.telegram_repo_root}/src/utils/${f}" if !endswith(f, "/") && !strcontains(f, "__pycache__")],
+  )
+  telegram_lambda_hash = sha256(join("", concat(
+    [
+      filesha256("${local.telegram_lambda_dir}/handler.py"),
+      filesha256("${local.telegram_lambda_dir}/start_handler.py"),
+      filesha256("${local.telegram_lambda_dir}/requirements.txt"),
+      filesha256("${path.module}/bin/build-telegram-lambda.sh"),
+    ],
+    [for p in local.telegram_src_files : filesha256(p)],
+  )))
 }
 
 resource "null_resource" "telegram_lambda_package" {
@@ -45,7 +59,10 @@ data "aws_iam_policy_document" "telegram_webhook_inline" {
     sid = "DynamoDBGSI"
     actions = [
       "dynamodb:GetItem",
+      "dynamodb:PutItem",
+      "dynamodb:UpdateItem",
       "dynamodb:Query",
+      "dynamodb:Scan",
     ]
     resources = [
       module.prode_table.dynamodb_table_arn,
@@ -96,6 +113,8 @@ resource "aws_lambda_function" "telegram_webhook" {
       AGENTCORE_RUNTIME_QUALIFIER = aws_bedrockagentcore_agent_runtime_endpoint.live.name
       LOG_LEVEL                   = "INFO"
       TELEGRAM_SECRET_ID          = "SCALONIA_TELEGRAM_BOT_TOKEN"
+      TELEGRAM_BOT_USERNAME       = var.telegram_bot_username
+      INVITATION_NOTIFY_QUEUE_URL = var.enable_invitation_notify_queue ? aws_sqs_queue.invitation_exhausted[0].url : ""
     }
   }
 

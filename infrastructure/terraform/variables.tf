@@ -26,6 +26,12 @@ variable "telegram_secret_arn" {
   description = "ARN del secreto SCALONIA_TELEGRAM_BOT_TOKEN en Secrets Manager."
 }
 
+variable "telegram_bot_username" {
+  type        = string
+  default     = "ProdeBot"
+  description = "Username del bot sin @ — deep links t.me/<bot>?start=<invite_id>"
+}
+
 variable "terraform_state_bucket" {
   type        = string
   description = "Bucket S3 del backend remoto (bootstrap: prode-terraform-state-<account_id>)."

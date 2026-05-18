@@ -29,6 +29,7 @@ from agent.guardrails.constants import (
 )
 from agent.guardrails.detect import is_guardrail_block_event
 from agent.tools.echo_tool import echo_tool
+from agent.tools.invitation_tool import invitation_tool
 from agent.tools.kb_retrieval_tool import kb_retrieval_tool
 from agent.tools.web_search_tool import web_search_tool
 
@@ -48,6 +49,8 @@ Si kb_retrieval_tool devuelve pasajes, basá la respuesta en ellos; no inventes 
 Si kb_retrieval_tool devuelve "Error técnico", informá el fallo; no digas que el dato no existe.
 Para grupos/equipos del Mundial 2026, llamá kb_retrieval_tool con query explícita (ej. "grupo A equipos Mundial 2026").
 Para partidos por ciudad/sede (ej. Kansas City), kb_retrieval_tool con "Kansas City partidos Mundial 2026 calendario".
+Para invitar personas al grupo usá invitation_tool (create/list/revoke) con el user_id del payload.
+Usuarios no ACTIVE o sin registro no llegan al agente (el webhook responde con mensaje fijo).
 Las features de predicciones, rankings y trivia se habilitan sprint a sprint.
 """.strip()
 
@@ -89,7 +92,7 @@ def _build_agent() -> Agent:
     return Agent(
         model=BedrockModel(**model_kw),
         system_prompt=SYSTEM_PROMPT,
-        tools=[echo_tool, kb_retrieval_tool, web_search_tool],
+        tools=[echo_tool, kb_retrieval_tool, web_search_tool, invitation_tool],
     )
 
 

@@ -7,8 +7,13 @@ OUT_ZIP="${2:?output zip}"
 BUILD_DIR="$(mktemp -d)"
 trap 'rm -rf "$BUILD_DIR"' EXIT
 
+REPO_ROOT="$(cd "${LAMBDA_DIR}/../../.." && pwd)"
+
 python3 -m pip install -q -r "${LAMBDA_DIR}/requirements.txt" -t "${BUILD_DIR}" --upgrade
-cp "${LAMBDA_DIR}/handler.py" "${BUILD_DIR}/"
+cp "${LAMBDA_DIR}/handler.py" "${LAMBDA_DIR}/start_handler.py" "${BUILD_DIR}/"
+mkdir -p "${BUILD_DIR}/src"
+cp -R "${REPO_ROOT}/src/dao" "${REPO_ROOT}/src/services" "${REPO_ROOT}/src/utils" "${BUILD_DIR}/src/"
+touch "${BUILD_DIR}/src/__init__.py"
 
 mkdir -p "$(dirname "$OUT_ZIP")"
 OUT_ZIP="$(cd "$(dirname "$OUT_ZIP")" && pwd)/$(basename "$OUT_ZIP")"
