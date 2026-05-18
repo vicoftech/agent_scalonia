@@ -28,7 +28,13 @@ class UserDAO:
             Limit=1,
         )
         items = resp.get("Items", [])
-        return items[0] if items else None
+        if not items:
+            return None
+        hit = items[0]
+        # GSI-1 solo proyecta user_id/alias/notifications — status e is_admin vienen del PROFILE.
+        if "status" not in hit and hit.get("user_id"):
+            return self.get_profile(hit["user_id"])
+        return hit
 
     def get_profile(self, user_id: str) -> dict[str, Any] | None:
         resp = self._table.get_item(

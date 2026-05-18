@@ -36,6 +36,8 @@ module "prode_table" {
         "user_id",
         "alias",
         "notifications_enabled",
+        "status",
+        "is_admin",
       ]
     },
     {
