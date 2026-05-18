@@ -35,3 +35,25 @@ def test_start_without_invite_does_not_register():
         reply = handle_start_command(99999, "/start")
     assert "invitación" in reply.lower()
     mock_users.return_value.create_telegram_user.assert_not_called()
+
+
+def test_start_with_valid_invite_sets_first_agent_turn_pending():
+    with (
+        patch("infrastructure.lambdas.telegram_webhook.start_handler.UserDAO") as mock_users,
+        patch("infrastructure.lambdas.telegram_webhook.start_handler.GroupDAO"),
+        patch("infrastructure.lambdas.telegram_webhook.start_handler.InvitationDAO") as mock_inv_dao,
+        patch(
+            "infrastructure.lambdas.telegram_webhook.start_handler.InvitationService"
+        ) as mock_inv_svc,
+    ):
+        mock_users.return_value.get_by_platform_hash.return_value = None
+        mock_inv_dao.return_value.get.return_value = {
+            "status": "ACTIVE",
+            "expires_at": "2099-01-01T00:00:00+00:00",
+        }
+        mock_inv_svc.return_value.validate_and_use.return_value = {
+            "group_name": "Los Pibes",
+        }
+        reply = handle_start_command(12345, "/start abc12345")
+    assert "Bienvenido al Prode Mundial 2026" in reply
+    mock_users.return_value.set_pending_first_agent_turn.assert_called_once()

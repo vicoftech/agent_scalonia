@@ -42,7 +42,7 @@ resource "aws_vpc_endpoint" "s3" {
   count = var.enable_vpc_endpoints ? 1 : 0
 
   vpc_id            = data.aws_subnet.lambda_first[0].vpc_id
-  service_name      = "com.amazonaws.${data.aws_region.kb.name}.s3"
+  service_name      = "com.amazonaws.${data.aws_region.kb.region}.s3"
   vpc_endpoint_type = "Gateway"
   route_table_ids   = data.aws_route_tables.lambda_vpc[0].ids
 }
@@ -51,7 +51,7 @@ resource "aws_vpc_endpoint" "secretsmanager" {
   count = var.enable_vpc_endpoints ? 1 : 0
 
   vpc_id              = data.aws_subnet.lambda_first[0].vpc_id
-  service_name        = "com.amazonaws.${data.aws_region.kb.name}.secretsmanager"
+  service_name        = "com.amazonaws.${data.aws_region.kb.region}.secretsmanager"
   vpc_endpoint_type   = "Interface"
   subnet_ids          = var.lambda_vpc_subnet_ids
   security_group_ids  = [aws_security_group.vpc_endpoints[0].id]
@@ -75,7 +75,7 @@ resource "aws_vpc_endpoint" "bedrock_runtime" {
   count = var.enable_vpc_endpoints ? 1 : 0
 
   vpc_id              = data.aws_subnet.lambda_first[0].vpc_id
-  service_name        = "com.amazonaws.${data.aws_region.kb.name}.bedrock-runtime"
+  service_name        = "com.amazonaws.${data.aws_region.kb.region}.bedrock-runtime"
   vpc_endpoint_type   = "Interface"
   subnet_ids          = var.lambda_vpc_subnet_ids
   security_group_ids  = [aws_security_group.vpc_endpoints[0].id]

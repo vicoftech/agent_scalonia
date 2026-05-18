@@ -67,6 +67,7 @@ def handle_start_command(chat_id: int, text: str) -> str | None:
             if code == "INVITATION_EXPIRED":
                 return "Esta invitación expiró (tenía 24hs de vigencia). Pedí una nueva."
             raise
+        users.set_pending_first_agent_turn(new_user_id)
         return (
             f"¡Bienvenido al Prode Mundial 2026! "
             f"Te uniste al grupo {result['group_name']}."

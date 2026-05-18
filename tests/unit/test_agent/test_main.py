@@ -17,7 +17,28 @@ class TestEchoTool:
         from agent.tools.echo_tool import echo_tool
         result = echo_tool("test")
         assert "predicciones" in result["features_pending"]
-        assert "rankings"     in result["features_pending"]
+        assert "rankings" in result["features_pending"]
+        assert "knowledge_base" not in result["features_pending"]
+        assert "knowledge_base" in result["features_enabled"]
+        assert "web_search" in result["features_enabled"]
+
+
+class TestOnboardingContext:
+    def test_build_session_context_injected_for_m1(self):
+        from unittest.mock import MagicMock, patch
+
+        from src.services.onboarding_service import OnboardingService
+
+        with patch.object(OnboardingService, "__init__", lambda self, user_dao=None: None):
+            svc = OnboardingService()
+            svc._users = MagicMock()
+            svc._users.get_profile.return_value = {
+                "alias": "Jugador",
+                "onboarding_stage": "M1_PENDING",
+                "is_admin": False,
+            }
+            ctx = svc.build_session_context("uuid-1")
+        assert "M1_PENDING" in ctx
 
 
 class TestAgentEntrypoint:

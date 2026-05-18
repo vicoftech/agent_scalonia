@@ -36,6 +36,8 @@ done
 
 export TFVARS
 ./bin/init-backend.sh -input=false
+chmod +x bin/validate-kb-tfvars.sh
+./bin/validate-kb-tfvars.sh
 
 # TF_WORKSPACE (p. ej. en GitHub Actions) fija el workspace; no usar workspace select.
 if [[ -n "${TF_WORKSPACE:-}" ]]; then

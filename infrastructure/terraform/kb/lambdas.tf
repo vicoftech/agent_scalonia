@@ -74,7 +74,7 @@ data "aws_iam_policy_document" "kb_lambda" {
       "logs:CreateLogStream",
       "logs:PutLogEvents",
     ]
-    resources = ["arn:aws:logs:${data.aws_region.kb.name}:${data.aws_caller_identity.kb.account_id}:*"]
+    resources = ["arn:aws:logs:${data.aws_region.kb.region}:${data.aws_caller_identity.kb.account_id}:*"]
   }
 
   statement {
@@ -96,7 +96,7 @@ data "aws_iam_policy_document" "kb_lambda" {
   statement {
     sid       = "BedrockEmbed"
     actions   = ["bedrock:InvokeModel"]
-    resources = ["arn:aws:bedrock:${data.aws_region.kb.name}::foundation-model/amazon.titan-embed*"]
+    resources = ["arn:aws:bedrock:${data.aws_region.kb.region}::foundation-model/amazon.titan-embed*"]
   }
 }
 

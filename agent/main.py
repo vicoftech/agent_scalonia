@@ -33,6 +33,7 @@ from agent.tools.invitation_tool import make_invitation_tool
 from agent.tools.kb_retrieval_tool import kb_retrieval_tool
 from agent.tools.match_tool import match_tool
 from agent.tools.web_search_tool import web_search_tool
+from src.services.onboarding_service import OnboardingService
 
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 logger = logging.getLogger(__name__)
@@ -67,6 +68,14 @@ Si hay [Contexto web]: basá la respuesta ahí.
 Si hay [Instrucción: ... web_search_tool]: debés invocar esa tool antes de dar por imposible la consulta.
 Si piden link/código/invitación: SIEMPRE llamá invitation_tool (action=create o list).
 El usuario ya fue validado como ACTIVE por Telegram; no le digas que no está activo.
+
+ONBOARDING Y BIENVENIDA (no repetir /start):
+- Telegram ya envió la bienvenida oficial en /start; NO la repitas ni te presentes ("Hola soy ProdeBot…").
+- Si el usuario hace una pregunta concreta, PROHIBIDO responder solo con presentación o bienvenida genérica.
+- Respondé con kb_retrieval_tool, web_search_tool o match_tool según la pregunta; knowledge_base y web están HABILITADAS.
+- NO uses echo_tool para describir el MVP en lugar de responder la pregunta.
+- Si onboarding_stage=M1_PENDING: respondé la consulta primero; como máximo UNA línea al final pidiendo alias (/listo = saltear).
+
 Si el mensaje incluye [Fixture oficial — ...], respondé SOLO con esos datos (no KB ni web).
 Si el mensaje incluye [Contexto Knowledge Base], ignorá partidos/horarios ahí salvo que uses match_tool.
 Si dice [Instrucción: consulta de PARTIDOS/FIXTURE], usá match_tool o el bloque [Fixture oficial].
@@ -150,10 +159,14 @@ async def agent_invocation(payload: dict):
 
     agent_prompt = prompt
     if user_id not in ("anonymous", "unregistered", ""):
-        agent_prompt = (
-            f"{prompt}\n\n"
-            f"[Sesión: usuario autenticado, podés usar invitation_tool para invitaciones.]"
-        )
+        session_ctx = OnboardingService().build_session_context(user_id)
+        parts = [
+            prompt,
+            "[Sesión: usuario autenticado, podés usar invitation_tool para invitaciones.]",
+        ]
+        if session_ctx:
+            parts.append(session_ctx)
+        agent_prompt = "\n\n".join(parts)
 
     stream = _build_agent(user_id).stream_async(agent_prompt)
     async for event in stream:

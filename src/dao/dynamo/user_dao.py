@@ -124,3 +124,23 @@ class UserDAO:
         )
         self._write_platform_lookup("TELEGRAM", platform_id_hash, user_id)
         return item
+
+    def set_pending_first_agent_turn(self, user_id: str, *, pending: bool = True) -> None:
+        """Tras /start con invitación: primer mensaje al agente sin repetir bienvenida."""
+        self._table.update_item(
+            Key={"partition_key": f"USER#{user_id}", "sort_key": "PROFILE"},
+            UpdateExpression="SET pending_first_agent_turn = :p, updated_at = :now",
+            ExpressionAttributeValues={":p": pending, ":now": _now_iso()},
+        )
+
+    def consume_pending_first_agent_turn(self, user_id: str) -> bool:
+        """Lee y limpia el flag (un solo turno post-/start)."""
+        profile = self.get_profile(user_id)
+        if not profile or not profile.get("pending_first_agent_turn"):
+            return False
+        self._table.update_item(
+            Key={"partition_key": f"USER#{user_id}", "sort_key": "PROFILE"},
+            UpdateExpression="REMOVE pending_first_agent_turn SET updated_at = :now",
+            ExpressionAttributeValues={":now": _now_iso()},
+        )
+        return True

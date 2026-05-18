@@ -123,6 +123,11 @@ output "kb_ingest_lambda_name" {
   value = module.kb.kb_ingest_lambda_name
 }
 
+output "kb_lambdas_enabled" {
+  description = "false si faltan aurora_sync_secret_arn, rds_proxy_endpoint o subnets en tfvars"
+  value       = module.kb.kb_lambdas_enabled
+}
+
 # --- GitHub Actions OIDC ---
 
 output "github_actions_role_arn" {

@@ -9,6 +9,12 @@ def echo_tool(message: str) -> dict:
         "echo":      message,
         "timestamp": datetime.datetime.now(tz=datetime.timezone.utc).isoformat(),
         "status":    "MVP operativo — Prode Mundial 2026 ⚽",
-        "features_enabled": ["echo"],
-        "features_pending": ["predicciones", "veda", "rankings", "grupos", "trivia", "knowledge_base"],
+        "features_enabled": [
+            "echo",
+            "match_fixture",
+            "knowledge_base",
+            "web_search",
+            "invitations",
+        ],
+        "features_pending": ["predicciones", "veda", "rankings", "grupos", "trivia"],
     }

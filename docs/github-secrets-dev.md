@@ -30,7 +30,18 @@ telegram_secret_arn = "arn:aws:secretsmanager:us-east-1:615216531593:secret:SCAL
 tavily_secret_arn   = "arn:aws:secretsmanager:us-east-1:615216531593:secret:prode-mundial/dev/tavily-api-key-N45thZ"
 
 bedrock_model_id = "us.amazon.nova-pro-v1:0"
+
+# Obligatorio si ya desplegaste el módulo KB (sin esto CI destruye kb_ingest/kb_query):
+rds_proxy_endpoint            = "aurora-pg-asap-dev.cluster-cgxq84qu0b72.us-east-1.rds.amazonaws.com"
+db_name                       = "postgres"
+aurora_sync_secret_arn        = "arn:aws:secretsmanager:us-east-1:615216531593:secret:prode-mundial/dev/aurora-sync-60iepS"
+lambda_vpc_subnet_ids         = ["subnet-0778965dc1b21dfb7", "subnet-01ad385e56ce2a2b9"]
+lambda_vpc_security_group_ids = ["sg-0773b50b361cb2068"]
+kb_aurora_security_group_id   = "sg-0ff149c197120e05a"
+kb_manage_aurora_lambda_vpc_ingress = false
 ```
+
+Si el workflow falla con `kb_*_lambda_name` pasando de un nombre a `""`, el secret `DEV_TFVARS` no incluye el bloque KB de arriba.
 
 ---
 

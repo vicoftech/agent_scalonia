@@ -306,7 +306,21 @@ def handler(event: dict, context) -> dict:
             _send_message(chat_id, block_message, token)
             return ok
 
-        logger.info("auth_ok user_prefix=%s", user_id[:8] if user_id else "?")
+        from src.dao.dynamo.user_dao import UserDAO
+        from src.services.onboarding_service import FIRST_POST_START_INSTRUCTION
+
+        users_dao = UserDAO()
+        profile = users_dao.get_profile(user_id) if user_id else None
+        onboarding_stage = (profile or {}).get("onboarding_stage", "?")
+        first_post_start = (
+            users_dao.consume_pending_first_agent_turn(user_id) if user_id else False
+        )
+        logger.info(
+            "auth_ok user_prefix=%s onboarding_stage=%s first_post_start=%s",
+            user_id[:8] if user_id else "?",
+            onboarding_stage,
+            first_post_start,
+        )
 
         try:
             from invitation_commands import handle_invitation_command
@@ -325,7 +339,8 @@ def handler(event: dict, context) -> dict:
             return ok
 
         # AgentCore exige runtimeSessionId ≥33 chars. Versión bustea sesión post-deploy.
-        session_id = f"tg-{platform_id_hash[:32]}-v{AGENT_RUNTIME_VERSION}"
+        session_suffix = "-poststart" if first_post_start else ""
+        session_id = f"tg-{platform_id_hash[:32]}-v{AGENT_RUNTIME_VERSION}{session_suffix}"
         from fixture_prefetch import enrich_prompt_with_fixture
         from kb_prefetch import enrich_prompt_with_kb
 
@@ -337,6 +352,8 @@ def handler(event: dict, context) -> dict:
             agent_prompt, kb_chunks = enrich_prompt_with_kb(agent_prompt)
             if kb_chunks:
                 logger.info("kb_prefetch chunks=%s user_prefix=%s", kb_chunks, user_id[:8])
+        if first_post_start:
+            agent_prompt = f"{agent_prompt}\n\n{FIRST_POST_START_INSTRUCTION}"
         response_text = _invoke_agent(user_id, session_id, agent_prompt)
         _send_message(chat_id, response_text, token)
 
