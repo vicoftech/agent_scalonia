@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Empaqueta agent/ + src/kb para AgentCore Runtime (Linux ARM64 obligatorio).
+# Empaqueta agent/ + src/{kb,dao,services,fixtures} para AgentCore Runtime (Linux ARM64).
 set -euo pipefail
 
 REPO_ROOT="${1:?repo root}"
@@ -21,7 +21,7 @@ python3 -m pip install -q --no-cache-dir \
 
 cp -R "${REPO_ROOT}/agent" "${BUILD_DIR}/"
 mkdir -p "${BUILD_DIR}/src"
-cp -R "${REPO_ROOT}/src/kb" "${REPO_ROOT}/src/dao" "${REPO_ROOT}/src/services" "${BUILD_DIR}/src/"
+cp -R "${REPO_ROOT}/src/kb" "${REPO_ROOT}/src/dao" "${REPO_ROOT}/src/services" "${REPO_ROOT}/src/fixtures" "${BUILD_DIR}/src/"
 touch "${BUILD_DIR}/src/__init__.py"
 find "${BUILD_DIR}" -type d -name __pycache__ -prune -exec rm -rf {} + 2>/dev/null || true
 
