@@ -324,8 +324,8 @@ def handler(event: dict, context) -> dict:
             )
             return ok
 
-        # Versión en session_id → sesión nueva tras cada deploy (evita microVM con código viejo).
-        session_id = f"tg-{platform_id_hash[:24]}-v{AGENT_RUNTIME_VERSION}"
+        # AgentCore exige runtimeSessionId ≥33 chars. Versión bustea sesión post-deploy.
+        session_id = f"tg-{platform_id_hash[:32]}-v{AGENT_RUNTIME_VERSION}"
         from fixture_prefetch import enrich_prompt_with_fixture
         from kb_prefetch import enrich_prompt_with_kb
 
