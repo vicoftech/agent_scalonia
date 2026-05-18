@@ -4,6 +4,7 @@ Carga el fixture en DynamoDB (MATCH#/DETAILS). Aurora se actualiza vía sync_dyn
 
 Uso:
   python scripts/ingest_matches.py --env dev --generate-group-stage
+  python scripts/ingest_matches.py --env dev --from-json data/worldcup2026_matches.json --replace
   python scripts/ingest_matches.py --env dev --from-json data/fixtures/fwc2026_fixture.json --replace
   python scripts/ingest_matches.py --env dev --from-json data/fixtures/mundial2026_matches.json
   python scripts/ingest_matches.py --generate-group-stage --write-json data/fixtures/mundial2026_matches.json --dry-run
