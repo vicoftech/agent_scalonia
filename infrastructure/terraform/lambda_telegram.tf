@@ -16,6 +16,7 @@ locals {
     [
       filesha256("${local.telegram_lambda_dir}/handler.py"),
       filesha256("${local.telegram_lambda_dir}/start_handler.py"),
+      filesha256("${local.telegram_lambda_dir}/invitation_commands.py"),
       filesha256("${local.telegram_lambda_dir}/requirements.txt"),
       filesha256("${path.module}/bin/build-telegram-lambda.sh"),
     ],

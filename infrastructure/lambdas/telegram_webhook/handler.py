@@ -300,11 +300,20 @@ def handler(event: dict, context) -> dict:
             _send_message(chat_id, block_message, token)
             return ok
 
-        from invitation_commands import handle_invitation_command
+        try:
+            from invitation_commands import handle_invitation_command
 
-        invite_reply = handle_invitation_command(user_id, text)
-        if invite_reply:
-            _send_message(chat_id, invite_reply, token)
+            invite_reply = handle_invitation_command(user_id, text)
+            if invite_reply:
+                _send_message(chat_id, invite_reply, token)
+                return ok
+        except Exception:
+            logger.exception("invitation_commands failed")
+            _send_message(
+                chat_id,
+                "No pude procesar el comando de invitación. Intentá de nuevo en unos segundos.",
+                token,
+            )
             return ok
 
         session_id = f"tg-{platform_id_hash[:32]}"
