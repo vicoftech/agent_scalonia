@@ -19,17 +19,21 @@ def test_get_by_platform_hash_hydrates_status_from_profile():
             }
         ]
     }
-    table.get_item.return_value = {
-        "Item": {
-            "user_id": "u1",
-            "status": "ACTIVE",
-            "is_admin": True,
-        }
-    }
+    table.get_item.side_effect = [
+        {},  # lookup PLATFORM# miss
+        {
+            "Item": {
+                "user_id": "u1",
+                "status": "ACTIVE",
+                "is_admin": True,
+            }
+        },
+    ]
 
     profile = dao.get_by_platform_hash("TELEGRAM", "abc")
 
     assert profile is not None
     assert profile["status"] == "ACTIVE"
     assert profile["is_admin"] is True
-    table.get_item.assert_called_once()
+    assert table.get_item.call_count == 2
+    table.put_item.assert_called_once()  # backfill lookup

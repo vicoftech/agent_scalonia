@@ -72,6 +72,15 @@ def bootstrap(chat_id: int, env: str, table_name: str | None = None) -> None:
             )
         except table.meta.client.exceptions.ConditionalCheckFailedException:
             pass
+        table.put_item(
+            Item={
+                "partition_key": f"PLATFORM#TELEGRAM#{platform_id_hash}",
+                "sort_key": "USER",
+                "user_id": admin_user_id,
+                "platform": "TELEGRAM",
+                "platform_id_hash": platform_id_hash,
+            }
+        )
     else:
         admin_user_id = str(uuid4())
         now = _now_iso()
@@ -107,6 +116,16 @@ def bootstrap(chat_id: int, env: str, table_name: str | None = None) -> None:
             }
         )
         logger.info("Admin creado user_id=%s", admin_user_id[:8])
+
+    table.put_item(
+        Item={
+            "partition_key": f"PLATFORM#TELEGRAM#{platform_id_hash}",
+            "sort_key": "USER",
+            "user_id": admin_user_id,
+            "platform": "TELEGRAM",
+            "platform_id_hash": platform_id_hash,
+        }
+    )
 
     prefix = f"/prode-mundial/{env}"
     for name, value in [
