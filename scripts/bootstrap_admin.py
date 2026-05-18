@@ -44,7 +44,34 @@ def bootstrap(chat_id: int, env: str, table_name: str | None = None) -> None:
     )
     if existing.get("Items"):
         admin_user_id = existing["Items"][0]["user_id"]
-        logger.info("Admin ya existe user_id=%s — actualizando SSM", admin_user_id[:8])
+        logger.info("Admin ya existe user_id=%s — promoviendo is_admin + SSM", admin_user_id[:8])
+        now = _now_iso()
+        table.update_item(
+            Key={"partition_key": f"USER#{admin_user_id}", "sort_key": "PROFILE"},
+            UpdateExpression=(
+                "SET is_admin = :t, #st = :active, onboarding_stage = :m3, updated_at = :now"
+            ),
+            ExpressionAttributeNames={"#st": "status"},
+            ExpressionAttributeValues={
+                ":t": True,
+                ":active": "ACTIVE",
+                ":m3": "M3_COMPLETE",
+                ":now": now,
+            },
+        )
+        try:
+            table.put_item(
+                Item={
+                    "partition_key": "GROUP#GLOBAL",
+                    "sort_key": f"MEMBER#{admin_user_id}",
+                    "group_id": "GLOBAL",
+                    "user_id": admin_user_id,
+                    "joined_at": now,
+                },
+                ConditionExpression="attribute_not_exists(partition_key)",
+            )
+        except table.meta.client.exceptions.ConditionalCheckFailedException:
+            pass
     else:
         admin_user_id = str(uuid4())
         now = _now_iso()

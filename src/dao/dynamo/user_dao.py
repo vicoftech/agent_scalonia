@@ -36,6 +36,22 @@ class UserDAO:
         )
         return resp.get("Item")
 
+    def promote_global_admin(self, user_id: str) -> None:
+        """Marca is_admin y onboarding completo (bootstrap / recuperación)."""
+        self._table.update_item(
+            Key={"partition_key": f"USER#{user_id}", "sort_key": "PROFILE"},
+            UpdateExpression=(
+                "SET is_admin = :t, #st = :active, onboarding_stage = :m3, updated_at = :now"
+            ),
+            ExpressionAttributeNames={"#st": "status"},
+            ExpressionAttributeValues={
+                ":t": True,
+                ":active": "ACTIVE",
+                ":m3": "M3_COMPLETE",
+                ":now": _now_iso(),
+            },
+        )
+
     def create_telegram_user(
         self,
         user_id: str,
