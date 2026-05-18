@@ -40,7 +40,7 @@ class InvitationService:
         self._users = user_dao or UserDAO()
         self._groups = group_dao or GroupDAO()
         self._auth = auth or AuthService(self._users, self._groups)
-        self._bot_username = os.environ.get("TELEGRAM_BOT_USERNAME", "ProdeBot").lstrip("@")
+        self._bot_username = os.environ.get("TELEGRAM_BOT_USERNAME", "scalonia_bot").lstrip("@")
 
     def _invite_link(self, invite_id: str) -> str:
         return f"https://t.me/{self._bot_username}?start={invite_id}"

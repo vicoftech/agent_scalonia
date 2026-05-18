@@ -17,6 +17,16 @@ def test_parse_start_payload():
     assert parse_start_payload("hola") is None
 
 
+def test_invite_link_uses_scalonia_bot_by_default(monkeypatch):
+    monkeypatch.delenv("TELEGRAM_BOT_USERNAME", raising=False)
+    svc = InvitationService(
+        invitation_dao=MagicMock(),
+        user_dao=MagicMock(),
+        group_dao=MagicMock(),
+    )
+    assert svc._invite_link("a3F9bC1d") == "https://t.me/scalonia_bot?start=a3F9bC1d"
+
+
 def test_generate_invite_id_unique():
     dao = MagicMock()
     dao.exists.side_effect = [True, False]

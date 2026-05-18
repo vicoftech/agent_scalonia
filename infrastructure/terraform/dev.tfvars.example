@@ -28,7 +28,8 @@ terraform_state_lock_table = "prode-terraform-state-lock"
 terraform_state_key        = "prode/terraform.tfstate"
 
 # aws secretsmanager describe-secret --secret-id SCALONIA_TELEGRAM_BOT_TOKEN --query ARN --output text
-telegram_secret_arn = "arn:aws:secretsmanager:us-east-1:ACCOUNT_ID:secret:SCALONIA_TELEGRAM_BOT_TOKEN-AbCdEf"
+telegram_secret_arn   = "arn:aws:secretsmanager:us-east-1:ACCOUNT_ID:secret:SCALONIA_TELEGRAM_BOT_TOKEN-AbCdEf"
+telegram_bot_username = "scalonia_bot"
 
 # LLM (cuentas reseller: sin Anthropic). Pro ≈ Sonnet | Lite ≈ Haiku | Llama: us.meta.llama3-3-70b-instruct-v1:0
 # bedrock_model_id = "us.amazon.nova-pro-v1:0"

@@ -5,10 +5,14 @@ import re
 _FOOTBALL_PATTERN = re.compile(
     r"\b("
     r"f[uú]tbol|fifa|mundial(?:es)?|world\s*cup|gol(?:es)?|partido|equipo|selecci[oó]n|"
-    r"argentina|brasil|brazil|messi|maradona|offside|fuera\s*de\s*juego|"
+    r"argentina|brasil|brazil|messi|maradona|pele|pel[eé]|cruyff|zidane|"
+    r"offside|fuera\s*de\s*juego|"
     r"fixture|estadio|sedes?|grupo\s*[a-l]|eliminatoria|penal|arbitro|"
+    r"final(?:es)?|semifinal(?:es)?|cuartos?\s+de\s+final|"
+    r"hist[oó]ric[oa]s?|historia|"
     r"2026|ifab|t[aá]ctica|formaci[oó]n|champions|libertadores|"
-    r"premier|liga|cop(a|as)|entrenador|portero|delantero"
+    r"premier|liga|cop(a|as)|copa\s+del\s+mundo|entrenador|portero|delantero|"
+    r"campe[oó]n(a|es)?"
     r")\b",
     re.IGNORECASE,
 )

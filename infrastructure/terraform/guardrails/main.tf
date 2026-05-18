@@ -41,10 +41,17 @@ resource "aws_bedrock_guardrail" "prode" {
       type       = "DENY"
     }
     topics_config {
-      name       = "entretenimiento-no-futbol"
-      definition = "Música, cine, series, videojuegos, libros no relacionados con fútbol"
-      examples   = ["¿Cuál es el mejor álbum de Taylor Swift?"]
-      type       = "DENY"
+      name = "entretenimiento-no-futbol"
+      definition = join(" ", [
+        "Música, cine, series de TV, videojuegos y libros de entretenimiento general.",
+        "No incluye finales de Copa del Mundo, partidos históricos, jugadores,",
+        "selecciones ni debates deportivos sobre el mejor o peor partido.",
+      ])
+      examples = [
+        "¿Cuál es el mejor álbum de Taylor Swift?",
+        "¿Qué serie de Netflix recomendás?",
+      ]
+      type = "DENY"
     }
   }
 

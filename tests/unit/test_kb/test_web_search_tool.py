@@ -17,6 +17,10 @@ class TestDomainValidation:
     def test_acepta_consulta_futbol(self):
         assert is_football_domain_query("¿Cuántos goles hizo Maradona en el Mundial 86?")
 
+    def test_acepta_final_historica_sin_palabra_mundial(self):
+        q = "Cual fue la mejor final de la historia y cual fue la peor"
+        assert is_football_domain_query(q)
+
 
 class TestCacheTtl:
     def test_sc03_live_match_ttl(self):
@@ -67,6 +71,22 @@ class TestWebSearchTool:
             out = web_search_tool("bitcoin price today")
         assert "fútbol" in out.lower()
         mock_search.assert_not_called()
+
+    def test_final_historica_dispara_busqueda(self, monkeypatch):
+        from agent.tools import web_search_tool as wst
+
+        monkeypatch.setenv("DYNAMODB_TABLE", "ProdeTable-test")
+        wst._search_fn = lambda q: "Brasil 1970 final Italia\n" + "x " * 40
+        try:
+            with patch.object(wst, "get_from_cache", return_value=None):
+                out = wst.web_search_tool(
+                    "Cual fue la mejor final de la historia y cual fue la peor",
+                    search_type="stats",
+                )
+            assert "1970" in out or "final" in out.lower()
+            assert "Solo puedo buscar" not in out
+        finally:
+            wst._search_fn = None
 
 
 class TestKbRetrievalTool:

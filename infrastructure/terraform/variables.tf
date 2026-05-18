@@ -28,7 +28,7 @@ variable "telegram_secret_arn" {
 
 variable "telegram_bot_username" {
   type        = string
-  default     = "ProdeBot"
+  default     = "scalonia_bot"
   description = "Username del bot sin @ — deep links t.me/<bot>?start=<invite_id>"
 }
 

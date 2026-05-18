@@ -24,6 +24,7 @@ GUARDRAIL_SECTION = """
 PODÉS responder sobre:
 ✅ Reglas del fútbol, tácticas, estrategias, formaciones
 ✅ Historia del fútbol y personajes históricos
+✅ Finales, semifinales y partidos históricos del Mundial (mejor/peor final, clásicos, etc.)
 ✅ Cualquier Mundial FIFA (1930 al presente)
 ✅ Fixture, sedes, horarios y resultados del Mundial 2026
 ✅ Estadísticas y datos de equipos y jugadores en mundiales

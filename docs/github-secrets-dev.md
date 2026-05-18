@@ -26,8 +26,9 @@ terraform_state_bucket     = "prode-terraform-state-615216531593"
 terraform_state_lock_table = "prode-terraform-state-lock"
 terraform_state_key        = "prode/terraform.tfstate"
 
-telegram_secret_arn = "arn:aws:secretsmanager:us-east-1:615216531593:secret:SCALONIA_TELEGRAM_BOT_TOKEN-JkUUHh"
-tavily_secret_arn   = "arn:aws:secretsmanager:us-east-1:615216531593:secret:prode-mundial/dev/tavily-api-key-N45thZ"
+telegram_secret_arn   = "arn:aws:secretsmanager:us-east-1:615216531593:secret:SCALONIA_TELEGRAM_BOT_TOKEN-JkUUHh"
+telegram_bot_username = "scalonia_bot"
+tavily_secret_arn     = "arn:aws:secretsmanager:us-east-1:615216531593:secret:prode-mundial/dev/tavily-api-key-N45thZ"
 
 bedrock_model_id = "us.amazon.nova-pro-v1:0"
 
