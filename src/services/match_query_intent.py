@@ -8,10 +8,13 @@ _FIXTURE_PATTERNS = [
     r"\b(cuándo|cuando)\s+juega\b",
     r"\b(próximo|proximo|siguiente)\s+partido\b",
     r"\b(grupo\s+[a-l]|grupos?\s+del\s+mundial)\b",
-    r"\b(vs\.?|contra|frente a)\b",
+    r"\b(vs\.?|contra|frente a|rivales?)\b",
+    r"\b(sede|sedes|estadio|ciudad)\b",
     r"\b(sede|estadio|ciudad)\b.*\b(partido|juega|mundial)\b",
     r"\b(mundial\s+2026).*\b(partido|juega|fixture|grupo)\b",
     r"\b(juega|juegan)\b.*\b(mundial|2026|argentina|brasil|mexico|méxico)\b",
+    r"\b(argentina|brasil|méxico|mexico)\b.*\b(rivales?|horarios?|sedes?|partidos?)\b",
+    r"\b(rivales?|horarios?|sedes?)\b.*\b(argentina|brasil|mundial|2026)\b",
     r"\b#\d{1,2}\b",  # "#12 ARG vs ..."
     r"\bmatch\s*#?\d+\b",
 ]

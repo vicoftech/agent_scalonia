@@ -6,7 +6,6 @@ from datetime import datetime, timezone
 from typing import Any
 
 from src.dao.dynamo.match_dao import MatchDAO
-from src.fixtures.mundial2026_groups import GROUP_TEAMS
 
 # Alias → código FIFA (consultas en lenguaje natural)
 TEAM_ALIASES: dict[str, str] = {
@@ -151,6 +150,8 @@ class MatchService:
         return self.search(group_letter=gl, limit=50)
 
     def teams_in_group(self, group_letter: str) -> list[str]:
+        from src.fixtures.mundial2026_groups import GROUP_TEAMS
+
         return list(GROUP_TEAMS.get(group_letter.upper()[:1], []))
 
     @staticmethod

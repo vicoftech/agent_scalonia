@@ -24,6 +24,7 @@ logger.setLevel(os.getenv("LOG_LEVEL", "INFO"))
 DYNAMODB_TABLE = os.environ["DYNAMODB_TABLE"]
 AGENTCORE_RUNTIME_ARN = os.environ["AGENTCORE_RUNTIME_ARN"]
 AGENTCORE_RUNTIME_QUALIFIER = os.environ.get("AGENTCORE_RUNTIME_QUALIFIER", "LIVE")
+AGENT_RUNTIME_VERSION = os.environ.get("AGENT_RUNTIME_VERSION", "0")
 AWS_REGION = os.environ.get("AWS_REGION", "us-east-1")
 TELEGRAM_SECRET = os.environ.get("TELEGRAM_SECRET_ID", "SCALONIA_TELEGRAM_BOT_TOKEN")
 TG_API = "https://api.telegram.org"
@@ -323,12 +324,19 @@ def handler(event: dict, context) -> dict:
             )
             return ok
 
-        session_id = f"tg-{platform_id_hash[:32]}"
+        # Versión en session_id → sesión nueva tras cada deploy (evita microVM con código viejo).
+        session_id = f"tg-{platform_id_hash[:24]}-v{AGENT_RUNTIME_VERSION}"
+        from fixture_prefetch import enrich_prompt_with_fixture
         from kb_prefetch import enrich_prompt_with_kb
 
-        agent_prompt, kb_chunks = enrich_prompt_with_kb(text)
-        if kb_chunks:
-            logger.info("kb_prefetch chunks=%s user_prefix=%s", kb_chunks, user_id[:8])
+        agent_prompt, has_fixture = enrich_prompt_with_fixture(text)
+        if has_fixture:
+            logger.info("fixture_prefetch ok user_prefix=%s", user_id[:8])
+            kb_chunks = 0
+        else:
+            agent_prompt, kb_chunks = enrich_prompt_with_kb(agent_prompt)
+            if kb_chunks:
+                logger.info("kb_prefetch chunks=%s user_prefix=%s", kb_chunks, user_id[:8])
         response_text = _invoke_agent(user_id, session_id, agent_prompt)
         _send_message(chat_id, response_text, token)
 
