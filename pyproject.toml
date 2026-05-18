@@ -3,7 +3,6 @@ name        = "prode-mundial-2026"
 version     = "0.1.0"
 description = "Prode Mundial 2026 — Bedrock AgentCore + Strands + Aurora + DynamoDB"
 authors     = ["Team Prode"]
-python      = "^3.12"
 
 [tool.poetry.dependencies]
 python                        = "^3.12"
