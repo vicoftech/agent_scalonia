@@ -112,8 +112,10 @@ def resolve_kb_then_web(
     kb_max = max_kb_score(rows)
     tavily_ok = is_tavily_configured()
 
-    # Finales históricas / mejor-peor: KB con score alto pero tangencial no debe cortar Tavily
-    force_web = is_football_domain_query(query) and is_historical_football_query(query)
+    # KB con score alto pero tangencial no debe cortar Tavily (finales, comparativas, Messi…)
+    force_web = is_football_domain_query(query) and (
+        is_historical_football_query(query) or is_analytical_query(query)
+    )
 
     if kb_is_sufficient(query, kb_text, kb_max) and not force_web:
         logger.info(

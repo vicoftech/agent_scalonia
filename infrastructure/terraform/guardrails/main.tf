@@ -15,34 +15,8 @@ resource "aws_bedrock_guardrail" "prode" {
     "¿En qué puedo ayudarte sobre el Mundial 2026?",
   ])
 
-  topic_policy_config {
-    topics_config {
-      name       = "politica-economia"
-      definition = "Preguntas sobre política, economía, finanzas, inversiones o gobierno"
-      examples   = ["¿Quién ganó las elecciones?", "¿Cómo está el dólar?"]
-      type       = "DENY"
-    }
-    topics_config {
-      name       = "salud-medicina"
-      definition = "Consultas médicas, diagnósticos, tratamientos o medicamentos"
-      examples   = ["¿Qué pastilla tomo para el dolor?"]
-      type       = "DENY"
-    }
-    topics_config {
-      name       = "otros-deportes"
-      definition = "Deportes que no son fútbol: básquet, tenis, natación, atletismo, F1, rugby"
-      examples   = ["¿Quién ganó el US Open?", "¿Cómo le fue a Verstappen?"]
-      type       = "DENY"
-    }
-    topics_config {
-      name       = "tecnologia-programacion"
-      definition = "Software, hardware, programación, inteligencia artificial, startups"
-      examples   = ["¿Cómo hago un loop en Python?", "¿Qué es un LLM?"]
-      type       = "DENY"
-    }
-    # Sin topic "entretenimiento": bloqueaba falsos positivos ("mejor/peor final del mundial").
-    # El system prompt acota el alcance a fútbol y mundiales.
-  }
+  # Sin topic_policy DENY: el clasificador generaba falsos positivos (Messi, finales, etc.).
+  # El alcance lo define el system_prompt; acá solo filtros de contenido dañino.
 
   content_policy_config {
     filters_config {

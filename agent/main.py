@@ -3,7 +3,7 @@ agent/main.py — Prode Mundial 2026
 ====================================
 Entrypoint del agente en Bedrock AgentCore Runtime.
 Deploy: agentcore deploy  |  Local: agentcore launch --local
-CI: deploy-dev.yml en push a dev.  # deploy-trigger: 2026-05-19
+CI: deploy-dev.yml en push a dev.  # deploy-trigger: 2026-05-20
 
 Patrón oficial de streaming:
   @app.entrypoint async def + agent.stream_async() + yield
@@ -53,6 +53,9 @@ REGLA CRÍTICA — PARTIDOS Y FIXTURE (única fuente: match_tool):
 - Equipos de un grupo: match_tool action=teams group_letter=X.
 - Fixture de un grupo: match_tool action=group group_letter=X.
 - Búsqueda por país/equipo: match_tool action=search team=...
+
+JUGADORES Y ESTADÍSTICAS (Messi, Ronaldo, etc.):
+- Siempre en scope. Usá kb_retrieval_tool y web_search_tool; nunca el mensaje genérico de "solo fútbol y mundiales".
 
 CONOCIMIENTO — KB y web (orden obligatorio salvo fixture):
 1) kb_retrieval_tool primero: historia, reglas, tácticas, cultura, datos ya en la KB.

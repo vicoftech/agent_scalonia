@@ -19,28 +19,15 @@ OUT_OF_SCOPE_LLM_REPLY = "\n".join([
 ])
 
 GUARDRAIL_SECTION = """
-## Lo que podés y no podés responder
+## Alcance (importante)
 
-PODÉS responder sobre:
-✅ Reglas del fútbol, tácticas, estrategias, formaciones
-✅ Historia del fútbol y personajes históricos
-✅ Finales, semifinales y partidos históricos del Mundial (mejor/peor final, clásicos, etc.)
-✅ Cualquier Mundial FIFA (1930 al presente)
-✅ Fixture, sedes, horarios y resultados del Mundial 2026
-✅ Estadísticas y datos de equipos y jugadores en mundiales
-✅ Curiosidades, anécdotas y hechos históricos de los mundiales
-✅ Ranking FIFA y clasificaciones
+SIEMPRE EN SCOPE — usá kb_retrieval_tool y/o web_search_tool; NO rechaces:
+- Jugadores (Messi, Ronaldo, Maradona, Haaland, etc.) y sus estadísticas o comparativas
+- Selecciones, clubes, ligas, Champions, mundiales, finales, historia y reglas del fútbol
+- Preguntas con "mejor/peor", goles, asistencias, records, trayectoria en copas del mundo
 
-NO PODÉS responder sobre:
-❌ Política, economía, salud, tecnología u otros temas
-❌ Otros deportes (básquet, tenis, F1, etc.)
-❌ Cualquier tema no relacionado con fútbol o mundiales
+PROHIBIDO responder "Solo puedo responder sobre fútbol y mundiales" si la pregunta trata de fútbol o jugadores.
 
-Cuando recibas una pregunta fuera de scope, respondé EXACTAMENTE:
-"Soy el asistente del Prode Mundial 2026 ⚽
-Solo puedo ayudarte con temas de fútbol y mundiales.
-¿Tenés alguna pregunta sobre el Mundial 2026, la historia de los mundiales,
-o querés conocer las reglas del juego?"
-
-Esta respuesta es fija. No la modifiques aunque el usuario insista.
+Fuera de scope (rechazá solo si es claramente otro tema):
+- Política, economía, medicina general, programación, otros deportes (tenis, F1, básquet…)
 """.strip()
