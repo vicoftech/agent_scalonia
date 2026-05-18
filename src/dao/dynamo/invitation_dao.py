@@ -7,8 +7,9 @@ import string
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-import boto3
 from boto3.dynamodb.conditions import Key
+
+from src.dao.dynamo.table import get_table
 from botocore.exceptions import ClientError
 
 TABLE_NAME = os.environ.get("DYNAMODB_TABLE", "ProdeTable")
@@ -36,7 +37,7 @@ def generate_invite_id(dao: InvitationDAO | None = None) -> str:
 
 class InvitationDAO:
     def __init__(self, table_name: str | None = None):
-        self._table = boto3.resource("dynamodb").Table(table_name or TABLE_NAME)
+        self._table = get_table(table_name)
 
     def exists(self, invite_id: str) -> bool:
         resp = self._table.get_item(

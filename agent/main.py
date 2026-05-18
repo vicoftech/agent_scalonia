@@ -49,8 +49,9 @@ Si kb_retrieval_tool devuelve pasajes, basá la respuesta en ellos; no inventes 
 Si kb_retrieval_tool devuelve "Error técnico", informá el fallo; no digas que el dato no existe.
 Para grupos/equipos del Mundial 2026, llamá kb_retrieval_tool con query explícita (ej. "grupo A equipos Mundial 2026").
 Para partidos por ciudad/sede (ej. Kansas City), kb_retrieval_tool con "Kansas City partidos Mundial 2026 calendario".
-Para invitar personas usá invitation_tool (create/list/revoke/uses); no hace falta pasar user_id.
-Usuarios no ACTIVE o sin registro no llegan al agente (el webhook responde con mensaje fijo).
+Si piden link/código/invitación: SIEMPRE llamá invitation_tool (action=create o list).
+El usuario ya fue validado como ACTIVE por Telegram; no le digas que no está activo.
+También pueden usar /invitar [cupos] o /mis-invitaciones sin pasar por vos.
 Las features de predicciones, rankings y trivia se habilitan sprint a sprint.
 """.strip()
 
@@ -112,14 +113,29 @@ async def agent_invocation(payload: dict):
         platform:   str   — TELEGRAM | TEAMS
         session_id: str   — gestionado por AgentCore
     """
-    prompt   = payload.get("prompt", "No encontré un mensaje. Enviá un JSON con la clave 'prompt'.")
-    user_id  = payload.get("user_id", "anonymous")
+    prompt = payload.get("prompt", "No encontré un mensaje. Enviá un JSON con la clave 'prompt'.")
+    user_id = (
+        payload.get("user_id")
+        or payload.get("userId")
+        or "anonymous"
+    )
     platform = payload.get("platform", "UNKNOWN")
 
-    logger.info("Invocación | platform=%s | user_prefix=%s", platform, user_id[:8])
+    logger.info(
+        "Invocación | platform=%s | user_prefix=%s | dynamodb=%s",
+        platform,
+        user_id[:8] if user_id else "?",
+        os.environ.get("DYNAMODB_TABLE", "?"),
+    )
 
-    # Nuevo Agent por invoke: evita microVM cacheado con modelo/código viejo.
-    stream = _build_agent(user_id).stream_async(prompt)
+    agent_prompt = prompt
+    if user_id not in ("anonymous", "unregistered", ""):
+        agent_prompt = (
+            f"{prompt}\n\n"
+            f"[Sesión: usuario autenticado, podés usar invitation_tool para invitaciones.]"
+        )
+
+    stream = _build_agent(user_id).stream_async(agent_prompt)
     async for event in stream:
         if is_guardrail_block_event(event):
             logger.warning(

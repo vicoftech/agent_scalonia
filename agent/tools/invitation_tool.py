@@ -9,6 +9,11 @@ from strands import tool
 
 logger = logging.getLogger(__name__)
 
+_UUID_RE = __import__("re").compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+    __import__("re").IGNORECASE,
+)
+
 
 def _execute_invitation_tool(
     caller_user_id: str,
@@ -18,12 +23,14 @@ def _execute_invitation_tool(
     status_filter: str | None = None,
     group_id: str | None = None,
 ) -> str:
-    from src.services.auth_service import AuthService
     from src.services.invitation_service import InvitationService
 
-    allowed, deny_message = AuthService().require_active_user_id(caller_user_id)
-    if not allowed:
-        return deny_message
+    if not caller_user_id or caller_user_id in ("anonymous", "unregistered"):
+        from src.services.auth_service import INACTIVE_USER_MESSAGE
+
+        return INACTIVE_USER_MESSAGE
+    if not _UUID_RE.match(caller_user_id):
+        return f"user_id de sesión inválido: {caller_user_id!r}"
 
     svc = InvitationService()
     action = (action or "").strip().lower()

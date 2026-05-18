@@ -5,11 +5,9 @@ import os
 from datetime import datetime, timezone
 from typing import Any
 
-import boto3
 from boto3.dynamodb.conditions import Key
 
-TABLE_NAME = os.environ.get("DYNAMODB_TABLE", "ProdeTable")
-
+from src.dao.dynamo.table import get_table
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -17,7 +15,7 @@ def _now_iso() -> str:
 
 class UserDAO:
     def __init__(self, table_name: str | None = None):
-        self._table = boto3.resource("dynamodb").Table(table_name or TABLE_NAME)
+        self._table = get_table(table_name)
 
     def get_by_platform_hash(self, platform: str, platform_id_hash: str) -> dict[str, Any] | None:
         resp = self._table.query(
