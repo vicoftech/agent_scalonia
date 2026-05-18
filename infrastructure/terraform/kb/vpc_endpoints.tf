@@ -15,25 +15,6 @@ data "aws_vpc" "lambda_vpc" {
   id    = data.aws_subnet.lambda_first[0].vpc_id
 }
 
-data "aws_security_group" "aurora" {
-  count = var.enable_vpc_endpoints && var.aurora_security_group_id != "" ? 1 : 0
-  id    = var.aurora_security_group_id
-}
-
-locals {
-  lambda_vpc_cidr = var.enable_vpc_endpoints && length(data.aws_vpc.lambda_vpc) > 0 ? data.aws_vpc.lambda_vpc[0].cidr_block : null
-
-  kb_aurora_rule_description = "Prode KB Lambdas (${var.project_name} ${var.env})"
-
-  # Omitir solo si ya hay 5432 desde el mismo CIDR creado fuera de este módulo (p. ej. 10.0.0.0/16 legacy).
-  aurora_has_foreign_lambda_vpc_ingress = length([
-    for rule in try(data.aws_security_group.aurora[0].ingress, []) : rule
-    if rule.from_port == 5432 && rule.to_port == 5432
-      && contains(try(rule.cidr_blocks, []), local.lambda_vpc_cidr)
-      && try(rule.description, "") != local.kb_aurora_rule_description
-  ]) > 0
-}
-
 resource "aws_security_group" "vpc_endpoints" {
   count = var.enable_vpc_endpoints ? 1 : 0
 
@@ -77,17 +58,17 @@ resource "aws_vpc_endpoint" "secretsmanager" {
   private_dns_enabled = true
 }
 
-# Aurora SG puede tener ya 5432 desde el CIDR de la VPC Lambda (p. ej. 10.0.0.0/16).
+# Solo si manage_aurora_lambda_vpc_ingress=true. En asap-dev el SG ya tiene 5432 desde 10.0.0.0/16.
 resource "aws_security_group_rule" "aurora_from_lambda_vpc" {
-  count = var.enable_vpc_endpoints && var.aurora_security_group_id != "" && !local.aurora_has_foreign_lambda_vpc_ingress ? 1 : 0
+  count = var.enable_vpc_endpoints && var.manage_aurora_lambda_vpc_ingress && var.aurora_security_group_id != "" ? 1 : 0
 
   type              = "ingress"
   from_port         = 5432
   to_port           = 5432
   protocol          = "tcp"
   security_group_id = var.aurora_security_group_id
-  cidr_blocks       = [local.lambda_vpc_cidr]
-  description       = local.kb_aurora_rule_description
+  cidr_blocks       = [data.aws_vpc.lambda_vpc[0].cidr_block]
+  description       = "Prode KB Lambdas (${var.project_name} ${var.env})"
 }
 
 resource "aws_vpc_endpoint" "bedrock_runtime" {

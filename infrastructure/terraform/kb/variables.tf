@@ -75,6 +75,12 @@ variable "aurora_security_group_id" {
   description = "SG del cluster Aurora (ingress 5432 desde VPC de las Lambdas)."
 }
 
+variable "manage_aurora_lambda_vpc_ingress" {
+  type        = bool
+  default     = false
+  description = "Crear regla ingress 5432 en aurora_security_group_id desde el CIDR de la VPC Lambda. false si la regla ya existe (evita InvalidPermission.Duplicate)."
+}
+
 variable "kb_ingest_timeout" {
   type        = number
   default     = 300

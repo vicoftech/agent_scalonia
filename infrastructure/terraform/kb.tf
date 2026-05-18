@@ -16,7 +16,8 @@ module "kb" {
   lambda_vpc_subnet_ids         = var.lambda_vpc_subnet_ids
   lambda_vpc_security_group_ids = var.lambda_vpc_security_group_ids
   enable_vpc_endpoints          = var.enable_kb_vpc_endpoints
-  aurora_security_group_id         = var.kb_aurora_security_group_id
+  aurora_security_group_id            = var.kb_aurora_security_group_id
+  manage_aurora_lambda_vpc_ingress    = var.kb_manage_aurora_lambda_vpc_ingress
   kb_ingest_timeout                = var.kb_ingest_timeout
   kb_ingest_reserved_concurrency   = var.kb_ingest_reserved_concurrency
 }

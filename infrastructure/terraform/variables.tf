@@ -125,6 +125,12 @@ variable "kb_aurora_security_group_id" {
   description = "SG de aurora-pg-dev (ingress 5432 desde CIDR de la VPC Lambda)."
 }
 
+variable "kb_manage_aurora_lambda_vpc_ingress" {
+  type        = bool
+  default     = false
+  description = "Terraform crea ingress 5432 en kb_aurora_security_group_id. false si ya existe (asap-dev: 10.0.0.0/16)."
+}
+
 variable "kb_ingest_timeout" {
   type        = number
   default     = 300
