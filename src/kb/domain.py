@@ -4,7 +4,7 @@ import re
 
 _FOOTBALL_PATTERN = re.compile(
     r"\b("
-    r"f[uú]tbol|fifa|mundial|world\s*cup|gol(?:es)?|partido|equipo|selecci[oó]n|"
+    r"f[uú]tbol|fifa|mundial(?:es)?|world\s*cup|gol(?:es)?|partido|equipo|selecci[oó]n|"
     r"argentina|brasil|brazil|messi|maradona|offside|fuera\s*de\s*juego|"
     r"fixture|estadio|sedes?|grupo\s*[a-l]|eliminatoria|penal|arbitro|"
     r"2026|ifab|t[aá]ctica|formaci[oó]n|champions|libertadores|"

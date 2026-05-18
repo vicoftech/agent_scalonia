@@ -130,6 +130,15 @@ data "aws_iam_policy_document" "agent_runtime" {
     }
   }
 
+  dynamic "statement" {
+    for_each = module.kb.kb_enrichment_queue_arn != "" ? [1] : []
+    content {
+      sid       = "KbEnrichmentSQS"
+      actions   = ["sqs:SendMessage"]
+      resources = [module.kb.kb_enrichment_queue_arn]
+    }
+  }
+
   statement {
     sid = "Logs"
     actions = [
@@ -176,6 +185,12 @@ resource "aws_bedrockagentcore_agent_runtime" "prode" {
     var.tavily_secret_arn != "" ? { TAVILY_SECRET_ARN = var.tavily_secret_arn } : {},
     module.kb.kb_query_lambda_name != "" ? {
       KB_QUERY_LAMBDA_NAME = module.kb.kb_query_lambda_name
+    } : {},
+    module.kb.kb_enrichment_queue_url != "" ? {
+      KB_ENRICHMENT_QUEUE_URL = module.kb.kb_enrichment_queue_url
+    } : {},
+    module.kb.kb_s3_bucket != "" ? {
+      KB_S3_BUCKET = module.kb.kb_s3_bucket
     } : {},
     var.enable_invitation_notify_queue ? {
       INVITATION_NOTIFY_QUEUE_URL = aws_sqs_queue.invitation_exhausted[0].url

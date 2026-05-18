@@ -70,30 +70,37 @@ class TestWebSearchTool:
 
 
 class TestKbRetrievalTool:
-    def test_sin_lambda_mensaje_claro(self):
+    def test_sin_lambda_intenta_web(self):
         from agent.tools.kb_retrieval_tool import kb_retrieval_tool
 
         with patch(
             "src.kb.lambda_client.search_kb",
             side_effect=RuntimeError("KB_QUERY_LAMBDA_NAME no configurado"),
         ):
-            out = kb_retrieval_tool("Maradona Mundial 86")
-        assert "Knowledge Base" in out
+            with patch(
+                "agent.tools.web_search_tool.perform_web_search",
+                return_value=None,
+            ):
+                out = kb_retrieval_tool("goles Maradona en el Mundial 1986")
+        assert "No encontré" in out
 
     def test_sc04_pgvector_formatea_chunks(self):
         from agent.tools.kb_retrieval_tool import kb_retrieval_tool
 
+        long_content = "Maradona anotó 5 goles en 1986. " * 15
         rows = [
             {
                 "source_path": "knowledge-base/mundiales/ediciones/1986.md",
-                "content": "Maradona anotó 5 goles en 1986.",
+                "content": long_content,
                 "score": 0.92,
             }
         ]
         with patch("src.kb.lambda_client.search_kb", return_value=rows):
-            out = kb_retrieval_tool("goles Maradona Mundial 1986")
+            with patch("agent.tools.web_search_tool.perform_web_search") as mock_web:
+                out = kb_retrieval_tool("goles Maradona Mundial 1986")
         assert "5 goles" in out
         assert "1986" in out
+        mock_web.assert_not_called()
 
 
 class TestCacheKey:

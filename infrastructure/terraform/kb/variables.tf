@@ -92,3 +92,15 @@ variable "kb_ingest_reserved_concurrency" {
   default     = 3
   description = "Máximo de ejecuciones paralelas de kb_ingest (evita throttling Bedrock embed)."
 }
+
+variable "dynamodb_table_name" {
+  type        = string
+  default     = ""
+  description = "ProdeTable para CACHE# y KB_ENRICHED# (enrichment dispatcher)."
+}
+
+variable "dynamodb_table_arn" {
+  type        = string
+  default     = ""
+  description = "ARN tabla DynamoDB (IAM enrichment)."
+}

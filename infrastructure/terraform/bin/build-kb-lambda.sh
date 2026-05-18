@@ -3,7 +3,7 @@
 set -euo pipefail
 
 REPO_ROOT="${1:?repo root}"
-LAMBDA_NAME="${2:?kb_ingest|kb_query}"
+LAMBDA_NAME="${2:?kb_ingest|kb_query|kb_enrichment_dispatcher}"
 OUT_ZIP="${3:?output zip}"
 
 LAMBDA_DIR="${REPO_ROOT}/infrastructure/lambdas/${LAMBDA_NAME}"

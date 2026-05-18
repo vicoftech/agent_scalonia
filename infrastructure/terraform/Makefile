@@ -21,6 +21,7 @@ prepare:
 	./bin/build-telegram-lambda.sh ../lambdas/telegram_webhook $(CURDIR)/.build/telegram_webhook.zip
 	./bin/build-kb-lambda.sh ../.. kb_ingest $(CURDIR)/.build/kb_ingest.zip
 	./bin/build-kb-lambda.sh ../.. kb_query $(CURDIR)/.build/kb_query.zip
+	./bin/build-kb-lambda.sh ../.. kb_enrichment_dispatcher $(CURDIR)/.build/kb_enrichment_dispatcher.zip
 
 plan: prepare init
 	@. ./bin/tf-env.sh && \

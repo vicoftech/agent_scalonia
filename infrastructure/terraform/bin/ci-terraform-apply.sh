@@ -27,7 +27,7 @@ fi
 
 chmod +x bin/*.sh
 make prepare
-for _zip in .build/kb_ingest.zip .build/kb_query.zip; do
+for _zip in .build/kb_ingest.zip .build/kb_query.zip .build/kb_enrichment_dispatcher.zip; do
   if [[ ! -f "$_zip" ]]; then
     echo "ERROR: falta ${_zip} — revisá Makefile prepare (build-kb-lambda)" >&2
     exit 1

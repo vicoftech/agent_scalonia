@@ -20,4 +20,6 @@ module "kb" {
   manage_aurora_lambda_vpc_ingress    = var.kb_manage_aurora_lambda_vpc_ingress
   kb_ingest_timeout                = var.kb_ingest_timeout
   kb_ingest_reserved_concurrency   = var.kb_ingest_reserved_concurrency
+  dynamodb_table_name              = module.prode_table.dynamodb_table_id
+  dynamodb_table_arn               = module.prode_table.dynamodb_table_arn
 }

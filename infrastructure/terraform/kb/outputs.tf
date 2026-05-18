@@ -29,3 +29,15 @@ output "kb_lambdas_enabled" {
 output "aurora_sync_secret_arn" {
   value = local.aurora_secret_arn
 }
+
+output "kb_enrichment_queue_url" {
+  value = try(aws_sqs_queue.kb_enrichment[0].url, "")
+}
+
+output "kb_enrichment_queue_arn" {
+  value = try(aws_sqs_queue.kb_enrichment[0].arn, "")
+}
+
+output "kb_enrichment_dispatcher_name" {
+  value = try(aws_lambda_function.kb_enrichment_dispatcher[0].function_name, "")
+}

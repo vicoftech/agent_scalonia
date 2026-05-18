@@ -298,8 +298,14 @@ def handler(event: dict, context) -> dict:
 
         user_id, block_message = AuthService().resolve_telegram_access(platform_id_hash)
         if block_message:
+            logger.info(
+                "auth_blocked platform_hash_prefix=%s",
+                platform_id_hash[:12],
+            )
             _send_message(chat_id, block_message, token)
             return ok
+
+        logger.info("auth_ok user_prefix=%s", user_id[:8] if user_id else "?")
 
         try:
             from invitation_commands import handle_invitation_command
@@ -318,7 +324,12 @@ def handler(event: dict, context) -> dict:
             return ok
 
         session_id = f"tg-{platform_id_hash[:32]}"
-        response_text = _invoke_agent(user_id, session_id, text)
+        from kb_prefetch import enrich_prompt_with_kb
+
+        agent_prompt, kb_chunks = enrich_prompt_with_kb(text)
+        if kb_chunks:
+            logger.info("kb_prefetch chunks=%s user_prefix=%s", kb_chunks, user_id[:8])
+        response_text = _invoke_agent(user_id, session_id, agent_prompt)
         _send_message(chat_id, response_text, token)
 
     except Exception:

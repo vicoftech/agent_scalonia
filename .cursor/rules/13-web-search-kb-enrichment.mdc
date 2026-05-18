@@ -1,0 +1,444 @@
+---
+description: SPEC-023 — Web Search con enriquecimiento dinámico de KB. Aplica cuando se trabaja en agent/tools/web_search_tool.py, agent/tools/kb_retrieval_tool.py, src/kb/kb_enrichment_service.py o cualquier lógica de búsqueda y persistencia de conocimiento.
+globs: agent/tools/web_search_tool.py, agent/tools/kb_retrieval_tool.py, src/kb/**/*.py, infrastructure/lambdas/kb_sync/handler.py
+alwaysApply: false
+---
+
+# SPEC-2026-023 — Web Search con Enriquecimiento Dinámico de KB
+
+**SPEC-ID**: SPEC-2026-023 | **Sprint**: Sprint 2-3 | **Modo**: IA-Assisted
+**Dependencias**: SPEC-2026-017 (KB base y web_search_tool inicial)
+
+---
+
+## Principio de diseño
+
+Cuando la KB no tiene un dato, el agente lo busca en la web y lo persiste
+en el destino correcto según la volatilidad del dato:
+
+```
+HISTÓRICO o SEMIPERMANENTE  →  S3 + StartIngestionJob (disponible en KB en ~5-15 min)
+VOLÁTIL                     →  DynamoDB CACHE# con TTL corto (disponible inmediatamente)
+```
+
+La distinción la hace `kb_enrichment_service.classify_query()` antes de persistir.
+El agente responde al usuario en ambos casos sin esperar la indexación.
+
+---
+
+## Flujo completo — búsqueda con enriquecimiento
+
+```python
+# Flujo implementado en kb_retrieval_tool y web_search_tool coordinados
+
+async def search_with_enrichment(query: str, user_id: str) -> str:
+    """
+    1. Buscar en KB (kb_retrieval_tool)
+    2. Si KB tiene resultado suficiente → retornar
+    3. Si KB miss o resultado pobre → web_search_tool
+    4. Clasificar el dato obtenido
+    5a. Histórico → enqueue S3 upload + StartIngestionJob (async)
+    5b. Volátil   → DynamoDB CACHE# con TTL apropiado
+    6. Retornar resultado al usuario sin esperar la persistencia
+    """
+```
+
+---
+
+## Clasificación de queries — histórico vs volátil
+
+### Señales de dato HISTÓRICO → persiste en S3 + KB
+
+```python
+HISTORICAL_SIGNALS = [
+    # Temporales
+    r"\b(19[3-9]\d|20[0-2][0-9])\b",   # año entre 1930 y 2025
+    r"\bmundial\s+(de\s+)?(19|20)\d{2}", # "mundial de 1986"
+    r"\b(primer|último|histórico|record|all.time)\b",
+
+    # Entidades cerradas
+    r"\bjugador\s+retirado\b",
+    r"\b(pelé|maradona|cruyff|beckenbauer|zidane|ronaldo nazario)\b",
+
+    # Tipos de contenido estable
+    r"\b(regla|ley del juego|táctica|formación|historia de|anécdota|curiosidad)\b",
+    r"\b(estadística de carrera|goles en mundiales|partidos jugados)\b",
+    r"\b(sede|estadio del mundial [12]\d{3})\b",
+]
+```
+
+### Señales de dato VOLÁTIL → persiste en DynamoDB CACHE#
+
+```python
+VOLATILE_SIGNALS = [
+    # Temporales recientes
+    r"\b(hoy|ayer|anoche|esta semana|reciente|último partido|ahora)\b",
+    r"\b202[6-9]\b",                    # año 2026 en adelante
+    r"\b(en vivo|live|minuto a minuto)\b",
+
+    # Tipos de contenido efímero
+    r"\b(resultado|marcador|score)\b",
+    r"\b(convocatoria|alineación|once titular|titular)\b",
+    r"\b(lesión|baja|suspendido|sancionado)\b",
+    r"\b(fixture|horario|cuándo juega|próximo partido)\b",
+    r"\b(tabla de posiciones|clasificación actual|ranking actual)\b",
+    r"\b(noticias?|novedades?|rumores?)\b",
+]
+```
+
+### Función de clasificación
+
+```python
+# src/kb/kb_enrichment_service.py
+
+import re
+from enum import Enum
+
+class DataType(Enum):
+    HISTORICAL = "historical"   # → S3 + Bedrock KB
+    VOLATILE   = "volatile"     # → DynamoDB CACHE#
+    AMBIGUOUS  = "ambiguous"    # → DynamoDB CACHE# por defecto (más seguro)
+
+def classify_query(query: str) -> DataType:
+    """
+    Clasifica la query para determinar dónde persistir el resultado.
+    En caso de ambigüedad → VOLATILE (DynamoDB).
+    Nunca indexar en Bedrock algo que puede quedar desactualizado.
+    """
+    q = query.lower()
+    historical_score = sum(
+        1 for pattern in HISTORICAL_SIGNALS
+        if re.search(pattern, q, re.IGNORECASE)
+    )
+    volatile_score = sum(
+        1 for pattern in VOLATILE_SIGNALS
+        if re.search(pattern, q, re.IGNORECASE)
+    )
+
+    if volatile_score > 0:
+        return DataType.VOLATILE      # cualquier señal volátil → cache
+    if historical_score >= 2:
+        return DataType.HISTORICAL    # al menos 2 señales históricas → KB
+    return DataType.AMBIGUOUS         # dudoso → cache (conservador)
+```
+
+---
+
+## kb_enrichment_service.py — lógica completa
+
+```python
+# src/kb/kb_enrichment_service.py
+
+class KBEnrichmentService:
+
+    def enrich_from_web(
+        self,
+        query: str,
+        web_result: str,
+        data_type: DataType,
+    ) -> None:
+        """
+        Persiste el resultado de web_search según el tipo de dato.
+        Fire-and-forget — el agente no espera esta operación.
+        """
+        if data_type == DataType.HISTORICAL:
+            self._enrich_kb(query, web_result)
+        else:
+            self._enrich_cache(query, web_result)
+
+    def _enrich_kb(self, query: str, content: str) -> None:
+        """
+        Genera un documento .md a partir del resultado web y lo sube a S3.
+        El kb_sync Lambda detecta el PutObject y dispara StartIngestionJob.
+
+        Formato del documento generado:
+          s3://bucket/enriched/{yyyy-mm-dd}/{query_slug}.md
+        """
+        slug      = self._make_slug(query)
+        date_str  = datetime.now(tz=timezone.utc).strftime("%Y-%m-%d")
+        s3_key    = f"enriched/{date_str}/{slug}.md"
+        markdown  = self._build_markdown(query, content)
+
+        s3 = boto3.client("s3")
+        s3.put_object(
+            Bucket=self._kb_bucket,
+            Key=s3_key,
+            Body=markdown.encode("utf-8"),
+            ContentType="text/markdown",
+            Metadata={
+                "source":     "web_search_enrichment",
+                "query":      query[:200],
+                "created_at": datetime.now(tz=timezone.utc).isoformat(),
+            },
+        )
+        # kb_sync Lambda se dispara automáticamente por el S3 trigger
+        logger.info("KB enrichment: subido s3://%s/%s", self._kb_bucket, s3_key)
+
+    def _enrich_cache(self, query: str, content: str, ttl_seconds: int = None) -> None:
+        """
+        Guarda en DynamoDB CACHE# con TTL según el tipo de contenido.
+        Usa la lógica de TTL ya definida en web_search_tool.
+        """
+        cache_key   = _make_cache_key(query)
+        ttl_seconds = ttl_seconds or _TTL["general"]
+        _save_to_cache(cache_key, query, content, ttl_seconds)
+
+    def _build_markdown(self, query: str, content: str) -> str:
+        """
+        Construye un documento Markdown estructurado para Bedrock KB.
+        El formato respeta el template estándar de la KB para chunking consistente.
+        """
+        return f"""# {query.title()}
+
+## Fuente
+Obtenido via web search — enriquecimiento dinámico de KB.
+Fecha de incorporación: {datetime.now(tz=timezone.utc).strftime("%Y-%m-%d")}
+
+## Contenido
+
+{content}
+
+## Metadata
+- query_original: {query}
+- tipo: enrichment
+- verificar_actualidad: true
+"""
+
+    def _make_slug(self, query: str) -> str:
+        """query → archivo_slug_seguro_para_s3.md"""
+        import re
+        slug = re.sub(r"[^a-z0-9\s-]", "", query.lower())
+        slug = re.sub(r"\s+", "-", slug.strip())
+        return slug[:80] + ".md"
+
+    def should_enrich_kb(self, query: str, kb_result: str | None) -> bool:
+        """
+        Determina si vale la pena enriquecer la KB con esta query.
+        No enriquecer si:
+        - La KB ya tiene un resultado suficiente (kb_result es sustancial)
+        - La query es demasiado corta o genérica
+        - El resultado web es muy corto (probablemente no encontró nada)
+        """
+        if kb_result and len(kb_result) > 200:
+            return False           # KB ya tiene información suficiente
+        if len(query.split()) < 3:
+            return False           # query demasiado genérica
+        return True
+```
+
+---
+
+## Integración en kb_retrieval_tool
+
+```python
+# agent/tools/kb_retrieval_tool.py — versión actualizada
+
+@tool
+def kb_retrieval_tool(query: str, max_results: int = 5) -> str:
+    """
+    Busca en la Bedrock Knowledge Base. Si no encuentra resultado suficiente,
+    delega automáticamente a web_search_tool y enriquece la KB o el cache
+    según el tipo de dato encontrado.
+
+    El agente SIEMPRE recibe una respuesta — nunca un "no encontré nada".
+    Si la KB miss, el enriquecimiento ocurre en background (fire-and-forget).
+    """
+    # 1. Buscar en KB
+    kb_result = _search_bedrock_kb(query, max_results)
+
+    if kb_result and len(kb_result) > 200:
+        return kb_result   # KB tiene suficiente información
+
+    # 2. KB miss o resultado pobre → web search
+    web_result = _perform_web_search(query)
+    if not web_result:
+        return kb_result or "No encontré información sobre eso."
+
+    # 3. Clasificar y enriquecer en background (fire-and-forget via SQS)
+    data_type = enrichment_service.classify_query(query)
+    _enqueue_enrichment(query, web_result, data_type)
+
+    # 4. Retornar resultado web al usuario sin esperar la indexación
+    return web_result
+```
+
+---
+
+## Pipeline de enriquecimiento — asíncrono
+
+```
+kb_retrieval_tool detecta KB miss
+    │
+    ├── _enqueue_enrichment(query, web_result, data_type)
+    │       │
+    │       └── SQS KBEnrichmentQueue
+    │               │
+    │               └── Lambda kb_enrichment_dispatcher
+    │                       │
+    │                       ├── DataType.HISTORICAL →
+    │                       │     s3.put_object(enriched/{date}/{slug}.md)
+    │                       │         └── S3 trigger → kb_sync Lambda
+    │                       │                  └── bedrock-agent.start_ingestion_job()
+    │                       │                         [disponible en KB en ~5-15 min]
+    │                       │
+    │                       └── DataType.VOLATILE / AMBIGUOUS →
+    │                             DynamoDB CACHE# con TTL apropiado
+    │                             [disponible inmediatamente]
+    │
+    └── Agente responde al usuario con web_result (sin esperar)
+```
+
+---
+
+## Estructura S3 para documentos enriquecidos
+
+```
+s3://prode-knowledge-base-{env}/
+  mundiales/          ← documentos curados manualmente (ingest_kb.py)
+  reglas/
+  tacticas/
+  futbol/
+  enriched/           ← documentos generados por web search enrichment
+    2026-06-15/
+      historia-del-mundial-1974-alemania.md
+      maradona-goles-mundiales-estadisticas.md
+    2026-06-16/
+      cruyff-total-football-historia.md
+```
+
+Los documentos en `enriched/` usan el mismo template que los curados,
+son procesados por el mismo StartIngestionJob y quedan disponibles en
+la misma búsqueda RAG de Bedrock KB.
+
+---
+
+## Deduplicación — no indexar lo que ya está
+
+```python
+def _check_already_enriched(query: str) -> bool:
+    """
+    Antes de subir a S3, verificar si ya existe un documento similar.
+    Usa DynamoDB para llevar registro de slugs ya indexados.
+
+    PK: KB_ENRICHED#<slug>    SK: DETAILS
+    TTL: 30 días (después de ese tiempo puede re-enriquecerse)
+    """
+    table = boto3.resource("dynamodb").Table(DYNAMODB_TABLE)
+    slug  = _make_slug(query)
+    resp  = table.get_item(Key={
+        "partition_key": f"KB_ENRICHED#{slug}",
+        "sort_key":      "DETAILS",
+    })
+    return bool(resp.get("Item"))
+
+def _mark_as_enriched(query: str) -> None:
+    """Registra el slug en DynamoDB para evitar duplicados."""
+    slug = _make_slug(query)
+    now  = int(datetime.now(tz=timezone.utc).timestamp())
+    table.put_item(Item={
+        "partition_key": f"KB_ENRICHED#{slug}",
+        "sort_key":      "DETAILS",
+        "query":         query[:200],
+        "enriched_at":   datetime.now(tz=timezone.utc).isoformat(),
+        "ttl_expiry":    now + (30 * 24 * 3600),   # 30 días
+    })
+```
+
+---
+
+## Gherkin Acceptance Criteria
+
+```gherkin
+Scenario SC-01 — KB tiene el dato → respuesta directa sin web search
+  Given query "goles de Maradona en el Mundial 1986"
+  And KB tiene documento mundiales/ediciones/1986.md con esa información
+  When agente invoca kb_retrieval_tool
+  Then retorna el dato de la KB directamente
+  And web_search_tool NO es invocada
+  And NO se encola ningún enriquecimiento
+
+Scenario SC-02 — KB miss, dato histórico → enriquece KB
+  Given query "historia de la selección de Senegal en mundiales"
+  And KB no tiene información suficiente (resultado < 200 chars)
+  When kb_retrieval_tool detecta el miss
+  Then llama a web_search_tool
+  And classify_query() retorna DataType.HISTORICAL
+  And SQS encola {query, web_result, type=HISTORICAL} (fire-and-forget)
+  And Lambda kb_enrichment_dispatcher sube enriched/YYYY-MM-DD/historia-senegal.md a S3
+  And kb_sync dispara StartIngestionJob
+  And agente responde al usuario con el resultado web SIN ESPERAR la indexación
+
+Scenario SC-03 — KB miss, dato volátil → solo cache DynamoDB
+  Given query "resultado Argentina anoche"
+  When kb_retrieval_tool detecta el miss
+  Then classify_query() retorna DataType.VOLATILE
+  And resultado guardado en DynamoDB CACHE# con TTL corto
+  And NO se sube nada a S3
+  And NO se dispara StartIngestionJob
+  And agente responde al usuario inmediatamente
+
+Scenario SC-04 — Segunda consulta histórica después del enriquecimiento
+  Given query "historia de la selección de Senegal" ya enriquecida hace 10 min
+  And documento ya indexado en Bedrock KB
+  When otro usuario hace la misma pregunta
+  Then kb_retrieval_tool encuentra el dato en KB
+  And retorna directamente sin web search
+
+Scenario SC-05 — Deduplicación — no re-indexar lo ya indexado
+  Given slug "historia-senegal.md" ya registrado en DynamoDB KB_ENRICHED#
+  When llega el mismo query de enriquecimiento
+  Then _check_already_enriched() retorna True
+  And NO se sube nada a S3 (evitar duplicados en KB)
+  And el resultado web se guarda solo en CACHE# para esta sesión
+
+Scenario SC-06 — Query ambigua → DynamoDB cache por defecto
+  Given query "Messi" (demasiado corta, sin contexto claro)
+  When classify_query("Messi") ejecuta
+  Then retorna DataType.AMBIGUOUS (menos de 3 palabras)
+  And resultado va a DynamoDB CACHE# (conservador)
+  And NO se indexa en KB
+
+Scenario SC-07 — Enriquecimiento es fire-and-forget
+  Given KB miss en query histórica
+  When agente encola el enriquecimiento en SQS
+  Then agente responde al usuario en < 3s (no espera la indexación)
+  And el enriquecimiento ocurre en background de forma asíncrona
+```
+
+---
+
+## Nuevo patrón DynamoDB — KB_ENRICHED#
+
+```
+PK: KB_ENRICHED#<slug>    SK: DETAILS
+{
+    "partition_key":  "KB_ENRICHED#historia-mundial-1974",
+    "sort_key":       "DETAILS",
+    "query":          "historia del mundial 1974 alemania",
+    "s3_key":         "enriched/2026-06-15/historia-mundial-1974.md",
+    "enriched_at":    "2026-06-15T14:30:00Z",
+    "ttl_expiry":     1753000000    # 30 días
+}
+```
+
+---
+
+## Tasks
+
+| TASK-ID | Descripción | Modo | Est. |
+|---------|-------------|------|------|
+| TASK-023-001 | `src/kb/kb_enrichment_service.py` — classify_query, enrich_kb, enrich_cache, dedup | IA-Assisted | 5h |
+| TASK-023-002 | `infrastructure/lambdas/kb_enrichment_dispatcher/handler.py` — consumer SQS | IA-Assisted | 3h |
+| TASK-023-003 | Actualizar `agent/tools/kb_retrieval_tool.py` — integrar enrichment flow | IA-Assisted | 3h |
+| TASK-023-004 | CDK/Terraform: SQS KBEnrichmentQueue + Lambda kb_enrichment_dispatcher | IA-Assisted | 2h |
+| TASK-023-005 | `tests/unit/test_kb/test_kb_enrichment_service.py` — SC-01 a SC-07 | IA-Assisted | 4h |
+
+## Constraints
+- El enriquecimiento es SIEMPRE fire-and-forget — nunca bloquear la respuesta al usuario
+- Ante la duda sobre el tipo de dato → VOLATILE (DynamoDB cache). Nunca indexar algo volátil en KB.
+- Queries de menos de 3 palabras → AMBIGUOUS → DynamoDB cache (demasiado genéricas para KB)
+- Cualquier señal volátil presente → VOLATILE, sin importar cuántas señales históricas haya
+- Deduplicación obligatoria — verificar KB_ENRICHED# antes de subir a S3
+- TTL del registro KB_ENRICHED#: 30 días — después puede re-enriquecerse si el contenido evolucionó
+- El documento generado en enriched/ usa el mismo template estándar de la KB para chunking consistente
+- NO guardar en KB: resultados de partidos actuales, convocatorias, lesiones, noticias recientes
