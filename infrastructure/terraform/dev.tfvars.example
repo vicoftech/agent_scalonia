@@ -32,6 +32,7 @@ telegram_secret_arn   = "arn:aws:secretsmanager:us-east-1:ACCOUNT_ID:secret:SCAL
 telegram_bot_username = "scalonia_bot"
 
 # LLM (cuentas reseller: sin Anthropic). Pro ≈ Sonnet | Lite ≈ Haiku | Llama: us.meta.llama3-3-70b-instruct-v1:0
+# bedrock_model_id = "us.mistral.pixtral-large-2502-v1:0"
 # bedrock_model_id = "us.amazon.nova-pro-v1:0"
 
 # Guardrails SPEC-2026-015 (opcional)

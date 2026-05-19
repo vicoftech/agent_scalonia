@@ -4,7 +4,9 @@ from __future__ import annotations
 import re
 
 _FIXTURE_PATTERNS = [
-    r"\b(partido|partidos|fixture|calendario|horario|horarios|kickoff|fecha)\b",
+    r"\b(partido|partidos|fixture|calendario|horario|horarios|kickoff|fecha|fechas|d[ií]as?)\b",
+    r"\b\d{1,2}\s+de\s+(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)\b",
+    r"\b(instancia|fase|octavos|cuartos|semifinal|dieciseisavos)\b",
     r"\b(cuándo|cuando)\s+juega\b",
     r"\b(próximo|proximo|siguiente)\s+partido\b",
     r"\b(grupo\s+[a-l]|grupos?\s+del\s+mundial)\b",

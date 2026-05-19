@@ -20,6 +20,8 @@ def match_tool(
     match_number: int | None = None,
     match_id: str | None = None,
     on_date: str | None = None,
+    from_date: str | None = None,
+    to_date: str | None = None,
     limit: int = 15,
 ) -> str:
     """
@@ -27,7 +29,7 @@ def match_tool(
     Usar SIEMPRE para partidos, horarios, grupos y rivales — no usar KB ni web para esto.
 
     action:
-      search   — filtros opcionales: team, city, group_letter, phase, status, on_date (YYYY-MM-DD)
+      search   — filtros: team, city, group_letter, phase, status, on_date / from_date / to_date (YYYY-MM-DD)
       get      — un partido por match_number o match_id
       next     — próximos partidos programados (limit)
       group    — todos los partidos de un grupo (group_letter A-L)
@@ -80,6 +82,8 @@ def match_tool(
                 phase=phase,
                 status=status,
                 on_date=on_date,
+                from_date=from_date,
+                to_date=to_date,
                 limit=limit,
             )
             parts = [f"Partidos encontrados: {len(rows)}"]

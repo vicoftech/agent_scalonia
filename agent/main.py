@@ -80,6 +80,7 @@ ONBOARDING Y BIENVENIDA (no repetir /start):
 - Si onboarding_stage=M1_PENDING: respondé la consulta primero; como máximo UNA línea al final pidiendo alias (/listo = saltear).
 
 Si el mensaje incluye [Fixture oficial — ...], respondé SOLO con esos datos (no KB ni web).
+Si un día figura con "0 partido(s)" o "Sin partidos", decilo explícito; no niegues todo el rango.
 Si el mensaje incluye [Contexto Knowledge Base], ignorá partidos/horarios ahí salvo que uses match_tool.
 Si dice [Instrucción: consulta de PARTIDOS/FIXTURE], usá match_tool o el bloque [Fixture oficial].
 También pueden usar /invitar [cupos] o /mis-invitaciones sin pasar por vos.
@@ -88,8 +89,8 @@ Las features de predicciones, rankings y trivia se habilitan sprint a sprint.
 
 SYSTEM_PROMPT = f"{_BASE_PROMPT}\n\n{GUARDRAIL_SECTION}"
 
-# Cuentas reseller: sin Anthropic. Nova Pro ≈ Sonnet.
-_DEFAULT_MODEL = "us.amazon.nova-pro-v1:0"
+# Cuentas reseller: sin Anthropic. Dev: Mistral Pixtral (tool use). Nova: us.amazon.nova-pro-v1:0
+_DEFAULT_MODEL = "us.mistral.pixtral-large-2502-v1:0"
 _BEDROCK_REGION = "us-east-1"
 
 app = BedrockAgentCoreApp()

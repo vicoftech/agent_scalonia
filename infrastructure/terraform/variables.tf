@@ -50,8 +50,8 @@ variable "terraform_state_key" {
 
 variable "bedrock_model_id" {
   type        = string
-  default     = "us.amazon.nova-pro-v1:0"
-  description = "Inference profile Bedrock (evitar Anthropic en cuentas reseller). Nova Lite: us.amazon.nova-lite-v1:0"
+  default     = "us.mistral.pixtral-large-2502-v1:0"
+  description = "Inference profile Bedrock. Mistral: us.mistral.pixtral-large-2502-v1:0 | Nova: us.amazon.nova-pro-v1:0 | Llama: us.meta.llama3-3-70b-instruct-v1:0"
 }
 
 variable "project_name" {

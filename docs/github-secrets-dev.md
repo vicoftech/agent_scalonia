@@ -30,7 +30,7 @@ telegram_secret_arn   = "arn:aws:secretsmanager:us-east-1:615216531593:secret:SC
 telegram_bot_username = "scalonia_bot"
 tavily_secret_arn     = "arn:aws:secretsmanager:us-east-1:615216531593:secret:prode-mundial/dev/tavily-api-key-N45thZ"
 
-bedrock_model_id = "us.amazon.nova-pro-v1:0"
+bedrock_model_id = "us.mistral.pixtral-large-2502-v1:0"
 
 # Obligatorio si ya desplegaste el módulo KB (sin esto CI destruye kb_ingest/kb_query):
 rds_proxy_endpoint            = "aurora-pg-asap-dev.cluster-cgxq84qu0b72.us-east-1.rds.amazonaws.com"

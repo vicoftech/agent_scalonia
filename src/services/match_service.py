@@ -2,10 +2,26 @@
 from __future__ import annotations
 
 import re
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 from src.dao.dynamo.match_dao import MatchDAO
+
+# Consultas del usuario en Argentina (Mundial 2026 en CONCACAF)
+DISPLAY_TZ = timezone(timedelta(hours=-3))
+
+PHASE_LABELS: dict[str, str] = {
+    "GROUP": "Fase de grupos",
+    "R16": "Dieciseisavos / 32avos final",
+    "ROUND_OF_32": "Dieciseisavos de final",
+    "ROUND_OF_16": "Octavos de final",
+    "QF": "Cuartos de final",
+    "QUARTER_FINAL": "Cuartos de final",
+    "SF": "Semifinal",
+    "SEMI_FINAL": "Semifinal",
+    "THIRD_PLACE": "Tercer puesto",
+    "FINAL": "Final",
+}
 
 # Alias → código FIFA (consultas en lenguaje natural)
 TEAM_ALIASES: dict[str, str] = {
@@ -131,6 +147,25 @@ class MatchService:
         filtered.sort(key=lambda m: m.get("kickoff_utc", ""))
         return filtered[: max(1, min(limit, 50))]
 
+    def search_by_local_dates(
+        self,
+        dates: list[date],
+        *,
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        """Partidos cuyo kickoff cae en alguno de los días calendario (GMT-3)."""
+        want = set(dates)
+        rows = []
+        for m in self.list_all():
+            try:
+                local_day = _parse_dt(m["kickoff_utc"]).astimezone(DISPLAY_TZ).date()
+            except (KeyError, ValueError):
+                continue
+            if local_day in want:
+                rows.append(m)
+        rows.sort(key=lambda m: m.get("kickoff_utc", ""))
+        return rows[: max(1, min(limit, 50))]
+
     def next_matches(self, limit: int = 10) -> list[dict[str, Any]]:
         now = datetime.now(timezone.utc)
         upcoming = []
@@ -155,12 +190,22 @@ class MatchService:
         return list(GROUP_TEAMS.get(group_letter.upper()[:1], []))
 
     @staticmethod
+    def _phase_label(phase: str) -> str:
+        return PHASE_LABELS.get((phase or "").upper(), phase or "?")
+
+    @staticmethod
     def format_match(m: dict[str, Any], *, include_id: bool = False) -> str:
-        grp = f" Grupo {m['group_letter']}" if m.get("group_letter") else ""
-        phase = m.get("phase", "?")
+        grp = f" · Grupo {m['group_letter']}" if m.get("group_letter") else ""
+        phase = MatchService._phase_label(str(m.get("phase", "?")))
+        kick_local = ""
+        try:
+            k = _parse_dt(m["kickoff_utc"]).astimezone(DISPLAY_TZ)
+            kick_local = k.strftime("%d/%m/%Y %H:%M GMT-3")
+        except (KeyError, ValueError):
+            kick_local = m.get("kickoff_utc", "?")
         line = (
             f"#{m.get('match_number')} {m.get('home_team')} vs {m.get('away_team')} "
-            f"({phase}{grp}) — {m.get('kickoff_utc')} UTC"
+            f"— {phase}{grp} — {kick_local}"
         )
         if m.get("city") and m.get("city") != "Por confirmar":
             line += f" · {m.get('city')}"
