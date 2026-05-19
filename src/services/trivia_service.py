@@ -104,9 +104,9 @@ class TriviaService:
         if match:
             base = f"{match.get('home_team')} {match.get('away_team')} {base}"
         try:
-            from src.kb.resolve import resolve_kb_web
+            from src.kb.resolve import resolve_kb_then_web
 
-            result = resolve_kb_web(query=base, caller_user_id="trivia-generator")
+            result = resolve_kb_then_web(base, enqueue_on_web=False)
             text = (result.kb_text or "").strip()
             if len(text) < 80 and result.tavily_configured:
                 text = (result.web_text or text or "").strip()

@@ -25,6 +25,14 @@ def _difficulty_for_sync(level: str) -> str:
     return {"BASIC": "easy", "MEDIUM": "medium", "EXPERT": "hard"}.get(level.upper(), "medium")
 
 
+def _strip_null_gsi_keys(item: dict[str, Any]) -> dict[str, Any]:
+    """GSI-2 exige match_id tipo S; no enviar NULL en ítems sin partido."""
+    mid = item.get("match_id")
+    if not mid:
+        item.pop("match_id", None)
+    return item
+
+
 class TriviaDAO:
     def __init__(self, table_name: str | None = None):
         self._table = get_table(table_name)
@@ -46,7 +54,6 @@ class TriviaDAO:
             "explanation": record.get("explanation", ""),
             "topic": record.get("topic", "mundiales"),
             "source": record.get("source", "KB"),
-            "match_id": record.get("match_id"),
             "group_id": record.get("group_id", GLOBAL_GROUP_ID),
             "created_by": record.get("created_by"),
             "status": record.get("status", "SENT"),
@@ -58,7 +65,10 @@ class TriviaDAO:
             "sent_at_gsi": record.get("sent_at", now),
             "ttl_expiry": int(time.time()) + 30 * 24 * 3600,
         }
-        self._table.put_item(Item=item)
+        mid = record.get("match_id")
+        if mid:
+            item["match_id"] = mid
+        self._table.put_item(Item=_strip_null_gsi_keys(item))
         return item
 
     def get_trivia(self, trivia_id: str) -> dict[str, Any] | None:
@@ -131,12 +141,14 @@ class TriviaDAO:
             "points": int(record["points"]),
             "topic": record.get("topic", "mundiales"),
             "source": record.get("source", "manual"),
-            "match_id": record.get("match_id"),
             "state": "PENDING",
             "created_at": _now_iso(),
             "ttl_expiry": ttl,
         }
-        self._table.put_item(Item=item)
+        mid = record.get("match_id")
+        if mid:
+            item["match_id"] = mid
+        self._table.put_item(Item=_strip_null_gsi_keys(item))
         return item
 
     def get_play_session(self, user_id: str, session_id: str) -> dict[str, Any] | None:
