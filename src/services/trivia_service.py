@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -19,6 +18,7 @@ from src.jobs.daily_trivia_schedule import (
     should_publish_daily_trivia,
 )
 from src.fixtures.trivia_questions import FALLBACK_QUESTIONS
+from src.services.trivia_question_bank import pick_curated_question, question_fingerprint
 
 logger = logging.getLogger(__name__)
 
@@ -115,6 +115,19 @@ class TriviaService:
             logger.exception("trivia context fetch failed")
             return ""
 
+    def _exclude_fingerprints(
+        self,
+        user_id: str | None,
+        *,
+        include_recent_broadcasts: bool = True,
+    ) -> set[str]:
+        fps: set[str] = set()
+        if include_recent_broadcasts:
+            fps |= self._trivia.list_recent_question_fingerprints(hours=72)
+        if user_id:
+            fps |= self._users.get_answered_question_fingerprints(user_id)
+        return fps
+
     def generate_trivia_question(
         self,
         *,
@@ -122,45 +135,26 @@ class TriviaService:
         level: str = "MEDIUM",
         context: str | None = None,
         match: dict | None = None,
+        exclude_fingerprints: set[str] | None = None,
+        user_id: str | None = None,
     ) -> dict[str, Any]:
+        """Solo banco curado de fútbol — sin meta-preguntas sobre fuentes/KB."""
         level = level.upper() if level.upper() in LEVEL_POINTS else "MEDIUM"
-        ctx = context if context is not None else self._fetch_context(topic, match=match)
+        exclude = set(exclude_fingerprints or [])
+        if user_id:
+            exclude |= self._exclude_fingerprints(user_id)
 
-        topic_key = (topic or "mundiales").lower()
-        for q in FALLBACK_QUESTIONS:
-            if q["level"] == level and q["topic"] == topic_key:
-                return dict(q)
-        for q in FALLBACK_QUESTIONS:
-            if q["level"] == level and (topic_key == q["topic"] or topic_key == "libre"):
-                return dict(q)
+        q = pick_curated_question(topic=topic, level=level, exclude_fingerprints=exclude)
+        if q:
+            return q
 
-        if ctx:
-            parsed = self._question_from_context(ctx, level=level, topic=topic)
-            if parsed:
-                return parsed
+        q = pick_curated_question(topic="mundiales", level=level, exclude_fingerprints=exclude)
+        if q:
+            return q
 
-        return dict(FALLBACK_QUESTIONS[0])
-
-    def _question_from_context(self, context: str, *, level: str, topic: str) -> dict | None:
-        """Heurística simple: pregunta tipo '¿Cuál de estos datos es correcto?' con fragmentos."""
-        sentences = [s.strip() for s in re.split(r"[.!?]\s+", context) if len(s) > 20]
-        if len(sentences) < 2:
-            return None
-        fact = sentences[0][:200]
-        distractors = [s[:80] for s in sentences[1:4]]
-        while len(distractors) < 3:
-            distractors.append("Ninguna de las anteriores")
-        options = {"A": fact, "B": distractors[0], "C": distractors[1], "D": distractors[2]}
-        return {
-            "topic": topic,
-            "level": level,
-            "question": f"Según el contexto del Mundial, ¿cuál afirmación es la más precisa?",
-            "options": options,
-            "correct": "A",
-            "explanation": fact,
-            "source": "KB",
-            "verified": True,
-        }
+        fallback = dict(FALLBACK_QUESTIONS[0])
+        fallback["question_fp"] = question_fingerprint(fallback["question"])
+        return fallback
 
     def generate_pre_match_trivia(self, match: dict[str, Any]) -> dict[str, Any]:
         topic = "pre_partido"
@@ -210,13 +204,19 @@ class TriviaService:
     def start_play(self, user_id: str, *, level: str | None = None, topic: str = "mundiales") -> dict[str, Any]:
         self._ensure_can_play(user_id)
         lvl = self.level_for_user(user_id, level)
-        q = self.generate_trivia_question(topic=topic, level=lvl)
+        q = self.generate_trivia_question(
+            topic=topic,
+            level=lvl,
+            user_id=user_id,
+            exclude_fingerprints=self._exclude_fingerprints(user_id, include_recent_broadcasts=False),
+        )
         session_id = str(uuid.uuid4())
         record = {
             "session_id": session_id,
             "user_id": user_id,
             "level": lvl,
             "points": LEVEL_POINTS[lvl],
+            "question_fp": q.get("question_fp") or question_fingerprint(q.get("question", "")),
             **q,
         }
         self._trivia.put_play_session(record)
@@ -241,6 +241,11 @@ class TriviaService:
         is_correct = letter == correct_letter
         pts = int(session.get("points") or 0) if is_correct else 0
 
+        fp = session.get("question_fp") or question_fingerprint(session.get("question", ""))
+        duplicate = fp in self._users.get_answered_question_fingerprints(user_id)
+        if duplicate:
+            pts = 0
+
         self._trivia.complete_play_session(
             user_id,
             session_id,
@@ -248,7 +253,10 @@ class TriviaService:
             is_correct=is_correct,
             points_earned=pts,
         )
-        self._users.add_trivia_round(user_id, points=pts)
+        if fp:
+            self._users.mark_answered_question_fingerprint(user_id, fp)
+        if pts:
+            self._users.add_trivia_round(user_id, points=pts)
 
         return self._format_answer_result(
             is_correct=is_correct,
@@ -257,6 +265,7 @@ class TriviaService:
             options=session.get("options_map") or {},
             explanation=session.get("explanation", ""),
             user_id=user_id,
+            duplicate_question=duplicate,
         )
 
     def answer_broadcast(self, user_id: str, trivia_id: str, answer: str) -> str:
@@ -272,7 +281,9 @@ class TriviaService:
         letter = answer.strip().upper()[:1]
         correct = (trivia.get("correct") or "A").upper()
         is_correct = letter == correct
-        pts = int(trivia.get("points") or 0) if is_correct else 0
+        fp = trivia.get("question_fp") or question_fingerprint(trivia.get("question", ""))
+        duplicate = fp in self._users.get_answered_question_fingerprints(user_id)
+        pts = int(trivia.get("points") or 0) if is_correct and not duplicate else 0
 
         self._trivia.put_answer(
             trivia_id=trivia_id,
@@ -282,6 +293,8 @@ class TriviaService:
             points=pts,
         )
         self._trivia.increment_trivia_stats(trivia_id, correct=is_correct)
+        if fp:
+            self._users.mark_answered_question_fingerprint(user_id, fp)
         if pts:
             self._users.add_trivia_round(user_id, points=pts, count_round=False)
 
@@ -292,6 +305,7 @@ class TriviaService:
             options=trivia.get("options") or {},
             explanation=trivia.get("explanation", ""),
             user_id=user_id,
+            duplicate_question=duplicate,
         )
 
     def _format_answer_result(
@@ -303,20 +317,27 @@ class TriviaService:
         options: dict,
         explanation: str,
         user_id: str,
+        duplicate_question: bool = False,
     ) -> str:
         opt_text = options.get(correct_letter, "")
         profile = self._users.get_profile(user_id) or {}
         total = int(profile.get("total_points") or 0)
         remaining = self.rounds_remaining(user_id)
 
-        if is_correct:
+        if duplicate_question:
+            head = (
+                "ℹ️ Ya habías respondido esta misma pregunta antes.\n"
+                "No se suman puntos duplicados.\n\n"
+                f"La respuesta correcta era {correct_letter}"
+            )
+        elif is_correct:
             head = f"✅ ¡Correcto! +{points} pts\n\nLa respuesta era {correct_letter}"
         else:
             head = f"❌ Incorrecto — sin puntos esta vez\n\nLa respuesta correcta era {correct_letter}"
 
         if opt_text:
             head += f" — {opt_text}"
-        if explanation:
+        if explanation and not duplicate_question:
             head += f"\n\n{explanation}"
         head += f"\n\n📊 Total: {total} pts | Rondas hoy: {remaining}/{MAX_ROUNDS_PER_DAY}"
         return head
@@ -369,9 +390,11 @@ class TriviaService:
                 "trivia_id": existing["trivia_id"],
             }
 
+        exclude = self._trivia.list_recent_question_fingerprints(hours=168)
         q = self.generate_trivia_question(
             topic=DAILY_GENERAL_TOPIC,
             level=DAILY_GENERAL_LEVEL,
+            exclude_fingerprints=exclude,
         )
         trivia_id = uuid.uuid4().hex[:8]
         now = datetime.now(timezone.utc)
@@ -457,7 +480,12 @@ class TriviaService:
         if not profile.get("is_admin"):
             raise ValueError("NOT_ADMIN")
 
-        q = self.generate_trivia_question(topic=topic, level=level)
+        exclude = self._trivia.list_recent_question_fingerprints(hours=72)
+        q = self.generate_trivia_question(
+            topic=topic,
+            level=level,
+            exclude_fingerprints=exclude,
+        )
         trivia_id = uuid.uuid4().hex[:8]
         now = datetime.now(timezone.utc)
         item = self._trivia.put_broadcast_trivia(
@@ -506,7 +534,12 @@ class TriviaService:
         if active >= MAX_ACTIVE_GROUP_TRIVIAS:
             raise ValueError("GROUP_TRIVIA_LIMIT")
 
-        q = self.generate_trivia_question(topic=topic, level=level)
+        exclude = self._trivia.list_recent_question_fingerprints(hours=72)
+        q = self.generate_trivia_question(
+            topic=topic,
+            level=level,
+            exclude_fingerprints=exclude,
+        )
         trivia_id = uuid.uuid4().hex[:8]
         preview = self.format_question_message(
             q,

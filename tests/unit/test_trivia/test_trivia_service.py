@@ -22,11 +22,13 @@ def test_answer_play_correct_points():
     trivia = MagicMock()
     users = MagicMock()
     users.get_profile.return_value = {"total_points": 10, "trivia_rounds_today": 1}
+    users.get_answered_question_fingerprints.return_value = set()
     trivia.get_play_session.return_value = {
         "state": "PENDING",
         "correct_answer": "B",
         "correct": "B",
         "points": 3,
+        "question_fp": "abc123",
         "options_map": {"B": "México"},
         "explanation": "1986 en México",
         "level": "MEDIUM",
@@ -36,6 +38,25 @@ def test_answer_play_correct_points():
     assert "Correcto" in msg
     assert "+3" in msg
     users.add_trivia_round.assert_called_once_with("u1", points=3)
+
+
+def test_answer_play_duplicate_fingerprint_no_points():
+    trivia = MagicMock()
+    users = MagicMock()
+    users.get_profile.return_value = {"total_points": 10, "trivia_rounds_today": 1}
+    users.get_answered_question_fingerprints.return_value = {"samefp"}
+    trivia.get_play_session.return_value = {
+        "state": "PENDING",
+        "correct": "B",
+        "points": 3,
+        "question_fp": "samefp",
+        "options_map": {"B": "México"},
+        "explanation": "x",
+    }
+    svc = TriviaService(trivia_dao=trivia, user_dao=users)
+    msg = svc.answer_play_session("u1", "sess-1", "B")
+    assert "duplicados" in msg.lower() or "Ya habías" in msg
+    users.add_trivia_round.assert_not_called()
 
 
 def test_daily_limit():

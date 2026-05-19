@@ -219,6 +219,22 @@ class UserDAO:
             targets.append({"user_id": uid, "tg_chat_id": int(chat_id)})
         return targets
 
+    def get_answered_question_fingerprints(self, user_id: str) -> set[str]:
+        profile = self.get_profile(user_id) or {}
+        raw = profile.get("trivia_answered_fps") or []
+        return {str(x) for x in raw if x}
+
+    def mark_answered_question_fingerprint(self, user_id: str, fingerprint: str) -> None:
+        """Evita sumar puntos dos veces por la misma pregunta (distintos trivia_id)."""
+        if not fingerprint:
+            return
+        profile = self.get_profile(user_id) or {}
+        existing = list(profile.get("trivia_answered_fps") or [])
+        if fingerprint not in existing:
+            existing.append(fingerprint)
+        existing = existing[-50:]
+        self.update_profile(user_id, trivia_answered_fps=existing)
+
     def add_trivia_round(self, user_id: str, *, points: int, count_round: bool = True) -> None:
         """Suma puntos de trivia y opcionalmente incrementa rondas del día."""
         vals: dict[str, Any] = {":p": points, ":now": _now_iso()}

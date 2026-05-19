@@ -241,12 +241,23 @@ def handler(event: dict, context) -> dict:
         token = _get_token()
 
         if text.startswith("/start"):
+            from bot_commands import register_bot_commands
             from start_handler import handle_start_command
 
+            register_bot_commands(token)
             start_result = handle_start_command(chat_id, text)
             if start_result:
                 start_reply, start_markup = start_result
                 _send_message(chat_id, start_reply, token, reply_markup=start_markup)
+                return ok
+
+        low_text = text.strip().lower()
+        if low_text in ("/help", "help", "/ayuda", "ayuda"):
+            from bot_commands import handle_help_command
+
+            help_text = handle_help_command(user_id) if user_id else None
+            if help_text:
+                _send_message(chat_id, help_text, token)
                 return ok
         try:
             _post_json(

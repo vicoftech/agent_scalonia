@@ -68,8 +68,34 @@ class TriviaDAO:
         mid = record.get("match_id")
         if mid:
             item["match_id"] = mid
+        if record.get("question_fp"):
+            item["question_fp"] = record["question_fp"]
         self._table.put_item(Item=_strip_null_gsi_keys(item))
         return item
+
+    def list_recent_question_fingerprints(self, *, hours: int = 72) -> set[str]:
+        """Huellas de preguntas ya publicadas (evitar repetir en admin)."""
+        from datetime import datetime, timedelta, timezone
+
+        cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
+        fps: set[str] = set()
+        scan_kwargs: dict[str, Any] = {
+            "FilterExpression": (
+                Attr("sort_key").eq("DETAILS")
+                & Attr("partition_key").begins_with("TRIVIA#")
+                & Attr("sent_at").gte(cutoff)
+            ),
+        }
+        while True:
+            resp = self._table.scan(**scan_kwargs)
+            for it in resp.get("Items", []):
+                fp = it.get("question_fp")
+                if fp:
+                    fps.add(str(fp))
+            if not resp.get("LastEvaluatedKey"):
+                break
+            scan_kwargs["ExclusiveStartKey"] = resp["LastEvaluatedKey"]
+        return fps
 
     def get_trivia(self, trivia_id: str) -> dict[str, Any] | None:
         resp = self._table.get_item(
@@ -148,6 +174,8 @@ class TriviaDAO:
         mid = record.get("match_id")
         if mid:
             item["match_id"] = mid
+        if record.get("question_fp"):
+            item["question_fp"] = record["question_fp"]
         self._table.put_item(Item=_strip_null_gsi_keys(item))
         return item
 
