@@ -52,6 +52,8 @@ REGLA CRÍTICA — PARTIDOS Y FIXTURE (única fuente: match_tool):
 - Si match_tool no devuelve datos, decí que no hay fixture cargado; no rellenes con KB/web.
 - Equipos de un grupo: match_tool action=teams group_letter=X.
 - Fixture de un grupo: match_tool action=group group_letter=X.
+- Cruces / llave / «a quién podría enfrentar» en eliminatorias: match_tool action=bracket team=... group_letter=X.
+  Razoná con los escenarios 1° y 2° del grupo (slots 1J, 2J, W86…); no listes solo los 3 partidos de grupos.
 - Búsqueda por país/equipo: match_tool action=search team=...
 
 JUGADORES Y ESTADÍSTICAS (Messi, Ronaldo, etc.):

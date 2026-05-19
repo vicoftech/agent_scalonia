@@ -38,6 +38,24 @@ def _format_by_dates(svc, dates: list) -> str:
     return "\n".join(lines).strip()
 
 
+def _bracket_direct_reply(user_prompt: str) -> str | None:
+    from src.services.bracket_service import BracketService, extract_group_letter_from_query
+    from src.services.match_query_intent import is_fixture_bracket_query
+
+    if not is_fixture_bracket_query(user_prompt):
+        return None
+    team = _guess_team(user_prompt)
+    if not team:
+        return None
+    group = extract_group_letter_from_query(user_prompt)
+    body = BracketService().format_bracket_scenarios(
+        team,
+        group_letter=group,
+        for_agent=False,
+    )
+    return body[:4096] if body else None
+
+
 def try_direct_fixture_reply(user_prompt: str) -> str | None:
     """
     Respuesta lista para Telegram sin invocar el LLM (fixture en DynamoDB).
@@ -45,11 +63,17 @@ def try_direct_fixture_reply(user_prompt: str) -> str | None:
     """
     try:
         from src.services.match_date_parse import parse_dates_from_query, parse_month_range
-        from src.services.match_query_intent import is_match_fixture_query
+        from src.services.match_query_intent import (
+            is_fixture_bracket_query,
+            is_match_fixture_query,
+        )
         from src.services.match_service import MatchService
 
         if not is_match_fixture_query(user_prompt):
             return None
+
+        if is_fixture_bracket_query(user_prompt):
+            return _bracket_direct_reply(user_prompt)
 
         svc = MatchService()
         dates = parse_dates_from_query(user_prompt)
@@ -69,7 +93,7 @@ def try_direct_fixture_reply(user_prompt: str) -> str | None:
                 return svc.format_list(rows, header="📅 Fixture oficial:")
 
         team = _guess_team(user_prompt)
-        if team:
+        if team and not is_fixture_bracket_query(user_prompt):
             rows = svc.search(team=team, limit=20)
             if rows:
                 return svc.format_list(rows, header=f"📅 Partidos — {team}:")
@@ -95,11 +119,26 @@ def enrich_prompt_with_fixture(user_prompt: str) -> tuple[str, bool]:
     """
     try:
         from src.services.match_date_parse import parse_dates_from_query, parse_month_range
-        from src.services.match_query_intent import is_match_fixture_query
+        from src.services.match_query_intent import (
+            is_fixture_bracket_query,
+            is_match_fixture_query,
+        )
         from src.services.match_service import MatchService
 
         if not is_match_fixture_query(user_prompt):
             return user_prompt, False
+
+        if is_fixture_bracket_query(user_prompt):
+            bracket = _bracket_direct_reply(user_prompt)
+            if bracket:
+                return (
+                    f"{user_prompt}\n\n"
+                    f"[Cuadro eliminatorio oficial — razoná con estos escenarios]\n"
+                    f"{bracket}\n\n"
+                    "[Instrucción: respondé en prosa los cruces posibles según 1° o 2° del grupo; "
+                    "usá match_tool action=bracket si necesitás ampliar. No uses KB ni web para la llave.]",
+                    True,
+                )
 
         svc = MatchService()
         team = _guess_team(user_prompt)
@@ -123,7 +162,7 @@ def enrich_prompt_with_fixture(user_prompt: str) -> tuple[str, bool]:
             rows = svc.group_fixture(gl_match.group(1))
             header = f"[Fixture oficial — grupo {gl_match.group(1).upper()}]"
             block = svc.format_list(rows, header=header) if rows else f"{header}\nSin partidos."
-        elif team:
+        elif team and not is_fixture_bracket_query(user_prompt):
             rows = svc.search(team=team, limit=20)
             header = f"[Fixture oficial — {team}]"
             block = svc.format_list(rows, header=header) if rows else f"{header}\nSin partidos."

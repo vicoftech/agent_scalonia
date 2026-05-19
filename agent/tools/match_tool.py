@@ -34,6 +34,7 @@ def match_tool(
       next     — próximos partidos programados (limit)
       group    — todos los partidos de un grupo (group_letter A-L)
       teams    — equipos de un grupo (group_letter)
+      bracket  — cruces eliminatorios posibles según 1°/2° (o 3°) del grupo (team + group_letter)
       list     — listar partidos (mismo que search sin filtros, respeta limit)
 
     team acepta código FIFA (ARG) o nombre (Argentina, México).
@@ -73,6 +74,17 @@ def match_tool(
             if not codes:
                 return f"Grupo {group_letter} no válido (usá A-L)."
             return f"Grupo {group_letter.upper()}: " + ", ".join(codes)
+
+        if action == "bracket":
+            if not team:
+                return "Indicá team (ej. Argentina / ARG) para los cruces eliminatorios."
+            from src.services.bracket_service import BracketService
+
+            return BracketService().format_bracket_scenarios(
+                team,
+                group_letter=group_letter,
+                for_agent=True,
+            )
 
         if action in ("search", "list"):
             rows = svc.search(
