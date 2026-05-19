@@ -189,7 +189,11 @@ def _handle_callback_query(callback: dict, ok: dict) -> dict:
         if data.startswith("trv:"):
             from trivia_commands import handle_trivia_callback
 
-            reply = handle_trivia_callback(user_id, data)
+            try:
+                reply = handle_trivia_callback(user_id, data)
+            except Exception:
+                logger.exception("trivia_callback failed")
+                reply = "No pude registrar tu respuesta. Intentá de nuevo."
             if reply:
                 _send_message(chat_id, reply, token)
         elif data.startswith("onb:"):
@@ -311,6 +315,13 @@ def handler(event: dict, context) -> dict:
                 return ok
         except Exception:
             logger.exception("trivia_commands failed")
+            _send_message(
+                chat_id,
+                "No pude procesar la trivia en este momento. "
+                "Si acaba de desplegarse el bot, probá de nuevo en un minuto.",
+                token,
+            )
+            return ok
 
         try:
             from invitation_commands import handle_invitation_command

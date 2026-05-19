@@ -16,16 +16,13 @@ locals {
     [for f in sort(fileset("${local.telegram_repo_root}/src/fixtures", "**")) :
     "${local.telegram_repo_root}/src/fixtures/${f}" if !endswith(f, "/") && !strcontains(f, "__pycache__")],
   )
+  telegram_webhook_py_files = sort(fileset("${local.telegram_lambda_dir}", "*.py"))
   telegram_lambda_hash = sha256(join("", concat(
     [
-      filesha256("${local.telegram_lambda_dir}/handler.py"),
-      filesha256("${local.telegram_lambda_dir}/start_handler.py"),
-      filesha256("${local.telegram_lambda_dir}/invitation_commands.py"),
-      filesha256("${local.telegram_lambda_dir}/kb_prefetch.py"),
-      filesha256("${local.telegram_lambda_dir}/fixture_prefetch.py"),
-      filesha256("${local.telegram_lambda_dir}/requirements.txt"),
       filesha256("${path.module}/bin/build-telegram-lambda.sh"),
+      filesha256("${local.telegram_lambda_dir}/requirements.txt"),
     ],
+    [for f in local.telegram_webhook_py_files : filesha256("${local.telegram_lambda_dir}/${f}")],
     [for p in local.telegram_src_files : filesha256(p)],
   )))
 }
