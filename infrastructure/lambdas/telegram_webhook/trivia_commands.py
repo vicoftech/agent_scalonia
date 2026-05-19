@@ -157,8 +157,12 @@ def handle_trivia_callback(user_id: str, data: str) -> tuple[str, dict | None] |
 
     _, kind, ref, letter = parts
     svc = TriviaService()
-    if kind == "s":
-        return svc.answer_play_session(user_id, ref, letter)
-    if kind == "t":
-        return svc.answer_broadcast(user_id, ref, letter)
+    try:
+        if kind == "s":
+            return svc.answer_play_session(user_id, ref, letter)
+        if kind == "t":
+            return svc.answer_broadcast(user_id, ref, letter)
+    except ValueError as exc:
+        if str(exc) == "DAILY_LIMIT":
+            return "Ya jugaste tus 5 rondas de trivia hoy. Volvé mañana 🌙"
     return None

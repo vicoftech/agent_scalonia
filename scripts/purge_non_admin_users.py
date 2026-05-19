@@ -92,6 +92,8 @@ def should_delete(item: dict[str, Any], admin_id: str, admin_hash: str | None) -
         return False
     if pk.startswith("TRIVIA#") or pk.startswith("TRIVIA_ANSWER#"):
         return True
+    if pk == "CONFIG#TRIVIA" and sk == "USED_QUESTION_FPS":
+        return True
     if pk.startswith("JOB_CTRL#DAILY_TRIVIA"):
         return True
     if pk.startswith("CACHE#"):

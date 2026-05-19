@@ -119,15 +119,9 @@ class TriviaService:
             logger.exception("trivia context fetch failed")
             return ""
 
-    def _exclude_fingerprints(
-        self,
-        user_id: str | None,
-        *,
-        include_recent_broadcasts: bool = True,
-    ) -> set[str]:
-        fps: set[str] = set()
-        if include_recent_broadcasts:
-            fps |= self._trivia.list_broadcast_question_fingerprints(hours=None)
+    def _exclude_fingerprints(self, user_id: str | None) -> set[str]:
+        """Preguntas ya generadas (global) + respondidas por el usuario."""
+        fps = self._trivia.get_used_question_fingerprints()
         if user_id:
             fps |= self._users.get_answered_question_fingerprints(user_id)
         return fps
@@ -214,7 +208,7 @@ class TriviaService:
             topic=topic,
             level=lvl,
             user_id=user_id,
-            exclude_fingerprints=self._exclude_fingerprints(user_id, include_recent_broadcasts=True),
+            exclude_fingerprints=self._exclude_fingerprints(user_id),
         )
         session_id = str(uuid.uuid4())
         record = {
@@ -227,8 +221,8 @@ class TriviaService:
         }
         self._trivia.put_play_session(record)
         msg = self.format_question_message(q)
-        remaining = self.rounds_remaining(user_id) - 1
-        msg += f"\n\n📊 Rondas restantes hoy: {max(0, remaining)}/{MAX_ROUNDS_PER_DAY}"
+        remaining = self.rounds_remaining(user_id)
+        msg += f"\n\n📊 Rondas restantes hoy: {remaining}/{MAX_ROUNDS_PER_DAY}"
         return {
             "session_id": session_id,
             "message": msg,
@@ -261,8 +255,7 @@ class TriviaService:
         )
         if fp:
             self._users.mark_answered_question_fingerprint(user_id, fp)
-        if pts:
-            self._users.add_trivia_round(user_id, points=pts)
+        self._users.add_trivia_round(user_id, points=pts)
 
         return self._format_answer_result(
             is_correct=is_correct,
@@ -275,6 +268,8 @@ class TriviaService:
         )
 
     def answer_broadcast(self, user_id: str, trivia_id: str, answer: str) -> str:
+        self._ensure_can_play(user_id)
+
         trivia = self._trivia.get_trivia(trivia_id)
         if not trivia:
             return "Esta trivia ya no está disponible."
@@ -301,8 +296,7 @@ class TriviaService:
         self._trivia.increment_trivia_stats(trivia_id, correct=is_correct)
         if fp:
             self._users.mark_answered_question_fingerprint(user_id, fp)
-        if pts:
-            self._users.add_trivia_round(user_id, points=pts, count_round=False)
+        self._users.add_trivia_round(user_id, points=pts)
 
         return self._format_answer_result(
             is_correct=is_correct,
@@ -396,7 +390,7 @@ class TriviaService:
                 "trivia_id": existing["trivia_id"],
             }
 
-        exclude = self._trivia.list_broadcast_question_fingerprints(hours=None)
+        exclude = self._trivia.get_used_question_fingerprints()
         q = self.generate_trivia_question(
             topic=DAILY_GENERAL_TOPIC,
             level=DAILY_GENERAL_LEVEL,
@@ -486,7 +480,7 @@ class TriviaService:
         if not profile.get("is_admin"):
             raise ValueError("NOT_ADMIN")
 
-        exclude = self._trivia.list_broadcast_question_fingerprints(hours=None)
+        exclude = self._trivia.get_used_question_fingerprints()
         q = self.generate_trivia_question(
             topic=topic,
             level=level,
@@ -540,7 +534,7 @@ class TriviaService:
         if active >= MAX_ACTIVE_GROUP_TRIVIAS:
             raise ValueError("GROUP_TRIVIA_LIMIT")
 
-        exclude = self._trivia.list_broadcast_question_fingerprints(hours=None)
+        exclude = self._trivia.get_used_question_fingerprints()
         q = self.generate_trivia_question(
             topic=topic,
             level=level,

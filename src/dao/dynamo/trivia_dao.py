@@ -12,6 +12,9 @@ from src.dao.dynamo.table import get_table
 from src.services.trivia_question_bank import question_fingerprint
 
 GLOBAL_GROUP_ID = "GLOBAL"
+REGISTRY_PK = "CONFIG#TRIVIA"
+REGISTRY_SK = "USED_QUESTION_FPS"
+MAX_REGISTRY_FINGERPRINTS = 500
 
 
 def _fingerprint_from_item(item: dict[str, Any]) -> str | None:
@@ -48,6 +51,34 @@ class TriviaDAO:
     def __init__(self, table_name: str | None = None):
         self._table = get_table(table_name)
 
+    def get_used_question_fingerprints(self) -> set[str]:
+        """Registro global O(1): preguntas ya asignadas (play, admin, daily)."""
+        resp = self._table.get_item(
+            Key={"partition_key": REGISTRY_PK, "sort_key": REGISTRY_SK},
+        )
+        item = resp.get("Item") or {}
+        return {str(x) for x in (item.get("fingerprints") or []) if x}
+
+    def register_question_fingerprint(self, fingerprint: str) -> None:
+        """Guarda hash de pregunta al generar/publicar (evita repetir entre user y admin)."""
+        if not fingerprint:
+            return
+        key = {"partition_key": REGISTRY_PK, "sort_key": REGISTRY_SK}
+        resp = self._table.get_item(Key=key)
+        item = resp.get("Item") or {}
+        fps = [str(x) for x in (item.get("fingerprints") or []) if x]
+        if fingerprint in fps:
+            return
+        fps.append(fingerprint)
+        fps = fps[-MAX_REGISTRY_FINGERPRINTS:]
+        self._table.put_item(
+            Item={
+                **key,
+                "fingerprints": fps,
+                "updated_at": _now_iso(),
+            },
+        )
+
     def put_broadcast_trivia(self, record: dict[str, Any]) -> dict[str, Any]:
         trivia_id = record.get("trivia_id") or _short_id()
         now = _now_iso()
@@ -82,15 +113,16 @@ class TriviaDAO:
         item["question_fp"] = record.get("question_fp") or question_fingerprint(
             record.get("question", "")
         )
+        self.register_question_fingerprint(item["question_fp"])
         self._table.put_item(Item=_strip_null_gsi_keys(item))
         return item
 
     def list_broadcast_question_fingerprints(self, *, hours: int | None = None) -> set[str]:
         """
-        Huellas de trivias publicadas (broadcast/daily/general).
-        hours=None → todas las publicadas (nunca repetir la misma pregunta).
-        Incluye ítems legacy sin question_fp (se calcula desde question).
+        Huellas usadas: registro global + scan legacy de TRIVIA# (ítems previos al registry).
+        Preferir get_used_question_fingerprints() para generación (rápido).
         """
+        fps = self.get_used_question_fingerprints()
         from datetime import datetime, timedelta, timezone
 
         filt = Attr("sort_key").eq("DETAILS") & Attr("partition_key").begins_with("TRIVIA#")
@@ -98,7 +130,6 @@ class TriviaDAO:
             cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
             filt = filt & Attr("sent_at").gte(cutoff)
 
-        fps: set[str] = set()
         scan_kwargs: dict[str, Any] = {"FilterExpression": filt}
         while True:
             resp = self._table.scan(**scan_kwargs)
@@ -195,6 +226,7 @@ class TriviaDAO:
         item["question_fp"] = record.get("question_fp") or question_fingerprint(
             record.get("question", "")
         )
+        self.register_question_fingerprint(item["question_fp"])
         self._table.put_item(Item=_strip_null_gsi_keys(item))
         return item
 

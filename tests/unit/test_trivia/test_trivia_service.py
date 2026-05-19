@@ -56,7 +56,44 @@ def test_answer_play_duplicate_fingerprint_no_points():
     svc = TriviaService(trivia_dao=trivia, user_dao=users)
     msg = svc.answer_play_session("u1", "sess-1", "B")
     assert "duplicados" in msg.lower() or "Ya habías" in msg
-    users.add_trivia_round.assert_not_called()
+    users.add_trivia_round.assert_called_once_with("u1", points=0)
+
+
+def test_answer_broadcast_counts_round():
+    trivia = MagicMock()
+    users = MagicMock()
+    users.get_profile.return_value = {"total_points": 0, "trivia_rounds_today": 0}
+    users.get_answered_question_fingerprints.return_value = set()
+    trivia.get_trivia.return_value = {
+        "correct": "A",
+        "points": 5,
+        "options": {"A": "Brasil"},
+        "closes_at": "2099-01-01T00:00:00Z",
+        "explanation": "x",
+        "question": "Q?",
+    }
+    trivia.has_answered.return_value = False
+    svc = TriviaService(trivia_dao=trivia, user_dao=users)
+    svc.answer_broadcast("u1", "triv-1", "A")
+    users.add_trivia_round.assert_called_once_with("u1", points=5)
+
+
+def test_answer_play_wrong_answer_still_counts_round():
+    trivia = MagicMock()
+    users = MagicMock()
+    users.get_profile.return_value = {"total_points": 0, "trivia_rounds_today": 0}
+    users.get_answered_question_fingerprints.return_value = set()
+    trivia.get_play_session.return_value = {
+        "state": "PENDING",
+        "correct": "B",
+        "points": 3,
+        "question_fp": "fp1",
+        "options_map": {"B": "x"},
+        "explanation": "x",
+    }
+    svc = TriviaService(trivia_dao=trivia, user_dao=users)
+    svc.answer_play_session("u1", "sess-1", "A")
+    users.add_trivia_round.assert_called_once_with("u1", points=0)
 
 
 def test_daily_limit():
@@ -72,6 +109,8 @@ def test_daily_limit():
 
 def test_broadcast_already_answered():
     trivia = MagicMock()
+    users = MagicMock()
+    users.get_profile.return_value = {"trivia_rounds_today": 0}
     trivia.get_trivia.return_value = {
         "correct": "C",
         "points": 5,
@@ -80,5 +119,6 @@ def test_broadcast_already_answered():
         "explanation": "x",
     }
     trivia.has_answered.return_value = True
-    svc = TriviaService(trivia_dao=trivia)
+    svc = TriviaService(trivia_dao=trivia, user_dao=users)
     assert "Ya respondiste" in svc.answer_broadcast("u1", "abc", "C")
+    users.add_trivia_round.assert_not_called()
