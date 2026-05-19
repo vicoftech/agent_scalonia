@@ -112,10 +112,12 @@ def resolve_kb_then_web(
     kb_max = max_kb_score(rows)
     tavily_ok = is_tavily_configured()
 
-    # KB con score alto pero tangencial no debe cortar Tavily (finales, comparativas, Messi…)
-    force_web = is_football_domain_query(query) and (
-        is_historical_football_query(query) or is_analytical_query(query)
-    )
+    # Web solo si la KB no alcanza (comparativas, historia subjetiva, etc.).
+    # Antes se forzaba Tavily en toda consulta "histórica" aunque la KB ya tenía el dato
+    # (ej. Pelé 1962), duplicando latencia y fallos del LLM con tools.
+    force_web = is_football_domain_query(query) and not kb_is_sufficient(
+        query, kb_text, kb_max
+    ) and (is_analytical_query(query) or is_historical_football_query(query))
 
     if kb_is_sufficient(query, kb_text, kb_max) and not force_web:
         logger.info(

@@ -1,14 +1,19 @@
 """agent/tools/echo_tool.py — smoke test MVP"""
+from __future__ import annotations
+
 import datetime
+import json
+
 from strands import tool
 
+
 @tool
-def echo_tool(message: str) -> dict:
+def echo_tool(message: str) -> str:
     """Repite el mensaje con timestamp. Smoke test del pipeline agente → Telegram."""
-    return {
-        "echo":      message,
+    payload = {
+        "echo": message,
         "timestamp": datetime.datetime.now(tz=datetime.timezone.utc).isoformat(),
-        "status":    "MVP operativo — Prode Mundial 2026 ⚽",
+        "status": "MVP operativo — Prode Mundial 2026 ⚽",
         "features_enabled": [
             "echo",
             "match_fixture",
@@ -18,3 +23,4 @@ def echo_tool(message: str) -> dict:
         ],
         "features_pending": ["predicciones", "veda", "rankings", "grupos", "trivia"],
     }
+    return json.dumps(payload, ensure_ascii=False)

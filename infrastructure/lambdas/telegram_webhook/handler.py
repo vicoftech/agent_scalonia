@@ -10,8 +10,14 @@ import hashlib
 import json
 import logging
 import os
-import re
+import sys
 import time
+from pathlib import Path
+
+# Permite `from stream_parse import …` en Lambda (cwd) y en tests desde repo root.
+_TG_WEBHOOK_DIR = Path(__file__).resolve().parent
+if str(_TG_WEBHOOK_DIR) not in sys.path:
+    sys.path.insert(0, str(_TG_WEBHOOK_DIR))
 import urllib.error
 import urllib.request
 from typing import Any
@@ -75,144 +81,35 @@ def _send_message(chat_id: int, text: str, token: str) -> None:
             break
 
 
-def _iter_json_objects(raw: str):
-    """Varios eventos Strands/AgentCore vienen concatenados en un mismo chunk."""
-    decoder = json.JSONDecoder()
-    pos = 0
-    while pos < len(raw):
-        while pos < len(raw) and raw[pos].isspace():
-            pos += 1
-        if pos >= len(raw):
-            break
-        if raw[pos] != "{":
-            next_obj = raw.find("{", pos + 1)
-            if next_obj == -1:
-                break
-            pos = next_obj
-            continue
-        try:
-            obj, idx = decoder.raw_decode(raw, pos)
-        except json.JSONDecodeError:
-            next_obj = raw.find("{", pos + 1)
-            if next_obj == -1:
-                break
-            pos = next_obj
-            continue
-        yield obj
-        pos += idx
-
-
-_THINKING_RE = re.compile(r"<thinking>.*?</thinking>\s*", re.DOTALL | re.IGNORECASE)
-
-
-def _strip_thinking(text: str) -> str:
-    return _THINKING_RE.sub("", text).strip()
-
-
-def _message_text_from_event(event: dict[str, Any]) -> str:
-    msg = event.get("message")
-    if not isinstance(msg, dict):
-        return ""
-    parts: list[str] = []
-    for block in msg.get("content") or []:
-        if isinstance(block, dict) and isinstance(block.get("text"), str):
-            parts.append(block["text"])
-    return _strip_thinking("".join(parts)) if parts else ""
-
-
-def _delta_text_from_event(event: dict[str, Any]) -> str:
-    nested = event.get("event")
-    if isinstance(nested, dict):
-        block = nested.get("contentBlockDelta")
-        if isinstance(block, dict):
-            delta = block.get("delta") or {}
-            if isinstance(delta.get("text"), str):
-                return delta["text"]
-    return ""
-
-
-def _error_from_event(event: dict[str, Any]) -> str | None:
-    if event.get("error"):
-        return str(event.get("message") or event["error"])
-    if event.get("force_stop"):
-        return str(event.get("force_stop_reason") or "force_stop")
-    return None
-
-
 def _friendly_agent_error(reason: str) -> str:
     low = reason.lower()
     if "model identifier is invalid" in low:
         return "El modelo de IA no está configurado correctamente. Avisá al administrador."
     if "accessdenied" in low or "not authorized" in low:
         return "Sin permisos para invocar el modelo. Avisá al administrador."
+    if "tool use" in low and "streaming" in low:
+        return (
+            "El modelo de IA no pudo usar las herramientas (KB/web) en este momento. "
+            "Intentá de nuevo en unos segundos."
+        )
+    if "conversestream" in low or "modelerrorexception" in low:
+        return (
+            "El modelo de IA tuvo un error temporal al procesar la consulta. "
+            "Intentá de nuevo en unos segundos."
+        )
     return "Hubo un error procesando tu mensaje. Intentá de nuevo en unos segundos."
 
 
 def _parse_agent_stream_payload(raw: str) -> str:
-    deltas: list[str] = []
-    final_message = ""
-    errors: list[str] = []
-    for event in _iter_json_objects(raw):
-        if not isinstance(event, dict):
-            continue
-        err = _error_from_event(event)
-        if err:
-            errors.append(err)
-            continue
-        if event.keys() <= {"init_event_loop"} or event.keys() <= {"start"} or event.keys() <= {"start_event_loop"}:
-            continue
-        msg = _message_text_from_event(event)
-        if msg:
-            final_message = msg
-        chunk = _delta_text_from_event(event)
-        if chunk:
-            deltas.append(chunk)
-    if final_message:
-        return final_message
-    if deltas:
-        return _strip_thinking("".join(deltas))
-    if errors:
-        return _friendly_agent_error(errors[-1])
-    return ""
+    from stream_parse import parse_agent_stream_payload  # noqa: E402
+
+    return parse_agent_stream_payload(raw, friendly_error=_friendly_agent_error)
 
 
 def _parse_sse_events(stream) -> str:
-    """Un evento JSON por línea ``data: {...}`` (formato AgentCore)."""
-    deltas: list[str] = []
-    final_message = ""
-    errors: list[str] = []
-    for line in stream.iter_lines():
-        if not line:
-            continue
-        decoded = line.decode("utf-8").strip()
-        if not decoded.startswith("data: "):
-            continue
-        payload = decoded[6:].strip()
-        if not payload.startswith("{"):
-            continue
-        try:
-            event = json.loads(payload)
-        except json.JSONDecodeError:
-            continue
-        if not isinstance(event, dict):
-            continue
-        err = _error_from_event(event)
-        if err:
-            errors.append(err)
-            continue
-        msg = _message_text_from_event(event)
-        if msg:
-            final_message = msg
-        chunk = _delta_text_from_event(event)
-        if chunk:
-            deltas.append(chunk)
-    if final_message:
-        return final_message
-    if deltas:
-        return _strip_thinking("".join(deltas))
-    if errors:
-        return _friendly_agent_error(errors[-1])
-    return ""
+    from stream_parse import parse_sse_events  # noqa: E402
+
+    return parse_sse_events(stream, friendly_error=_friendly_agent_error)
 
 
 def _read_agent_stream(response: dict[str, Any]) -> str:
@@ -341,8 +238,20 @@ def handler(event: dict, context) -> dict:
         # AgentCore exige runtimeSessionId ≥33 chars. Versión bustea sesión post-deploy.
         session_suffix = "-poststart" if first_post_start else ""
         session_id = f"tg-{platform_id_hash[:32]}-v{AGENT_RUNTIME_VERSION}{session_suffix}"
-        from fixture_prefetch import enrich_prompt_with_fixture
-        from kb_prefetch import enrich_prompt_with_kb
+        from fixture_prefetch import enrich_prompt_with_fixture, try_direct_fixture_reply
+        from kb_prefetch import enrich_prompt_with_kb, try_direct_knowledge_reply
+
+        direct_fixture = try_direct_fixture_reply(text)
+        if direct_fixture:
+            logger.info("fixture_direct_reply user_prefix=%s", user_id[:8])
+            _send_message(chat_id, direct_fixture, token)
+            return ok
+
+        direct_kb = try_direct_knowledge_reply(text)
+        if direct_kb:
+            logger.info("kb_direct_reply user_prefix=%s", user_id[:8])
+            _send_message(chat_id, direct_kb, token)
+            return ok
 
         agent_prompt, has_fixture = enrich_prompt_with_fixture(text)
         if has_fixture:

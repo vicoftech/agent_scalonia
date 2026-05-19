@@ -75,7 +75,7 @@ class TestResolveKbThenWeb:
         assert out.web_fallback_used
         assert out.web_text
 
-    def test_final_historica_fuerza_web_aunque_kb_alta(self, monkeypatch):
+    def test_final_historica_kb_alta_no_fuerza_web(self, monkeypatch):
         monkeypatch.setenv("TAVILY_API_KEY", "test-key")
         rows = [
             {
@@ -87,13 +87,12 @@ class TestResolveKbThenWeb:
         q = "Cual fue la mejor final de la historia y cual fue la peor"
 
         with patch("src.kb.lambda_client.search_kb", return_value=rows):
-            with patch(
-                "src.kb.resolve.perform_web_search",
-                return_value="Brasil 1970 final Italia\n" + "data " * 50,
-            ):
+            with patch("src.kb.resolve.perform_web_search") as mock_web:
                 out = resolve_kb_then_web(q)
-        assert out.web_fallback_used
-        assert out.web_text
+        assert out.kb_text
+        assert out.web_text is None
+        assert not out.web_fallback_used
+        mock_web.assert_not_called()
 
     def test_chunks_baja_relevancia_intenta_web(self, monkeypatch):
         monkeypatch.setenv("TAVILY_API_KEY", "test-key")

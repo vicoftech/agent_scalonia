@@ -38,6 +38,56 @@ def _format_by_dates(svc, dates: list) -> str:
     return "\n".join(lines).strip()
 
 
+def try_direct_fixture_reply(user_prompt: str) -> str | None:
+    """
+    Respuesta lista para Telegram sin invocar el LLM (fixture en DynamoDB).
+    Usar cuando hay fechas/equipo/grupo parseables y datos en tabla.
+    """
+    try:
+        from src.services.match_date_parse import parse_dates_from_query, parse_month_range
+        from src.services.match_query_intent import is_match_fixture_query
+        from src.services.match_service import MatchService
+
+        if not is_match_fixture_query(user_prompt):
+            return None
+
+        svc = MatchService()
+        dates = parse_dates_from_query(user_prompt)
+        if dates:
+            body = _format_by_dates(svc, dates)
+            return (
+                "📅 Fixture oficial Mundial 2026 (horarios GMT-3):\n"
+                f"{body}\n\n"
+                "Instancia = fase del torneo (ej. Cuartos de final = QUARTER_FINAL)."
+            )
+
+        month_range = parse_month_range(user_prompt)
+        if month_range:
+            from_d, to_d = month_range
+            rows = svc.search(from_date=from_d, to_date=to_d, limit=50)
+            if rows:
+                return svc.format_list(rows, header="📅 Fixture oficial:")
+
+        team = _guess_team(user_prompt)
+        if team:
+            rows = svc.search(team=team, limit=20)
+            if rows:
+                return svc.format_list(rows, header=f"📅 Partidos — {team}:")
+
+        gl_match = re.search(r"\bgrupo\s+([a-l])\b", user_prompt, re.IGNORECASE)
+        if gl_match:
+            rows = svc.group_fixture(gl_match.group(1))
+            if rows:
+                return svc.format_list(
+                    rows,
+                    header=f"📅 Fixture grupo {gl_match.group(1).upper()}:",
+                )
+        return None
+    except Exception:
+        logger.exception("try_direct_fixture_reply failed")
+        return None
+
+
 def enrich_prompt_with_fixture(user_prompt: str) -> tuple[str, bool]:
     """
     Si es consulta de fixture, adjunta partidos desde DynamoDB al prompt.

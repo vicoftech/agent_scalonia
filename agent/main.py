@@ -96,9 +96,29 @@ _BEDROCK_REGION = "us-east-1"
 app = BedrockAgentCoreApp()
 
 
+def _bedrock_streaming_enabled(model_id: str) -> bool:
+    """
+    Bedrock ConverseStream vs Converse (tools).
+
+    Mistral (y en general modelos sin tool-use en stream) → streaming=False
+    usa converse() aunque el entrypoint siga con stream_async() (transporte AgentCore).
+    """
+    override = os.getenv("BEDROCK_STREAMING", "").strip().lower()
+    if override in ("0", "false", "no"):
+        return False
+    if override in ("1", "true", "yes"):
+        return True
+    return "mistral" not in model_id.lower()
+
+
 def _bedrock_model_kwargs() -> dict:
     model_id = os.getenv("BEDROCK_MODEL_ID", _DEFAULT_MODEL)
-    kwargs: dict = {"model_id": model_id, "region_name": _BEDROCK_REGION}
+    streaming = _bedrock_streaming_enabled(model_id)
+    kwargs: dict = {
+        "model_id": model_id,
+        "region_name": _BEDROCK_REGION,
+        "streaming": streaming,
+    }
     guardrail_id = os.getenv("GUARDRAIL_ID", "").strip()
     guardrail_version = os.getenv("GUARDRAIL_VERSION", "").strip()
     if guardrail_id and guardrail_version:
@@ -117,8 +137,9 @@ def _bedrock_model_kwargs() -> dict:
 def _build_agent(caller_user_id: str) -> Agent:
     model_kw = _bedrock_model_kwargs()
     logger.info(
-        "Bedrock model_id=%s region=%s guardrail=%s",
+        "Bedrock model_id=%s streaming=%s region=%s guardrail=%s",
         model_kw["model_id"],
+        model_kw.get("streaming"),
         _BEDROCK_REGION,
         bool(model_kw.get("guardrail_id")),
     )

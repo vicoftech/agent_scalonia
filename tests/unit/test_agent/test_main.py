@@ -6,16 +6,22 @@ os.environ.setdefault("AGENTCORE_RUNTIME_QUALIFIER", "LIVE")
 
 
 class TestEchoTool:
-    def test_echo_retorna_mensaje(self):
+    def test_echo_retorna_json_str(self):
+        import json
+
         from agent.tools.echo_tool import echo_tool
-        result = echo_tool("hola mundo")
+
+        result = json.loads(echo_tool("hola mundo"))
         assert result["echo"] == "hola mundo"
         assert "timestamp" in result
         assert "MVP operativo" in result["status"]
 
     def test_echo_features_pendientes(self):
+        import json
+
         from agent.tools.echo_tool import echo_tool
-        result = echo_tool("test")
+
+        result = json.loads(echo_tool("test"))
         assert "predicciones" in result["features_pending"]
         assert "rankings" in result["features_pending"]
         assert "knowledge_base" not in result["features_pending"]
@@ -41,18 +47,46 @@ class TestOnboardingContext:
         assert "M1_PENDING" in ctx
 
 
+class TestBedrockModelConfig:
+    def test_mistral_disables_streaming(self):
+        from agent.main import _bedrock_streaming_enabled
+
+        assert _bedrock_streaming_enabled("us.mistral.pixtral-large-2502-v1:0") is False
+        assert _bedrock_streaming_enabled("us.mistral.mistral-large-2402-v1:0") is False
+        assert _bedrock_streaming_enabled("us.amazon.nova-pro-v1:0") is True
+
+    def test_bedrock_model_kwargs_includes_streaming_flag(self, monkeypatch):
+        from agent.main import _bedrock_model_kwargs
+
+        monkeypatch.setenv("BEDROCK_MODEL_ID", "us.mistral.pixtral-large-2502-v1:0")
+        monkeypatch.delenv("BEDROCK_STREAMING", raising=False)
+        kw = _bedrock_model_kwargs()
+        assert kw["streaming"] is False
+        assert "mistral" in kw["model_id"]
+
+    def test_bedrock_streaming_env_override(self, monkeypatch):
+        from agent.main import _bedrock_streaming_enabled
+
+        monkeypatch.setenv("BEDROCK_STREAMING", "0")
+        assert _bedrock_streaming_enabled("us.amazon.nova-pro-v1:0") is False
+
+
 class TestAgentEntrypoint:
     def test_app_es_bedrock_agentcore(self):
         from agent.main import app
         from bedrock_agentcore import BedrockAgentCoreApp
         assert isinstance(app, BedrockAgentCoreApp)
 
-    def test_agent_tiene_echo_tool(self):
+    def test_agent_tiene_tools_registradas(self):
         from agent.main import _build_agent
+
         agent = _build_agent("test-user")
-        tools = getattr(agent, "tools", None) or getattr(agent, "tool", [])
-        tool_names = [getattr(t, "__name__", str(t)) for t in tools]
-        assert any("echo" in n.lower() for n in tool_names)
+        names = set(agent.tool_registry.get_all_tools_config().keys())
+        assert "echo_tool" in names
+        assert "match_tool" in names
+        assert "kb_retrieval_tool" in names
+        assert "web_search_tool" in names
+        assert "invitation_tool" in names
 
 
 class TestTelegramStreamParser:

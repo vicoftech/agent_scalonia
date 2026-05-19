@@ -32,10 +32,10 @@ VENUE_MAP: dict[str, tuple[str, str, str]] = {
 
 PHASE_BY_SECTION = {
     "group_stage": "GROUP",
-    "round_of_32": "R16",
-    "round_of_16": "QF",
-    "quarterfinals": "SF",
-    "semifinals": "SF",
+    "round_of_32": "ROUND_OF_32",
+    "round_of_16": "ROUND_OF_16",
+    "quarterfinals": "QUARTER_FINAL",
+    "semifinals": "SEMI_FINAL",
     "third_place": "THIRD_PLACE",
     "final": "FINAL",
 }

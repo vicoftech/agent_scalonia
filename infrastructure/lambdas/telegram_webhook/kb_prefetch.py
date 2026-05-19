@@ -24,6 +24,71 @@ _WEB_INSTRUCTION = (
     "No respondas únicamente que no está en la KB.]"
 )
 
+_DIRECT_KB_MAX_LEN = 3800
+
+
+def _trim_kb_display(text: str, max_len: int = _DIRECT_KB_MAX_LEN) -> str:
+    lines: list[str] = []
+    for line in (text or "").splitlines():
+        stripped = line.strip()
+        if stripped.startswith("[") and stripped.endswith("]") and "/" in stripped:
+            continue
+        lines.append(line)
+    body = "\n".join(lines).strip()
+    return body[:max_len] if len(body) > max_len else body
+
+
+def try_direct_knowledge_reply(user_prompt: str) -> str | None:
+    """
+    Respuesta en Telegram sin invocar el LLM cuando KB (o web) ya tiene material útil.
+    Evita fallos de Mistral en ciclos tool-use; las comparativas siguen yendo al agente.
+    """
+    if not os.environ.get("KB_QUERY_LAMBDA_NAME", "").strip():
+        return None
+    try:
+        from src.kb.domain import is_football_domain_query
+        from src.kb.query_intent import is_analytical_query
+        from src.kb.resolve import (
+            _is_usable_web_result,
+            kb_is_sufficient,
+            resolve_kb_then_web,
+        )
+        from src.services.match_query_intent import is_match_fixture_query
+
+        if not is_football_domain_query(user_prompt):
+            return None
+        if is_match_fixture_query(user_prompt):
+            return None
+        if is_analytical_query(user_prompt):
+            return None
+
+        resolved = resolve_kb_then_web(user_prompt, max_results=5, enqueue_on_web=False)
+
+        if resolved.web_text and _is_usable_web_result(resolved.web_text):
+            body = _trim_kb_display(resolved.web_text)
+            if resolved.kb_text and kb_is_sufficient(
+                user_prompt, resolved.kb_text, resolved.kb_max_score
+            ):
+                kb_part = _trim_kb_display(resolved.kb_text, max_len=1200)
+                return (
+                    "🌐 Información verificada (web + Knowledge Base):\n\n"
+                    f"{body}\n\n---\n📚 KB:\n{kb_part}"
+                )[:4096]
+            return f"🌐 Información verificada (búsqueda web):\n\n{body}"[:4096]
+
+        if resolved.kb_text and kb_is_sufficient(
+            user_prompt, resolved.kb_text, resolved.kb_max_score
+        ):
+            body = _trim_kb_display(resolved.kb_text)
+            if len(body) < 120:
+                return None
+            return f"📚 Según la Knowledge Base del Prode:\n\n{body}"[:4096]
+
+        return None
+    except Exception:
+        logger.exception("try_direct_knowledge_reply failed")
+        return None
+
 
 def _prompt_with_football_scope(user_prompt: str) -> str:
     """Ayuda al modelo/guardrail a no confundir finales del Mundial con entretenimiento."""
