@@ -180,6 +180,10 @@ def _handle_callback_query(callback: dict, ok: dict) -> dict:
         if block_message or not user_id:
             return ok
 
+        from src.dao.dynamo.user_dao import UserDAO
+
+        UserDAO().set_telegram_chat_id(user_id, int(chat_id))
+
         token = _get_token()
 
         if data.startswith("trv:"):
@@ -266,6 +270,7 @@ def handler(event: dict, context) -> dict:
         from src.services.onboarding_service import FIRST_POST_START_INSTRUCTION
 
         users_dao = UserDAO()
+        users_dao.set_telegram_chat_id(user_id, int(chat_id))
         profile = users_dao.get_profile(user_id) if user_id else None
         onboarding_stage = (profile or {}).get("onboarding_stage", "?")
         first_post_start = (

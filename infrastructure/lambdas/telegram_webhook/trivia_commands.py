@@ -16,6 +16,67 @@ _TOPIC_MAP = {
 }
 
 
+def _broadcast_admin_reply(out: dict, *, invoker_user_id: str) -> tuple[str, dict | None]:
+    from handler import _get_token, _send_message
+    from trivia_broadcast import broadcast_trivia_message
+
+    targets = [
+        t
+        for t in (out.get("delivery_targets") or [])
+        if t.get("user_id") != invoker_user_id
+    ]
+    token = _get_token()
+    sent, _ = broadcast_trivia_message(
+        delivery_targets=targets,
+        message=out["message"],
+        keyboard=out["keyboard"],
+        token=token,
+        send_message=_send_message,
+    )
+    pending = max(0, int(out.get("member_count", 0)) - len(out.get("delivery_targets") or []))
+    lines = [
+        f"✅ Trivia {out['trivia_id']} publicada.",
+        f"📤 Enviada por Telegram a {sent} usuario(s).",
+    ]
+    if pending:
+        lines.append(
+            f"ℹ️ {pending} miembro(s) aún sin chat registrado "
+            "(aparecerá al escribir al bot)."
+        )
+    lines.append("")
+    lines.append(out["message"])
+    return "\n".join(lines), out["keyboard"]
+
+
+def _broadcast_group_reply(out: dict, *, invoker_user_id: str) -> tuple[str, dict | None]:
+    from handler import _get_token, _send_message
+    from trivia_broadcast import broadcast_trivia_message
+
+    targets = [
+        t
+        for t in (out.get("delivery_targets") or [])
+        if t.get("user_id") != invoker_user_id
+    ]
+    token = _get_token()
+    sent, _ = broadcast_trivia_message(
+        delivery_targets=targets,
+        message=out["message"],
+        keyboard=out["keyboard"],
+        token=token,
+        send_message=_send_message,
+    )
+    pending = max(0, int(out.get("member_count", 0)) - len(out.get("delivery_targets") or []))
+    lines = [
+        f"✅ Trivia {out['trivia_id']} publicada en tu grupo.",
+        f"📤 Enviada por Telegram a {sent} miembro(s).",
+    ]
+    if pending:
+        lines.append(f"ℹ️ {pending} sin chat registrado aún.")
+    lines.append("")
+    lines.append(out["message"])
+    return "\n".join(lines), out["keyboard"]
+
+
 def handle_trivia_command(user_id: str, text: str) -> tuple[str | None, dict | None]:
     """
     Retorna (mensaje, reply_markup) o (None, None).
@@ -40,10 +101,7 @@ def handle_trivia_command(user_id: str, text: str) -> tuple[str | None, dict | N
         topic = _TOPIC_MAP.get((parts[1] if len(parts) > 1 else "records").lower(), "records")
         try:
             out = svc.create_and_send_general(user_id, topic=topic, level="EXPERT")
-            return (
-                f"✅ Trivia enviada a {out['recipient_count']} usuarios.\n\n{out['message']}",
-                out["keyboard"],
-            )
+            return _broadcast_admin_reply(out, invoker_user_id=user_id)
         except ValueError as exc:
             if str(exc) == "NOT_ADMIN":
                 return "Solo el admin global puede usar /trivia-admin.", None
@@ -55,10 +113,7 @@ def handle_trivia_command(user_id: str, text: str) -> tuple[str | None, dict | N
         try:
             draft = svc.create_group_trivia_draft(user_id, group_id=None, topic=topic, level="MEDIUM")
             sent = svc.send_group_trivia(user_id, draft["trivia_id"], draft["question"], draft["group_id"])
-            return (
-                f"✅ Trivia enviada a {sent['recipient_count']} miembros del grupo.\n\n{sent['message']}",
-                sent["keyboard"],
-            )
+            return _broadcast_group_reply(sent, invoker_user_id=user_id)
         except ValueError as exc:
             code = str(exc)
             if code == "NOT_OWNER":

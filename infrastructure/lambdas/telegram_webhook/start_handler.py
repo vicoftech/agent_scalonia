@@ -42,6 +42,7 @@ def handle_start_command(chat_id: int, text: str) -> tuple[str, dict | None] | N
 
     existing = users.get_by_platform_hash("TELEGRAM", platform_id_hash)
     if existing:
+        users.set_telegram_chat_id(existing["user_id"], chat_id)
         if existing.get("status") != USER_STATUS_ACTIVE:
             return INACTIVE_USER_MESSAGE, None
         if existing.get("onboarding_stage") == STAGE_M1_PENDING:
@@ -67,7 +68,7 @@ def handle_start_command(chat_id: int, text: str) -> tuple[str, dict | None] | N
             return "Esta invitación expiró (tenía 24hs de vigencia). Pedí una nueva.", None
 
         new_user_id = str(uuid4())
-        users.create_telegram_user(new_user_id, platform_id_hash)
+        users.create_telegram_user(new_user_id, platform_id_hash, tg_chat_id=chat_id)
         try:
             result = invitations.validate_and_use(invite_id, new_user_id)
         except ValueError as exc:

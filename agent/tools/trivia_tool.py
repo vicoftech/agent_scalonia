@@ -57,8 +57,10 @@ def _execute_trivia_tool(
                 topic=topic,
                 level=(level or "EXPERT").upper(),
             )
+            n = len(out.get("delivery_targets") or [])
             return (
-                f"Trivia {out['trivia_id']} creada para {out['recipient_count']} usuarios GLOBAL.\n\n"
+                f"Trivia {out['trivia_id']} creada en GLOBAL ({n} con Telegram listo para envío).\n"
+                "Usá /trivia-admin en el bot para publicarla a todos.\n\n"
                 f"{out['message']}"
             )
 

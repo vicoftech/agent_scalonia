@@ -473,13 +473,16 @@ class TriviaService:
                 **q,
             }
         )
-        recipients = self._trivia.list_group_member_user_ids(GLOBAL_GROUP_ID)
+        member_ids = self._trivia.list_group_member_user_ids(GLOBAL_GROUP_ID)
+        targets = self._users.list_telegram_delivery_targets(member_ids)
         msg = self.format_question_message(item, header="📢 Trivia general del Prode")
         return {
             "trivia_id": trivia_id,
+            "group_id": GLOBAL_GROUP_ID,
             "message": msg,
             "keyboard": self.answer_keyboard(trivia_id=trivia_id),
-            "recipient_count": len(recipients),
+            "member_count": len(member_ids),
+            "delivery_targets": targets,
         }
 
     def create_group_trivia_draft(
@@ -527,12 +530,15 @@ class TriviaService:
                 **question,
             }
         )
-        members = self._trivia.list_group_member_user_ids(group_id)
+        member_ids = self._trivia.list_group_member_user_ids(group_id)
+        targets = self._users.list_telegram_delivery_targets(member_ids)
         return {
             "trivia_id": trivia_id,
+            "group_id": group_id,
             "message": self.format_question_message(item),
             "keyboard": self.answer_keyboard(trivia_id=trivia_id),
-            "recipient_count": len(members),
+            "member_count": len(member_ids),
+            "delivery_targets": targets,
         }
 
     def stats_for_trivia(self, trivia_id: str) -> str:

@@ -97,6 +97,7 @@ class UserDAO:
         alias: str = "Jugador",
         onboarding_stage: str = "M1_PENDING",
         m1_step: str = "awaiting_alias",
+        tg_chat_id: int | None = None,
     ) -> dict[str, Any]:
         now = _now_iso()
         item = {
@@ -120,6 +121,8 @@ class UserDAO:
             "created_at": now,
             "updated_at": now,
         }
+        if tg_chat_id is not None:
+            item["tg_chat_id"] = int(tg_chat_id)
         self._table.put_item(
             Item=item,
             ConditionExpression="attribute_not_exists(partition_key)",
@@ -189,6 +192,32 @@ class UserDAO:
                 break
             scan_kwargs["ExclusiveStartKey"] = resp["LastEvaluatedKey"]
         return False
+
+    def set_telegram_chat_id(self, user_id: str, chat_id: int) -> None:
+        """
+        ID de chat de Telegram para envíos proactivos (trivias, recordatorios).
+        Solo DynamoDB — no se replica a Aurora. No loguear este valor.
+        """
+        if not user_id or chat_id is None:
+            return
+        self._table.update_item(
+            Key={"partition_key": f"USER#{user_id}", "sort_key": "PROFILE"},
+            UpdateExpression="SET tg_chat_id = :cid, updated_at = :now",
+            ExpressionAttributeValues={":cid": int(chat_id), ":now": _now_iso()},
+        )
+
+    def list_telegram_delivery_targets(self, member_user_ids: list[str]) -> list[dict[str, Any]]:
+        """Usuarios con notificaciones activas y tg_chat_id conocido."""
+        targets: list[dict[str, Any]] = []
+        for uid in member_user_ids:
+            profile = self.get_profile(uid) or {}
+            if profile.get("notifications_enabled") is False:
+                continue
+            chat_id = profile.get("tg_chat_id")
+            if chat_id is None:
+                continue
+            targets.append({"user_id": uid, "tg_chat_id": int(chat_id)})
+        return targets
 
     def add_trivia_round(self, user_id: str, *, points: int, count_round: bool = True) -> None:
         """Suma puntos de trivia y opcionalmente incrementa rondas del día."""
