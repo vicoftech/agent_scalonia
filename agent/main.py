@@ -32,8 +32,9 @@ from agent.tools.echo_tool import echo_tool
 from agent.tools.invitation_tool import make_invitation_tool
 from agent.tools.kb_retrieval_tool import kb_retrieval_tool
 from agent.tools.match_tool import match_tool
+from agent.tools.onboarding_tool import make_onboarding_tool
 from agent.tools.web_search_tool import web_search_tool
-from src.services.onboarding_service import OnboardingService
+from src.services.onboarding_service import ONBOARDING_SECTION, OnboardingService
 
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 logger = logging.getLogger(__name__)
@@ -79,7 +80,7 @@ ONBOARDING Y BIENVENIDA (no repetir /start):
 - Si el usuario hace una pregunta concreta, PROHIBIDO responder solo con presentación o bienvenida genérica.
 - Respondé con kb_retrieval_tool, web_search_tool o match_tool según la pregunta; knowledge_base y web están HABILITADAS.
 - NO uses echo_tool para describir el MVP en lugar de responder la pregunta.
-- Si onboarding_stage=M1_PENDING: respondé la consulta primero; como máximo UNA línea al final pidiendo alias (/listo = saltear).
+- M1 (alias/equipo/idioma) lo hace Telegram; usá onboarding_tool para M2/M3.
 
 Si el mensaje incluye [Fixture oficial — ...], respondé SOLO con esos datos (no KB ni web).
 Si un día figura con "0 partido(s)" o "Sin partidos", decilo explícito; no niegues todo el rango.
@@ -89,7 +90,7 @@ También pueden usar /invitar [cupos] o /mis-invitaciones sin pasar por vos.
 Las features de predicciones, rankings y trivia se habilitan sprint a sprint.
 """.strip()
 
-SYSTEM_PROMPT = f"{_BASE_PROMPT}\n\n{GUARDRAIL_SECTION}"
+SYSTEM_PROMPT = f"{_BASE_PROMPT}\n\n{ONBOARDING_SECTION}\n\n{GUARDRAIL_SECTION}"
 
 # Cuentas reseller: sin Anthropic. Dev: Mistral Pixtral (tool use). Nova: us.amazon.nova-pro-v1:0
 _DEFAULT_MODEL = "us.mistral.pixtral-large-2502-v1:0"
@@ -154,6 +155,7 @@ def _build_agent(caller_user_id: str) -> Agent:
             kb_retrieval_tool,
             web_search_tool,
             make_invitation_tool(caller_user_id),
+            make_onboarding_tool(caller_user_id),
         ],
     )
 

@@ -1,187 +1,335 @@
 ---
-description: SPEC-019 — Onboarding progresivo. 3 momentos, máx 2 intercambios en el primero. Aplica cuando se trabaja en agent/main.py (system_prompt), agent/tools/onboarding_tool.py o src/services/onboarding_service.py.
-globs: agent/tools/onboarding_tool.py, src/services/onboarding_service.py, src/dao/dynamo/user_dao.py
+description: SPEC-019 — Onboarding progresivo. 3 momentos, flujo UX validado en simulación. Aplica cuando se trabaja en agent/tools/onboarding_tool.py, src/services/onboarding_service.py o cualquier lógica del proceso de alta de un nuevo usuario.
+globs: agent/tools/onboarding_tool.py, src/services/onboarding_service.py, src/dao/dynamo/user_dao.py, infrastructure/lambdas/telegram_webhook/handler.py
 alwaysApply: false
 ---
 
 # SPEC-2026-019 — Onboarding Progresivo
 
-**SPEC-ID**: SPEC-2026-019 | **Sprint**: Sprint 1 | **Modo**: IA-Assisted
-**Dependencia**: SPEC-2026-018 (auth/access — el usuario ya existe y está ACTIVE)
+**SPEC-ID**: SPEC-2026-019 | **Sprint**: Sprint 1
+**Dependencia**: SPEC-2026-018 (usuario ya existe con status=ACTIVE)
+**Validado en**: simulación interactiva `prode-onboarding.html`
 
 ---
 
 ## Principio de diseño
 
-El onboarding nunca se siente como un formulario. Cada dato se captura en el momento
-donde tiene sentido natural dentro del ciclo de vida del usuario.
-Máximo 2 intercambios por momento. Todo es salteable (se puede completar después).
+El onboarding nunca se siente como un formulario.
+Cada dato se captura en el momento natural del ciclo de vida del usuario.
+Máximo **2 intercambios** en M1, **1 pregunta post-acción** en M2 y M3.
+Todo es salteable con `/listo`. El agente nunca insiste.
+
+---
+
+## Los 3 momentos
+
+| Momento | Trigger | Datos capturados | Intercambios |
+|---------|---------|-----------------|-------------|
+| **M1** | `/start` — primera vez | alias + selección favorita + idioma | máx 2 |
+| **M2** | Primera predicción | jugador favorito | 1 pregunta post-acción |
+| **M2b** | Primera trivia | nivel de conocimiento | 1 pregunta pre-acción |
+| **M3** | Primer ranking consultado | objetivo en el prode | 1 pregunta post-contexto |
 
 ---
 
 ## Momento 1 — Alta: el usuario envía /start
 
-**Trigger**: primer mensaje al bot (usuario recién creado)
-**Intercambios**: máx 2
-**Datos capturados**: alias + equipo hincha + idioma preferido
-**Obligatoriedad**: alias es obligatorio (necesario para el ranking), el resto es opcional
-
-### Flujo conversacional
+### Intercambio 1: alias
 
 ```
-AGENTE: ¡Bienvenido al Prode Mundial 2026! ⚽
-        Antes de empezar, ¿cómo querés que te llame en el ranking?
+BOT: ¡Bienvenido al Prode Mundial 2026! ⚽🌎
+     Predecí partidos, acumulá puntos, competí con amigos.
+     Para empezar: ¿cómo querés que te llame en el ranking?
+
+     [Saltearlo → me asignás uno]
 
 USUARIO: GolazoFan
-
-AGENTE: Perfecto GolazoFan. Dos preguntas rápidas:
-        ¿De qué selección sos hincha? Y si querés el bot en otro idioma que no
-        sea español, decime cuál. (Podés saltearlo con /listo)
-
-USUARIO: Argentina. Español está bien
-→ Onboarding M1 completo. Inicia el resto del bot.
 ```
 
-### Variante — usuario saltea
+### Intercambio 2: selección + idioma
 
 ```
-USUARIO: /listo
-→ Alias queda pendiente → agente genera alias temporal "Jugador_<4 chars>"
-→ Usuario puede cambiarlo después con /perfil
+BOT: Perfecto GolazoFan 🙌
+     ¿De qué selección sos hincha?
+     [🇦🇷 Argentina] [🇧🇷 Brasil] [🇪🇸 España] [🇫🇷 Francia]
+     [🏴󠁧󠁢󠁥󠁮󠁧󠁿 Inglaterra] [🇩🇪 Alemania] [🇵🇹 Portugal] [🇺🇾 Uruguay] [✏️ Otra]
+     ... tap en equipo → avanza automáticamente a la selección de idioma ...
+
+     ¿En qué idioma preferís que te responda?
+     [🇦🇷 Español] [🇧🇷 Português] [🇺🇸 English] [🇫🇷 Français]
+     [✓ Confirmar]
+
+USUARIO: [🇦🇷 Argentina] → [✓ Confirmar con Español por defecto]
 ```
 
-### Alias — reglas de validación
+### Confirmación M1 — tarjeta de perfil
+
+```
+BOT: 🎉🎊⚽🎊🎉
+     ¡Perfecto! Ya estás listo para predecir.
+
+     ┌──────────────────────────────┐
+     │ ⚽  GolazoFan                │
+     │     Miembro del Prode 2026   │
+     │ 🇦🇷 Hincha de Argentina      │
+     │ 🌐 Idioma: Español           │
+     │ 📊 Onboarding: 1/3 completo  │
+     └──────────────────────────────┘
+
+     [⚽ Ver partidos del día]
+```
+
+### Validaciones del alias
 
 - Longitud: 2–30 caracteres
-- Sin caracteres especiales (solo letras, números, guiones, underscores)
-- Único en el sistema — si está tomado, sugerir 3 alternativas con sufijo numérico
-- El agente NO debe intentar más de 1 ronda de sugerencias — si el usuario rechaza las 3, genera uno temporal
+- Solo letras, números, guiones y underscores
+- Si está tomado → sugerir 3 alternativas con sufijo numérico
+- Solo **1 ronda** de sugerencias — si rechaza todas, alias temporal
+- Alias temporal: `Jugador_XXXX` (4 chars alfanuméricos)
+- `/listo` → alias temporal asignado, mensaje explicativo
+
+```python
+# Ejemplo de flujo con alias duplicado
+BOT: Ese alias ya está tomado 😅
+     ¿Qué tal alguna de estas?
+     [GolazoFan1] [GolazoFan2] [GolazoFan47]
+     [Quiero otro diferente]
+
+# Si rechaza → alias temporal automático
+```
+
+### UX de selección de equipo
+
+- Grid de 3 columnas con bandera + nombre
+- Un **tap** en el equipo avanza automáticamente (no necesita confirmar)
+- "✏️ Otra" habilita input de texto libre
+- "No tengo favorita" → `favorite_team = null`, avanza
 
 ---
 
-## Momento 2 — Primera predicción o primera trivia
+## Momento 2 — Primera predicción
 
-**Trigger**: primera invocación de `prediction_tool` o `trivia_tool`
-**Intercambios**: máx 1 (una sola pregunta después de la acción)
-**Datos capturados**:
-  - En primera predicción: `favorite_player` (jugador favorito)
-  - En primera trivia: `football_knowledge` (nivel easy/medium/hard)
-**Condición de disparo**: `onboarding_stage == "M1_COMPLETE"` AND dato no capturado aún
+**Trigger**: `prediction_tool` ejecuta exitosamente por primera vez
+**Condición**: `onboarding_stage == "M1_COMPLETE"`
 
-### Flujo — primera predicción
+### Flujo
 
 ```
-[Predicción registrada normalmente]
-AGENTE: Predicción registrada: ARG 2 - 0 BRA ✅
-        Por cierto, ¿tenés algún jugador favorito del Mundial?
-        Te cuento anécdotas sobre él cuando juegue. (Podés saltearlo con /listo)
+[prediction_tool guarda predicción ARG 2-0 ALG]
 
-USUARIO: Messi
-→ favorite_player = "Messi" guardado → onboarding_stage = "M2_COMPLETE"
+BOT: ✅ Predicción guardada
+
+     ⚽ ¿Tenés algún jugador favorito del Mundial?
+     Te cuento curiosidades sobre él cuando juegue.
+
+     [⚽ Messi] [⚽ Lautaro] [⚽ Di María] [✏️ Otro]
+     [Saltearlo por ahora]
 ```
 
-### Flujo — primera trivia
+Jugadores sugeridos en M2:
+- Si `favorite_team == "ARG"` → mostrar top 3 de Argentina
+- Si `favorite_team` es otro equipo → mostrar top 3 de ese equipo  
+- Si no tiene equipo favorito → mostrar top 3 global del torneo
+- Siempre incluir `[✏️ Otro]` para texto libre
+
+### Momento 2b — Primera trivia
+
+**Trigger**: `trivia_tool` invocado por primera vez
+**Condición**: `onboarding_stage == "M1_COMPLETE"` AND `football_knowledge == null`
 
 ```
-AGENTE: [antes de generar la pregunta]
-        ¿Qué tan difícil la querés?
-        😊 Casual — 🔥 Fanático — 🧠 Enciclopedia futbolera
+BOT: [ANTES de generar la pregunta]
+     ¿Qué tan difícil la querés?
 
-USUARIO: Fanático
-→ football_knowledge = "medium" → pregunta generada → onboarding_stage = "M2_COMPLETE"
+     😊 Casual — +1 pt
+        Me gusta el fútbol pero sin tanta presión
+
+     🔥 Fanático — +2 pts
+        Sigo el fútbol de cerca, conozco bastante
+
+     🧠 Enciclopedia — +3 pts
+        Historia, estadísticas, curiosidades... todo
+```
+
+→ La selección guarda `football_knowledge` y **genera la primera pregunta inmediatamente**.
+→ No hay `/listo` aquí — el usuario debe elegir para continuar la trivia.
+
+---
+
+## Momento 3 — Primer ranking consultado
+
+**Trigger**: primera invocación de `ranking_tool`
+**Condición**: `onboarding_stage == "M2_COMPLETE"`
+
+### Flujo
+
+```
+BOT: [Muestra el ranking del grupo con el usuario nuevo marcado]
+
+     🏆 Ranking — Los Pibes del Laburo
+     🥇 ProdeKing          24 pts
+     2  GolazoFan ✨nuevo    0 pts  ← marcado visualmente
+     3  Juampi               0 pts
+
+     Recién entraste. Después del primer partido
+     ya vas a estar en el tablero 🚀
+
+     ¿Qué te importa más del prode?
+     Lo uso para personalizar tu resumen diario.
+
+     🏆 Ganar el prode
+        Soy muy competitivo, quiero el primer puesto
+
+     😄 Divertirme con amigos
+        Lo más importante es el grupo y el ida y vuelta
+
+     📚 Aprender sobre fútbol
+        Aprovechar para conocer más del Mundial
+
+     [Saltearlo]
 ```
 
 ---
 
-## Momento 3 — Primer ranking consultado o primer digest recibido
+## Pantalla de onboarding completo
 
-**Trigger**: primera invocación de `ranking_tool` O primer envío del daily digest
-**Intercambios**: máx 1
-**Datos capturados**: `prode_goal` + `country` (inferido si es posible)
-**Condición de disparo**: `onboarding_stage == "M2_COMPLETE"` AND dato no capturado aún
-
-### Inferencia de `country`
-
-El agente intenta inferir el país de residencia del usuario antes de preguntarlo:
-- Si el idioma del usuario es claro (portugués → Brasil por defecto)
-- Si la zona horaria ya fue capturada → mapear a país probable
-- Si no se puede inferir: NO preguntar en M3, quedará como `None` en el perfil
-
-### Flujo — primer ranking
+Una vez en `M3_COMPLETE`, el agente muestra la tarjeta de perfil final
+con un resumen de cómo se va a usar cada dato:
 
 ```
-AGENTE: Estás 3ro en tu grupo con 12 puntos, a solo 4 del líder. ¡Seguís en carrera!
-        ¿Qué te importa más del prode — ganar, divertirte, o aprender sobre los mundiales?
-        Lo uso para personalizarte el resumen diario.
+BOT: 🏆🎊⚽🌟🎊🏆
+     ¡Onboarding completo, GolazoFan!
 
-USUARIO: Ganar, soy muy competitivo
-→ prode_goal = "WIN" → onboarding_stage = "M3_COMPLETE"
+     ┌──────────────────────────────────┐
+     │ ⭐  GolazoFan                    │
+     │     Prode Mundial 2026 — activo  │
+     │ 🇦🇷 Hincha de Argentina          │
+     │ ⚽  Jugador favorito: Messi       │
+     │ 🏆 Objetivo: Ganar el prode      │
+     │ 🧠 Trivia: Fanático              │
+     │ 🌐 Español                       │
+     └──────────────────────────────────┘
+
+     Cada dato que me diste lo uso así:
+     • Te aviso cuando juegue Argentina 🔔
+     • Cuando juegue Messi te cuento algo especial ⚽
+     • La trivia se calibra a nivel Fanático 🧠
+     • El resumen diario se adapta a tu objetivo 📊
+
+     Podés cambiar todo con /perfil cuando quieras.
 ```
 
 ---
 
-## Datos capturados y uso
+## Datos capturados y cómo se usan
 
-| Dato | Momento | Campo DynamoDB | Uso en el sistema |
-|------|---------|---------------|-------------------|
-| `alias` | M1 (obligatorio) | `alias` | Ranking, menciones |
-| `favorite_team` | M1 (opcional) | `favorite_team` | Alertas cuando juega, personalización |
-| `preferred_language` | M1 (opcional) | `preferred_language` | Idioma de todas las respuestas |
-| `favorite_player` | M2 — predicción | `favorite_player` | Anécdotas proactivas del agente |
-| `football_knowledge` | M2 — trivia | `football_knowledge` | Dificultad de trivia (easy/medium/hard) |
-| `timezone_offset` | M2 (inferido) | `timezone_offset` | Horarios de partidos en hora local |
-| `prode_goal` | M3 | `prode_goal` | Tono del digest diario |
-| `country` | M3 (inferido) | `country` | Canal de TV local sugerido |
+| Dato | Momento | Campo DB | Uso en el sistema |
+|------|---------|----------|------------------|
+| `alias` | M1 — obligatorio | `alias` | Ranking, menciones en grupos |
+| `favorite_team` | M1 — opcional | `favorite_team` | Alertas cuando juega, sugerencias de jugadores |
+| `preferred_language` | M1 — opcional | `preferred_language` | Idioma de todas las respuestas del agente |
+| `favorite_player` | M2 — predicción | `favorite_player` | Anécdotas proactivas, sugerido en /completo |
+| `football_knowledge` | M2b — trivia | `football_knowledge` | Dificultad de trivia (easy/medium/hard) |
+| `prode_goal` | M3 — ranking | `prode_goal` | Tono del digest: competitivo/social/educativo |
+
+Datos inferidos sin preguntar:
+- `preferred_language`: del idioma en que escribe el usuario en M1
+- `timezone_offset`: del timestamp del mensaje (offset UTC)
+- `country`: inferido de idioma/timezone solo en casos unívocos
 
 ---
 
 ## Estado del onboarding en DynamoDB
 
-Campo `onboarding_stage` en USER#/PROFILE:
-
 ```
-"NOT_STARTED"  → usuario recién creado, M1 pendiente
-"M1_COMPLETE"  → alias + equipo + idioma capturados (o salteados)
-"M2_COMPLETE"  → jugador favorito + nivel trivia capturados (o salteados)
-"M3_COMPLETE"  → objetivo + país capturados (o salteados) — onboarding terminado
+"NOT_STARTED"  → usuario creado, M1 no iniciado
+"M1_COMPLETE"  → alias + equipo + idioma (o salteados)
+"M2_COMPLETE"  → jugador favorito + nivel trivia (o salteados)
+"M3_COMPLETE"  → objetivo en el prode (o salteado) — onboarding terminado
 ```
 
-El agente chequea `onboarding_stage` al inicio de cada sesión para saber si hay un momento pendiente de disparar.
+El stage avanza **siempre**, con o sin datos.
+Ningún usuario queda bloqueado en un momento pendiente.
 
 ---
 
-## Reglas generales
-
-- Todo momento es salteable con `/listo` — el agente no insiste
-- Si el usuario saltea M1 alias → alias temporal `Jugador_<4 chars alfanumérico>`
-- Cada momento se dispara UNA SOLA VEZ aunque el usuario repita la acción trigger
-- Los datos capturados se guardan inmediatamente — no esperar al final del momento
-- El agente NUNCA hace más de 1 pregunta de onboarding por intercambio
-- Si el usuario ya completó M1 y viene de otro dispositivo, no se repite
-- La zona horaria se intenta inferir del timestamp del mensaje (offset UTC) — si el mensaje llega a las 10pm local y es las 2am UTC, offset = -4h → Argentina/Chile/Bolivia
-
----
-
-## System prompt — sección de onboarding
+## Reglas de comportamiento del agente
 
 ```python
 ONBOARDING_SECTION = """
 ## Onboarding progresivo
 
-Cuando el usuario es nuevo, capturás datos en momentos clave sin interrumpir el flujo:
+Al registrarse (M1): pedís alias en intercambio 1.
+En intercambio 2: selección favorita con grid de botones + idioma.
+Al confirmar: mostrás la tarjeta de perfil con los datos capturados.
 
-Momento 1 (al registrarse): preguntás alias + equipo hincha + idioma en 2 intercambios.
-Momento 2 (primera acción): una pregunta post-acción según si es predicción (jugador favorito)
-  o trivia (nivel de dificultad preferido).
-Momento 3 (primer ranking): preguntás el objetivo en el prode.
+Al hacer la primera predicción (M2):
+PRIMERO completás la acción (guardás la predicción) y LUEGO preguntás
+el jugador favorito en una sola pregunta. No antes de la acción.
+Sugerís jugadores del equipo favorito del usuario si está definido.
 
-Reglas:
+Al hacer la primera trivia (M2b):
+ANTES de generar la pregunta preguntás el nivel preferido.
+Una vez elegido, generás la pregunta inmediatamente.
+
+Al consultar el ranking por primera vez (M3):
+Mostrás el ranking con el usuario marcado como "nuevo".
+Luego preguntás el objetivo en el prode con 3 opciones visuales.
+
+Reglas universales:
+- /listo siempre aceptado — nunca insistir
 - Nunca más de 1 pregunta de onboarding por intercambio
-- Si el usuario responde /listo o similar, aceptás y avanzás sin insistir
-- Los datos que capturas los usas inmediatamente para personalizar: si dice "Messi",
-  en la siguiente respuesta sobre el partido de Argentina mencionás algo de Messi
-- Si no tenés el dato, funcionás igualmente — nunca bloqueás la experiencia
+- La acción del usuario siempre se completa PRIMERO
+- Los datos capturados se usan inmediatamente en la misma sesión
+- El stage avanza siempre, con o sin datos
 """.strip()
+```
+
+---
+
+## Implementación — onboarding_service.py
+
+```python
+# src/services/onboarding_service.py
+
+class OnboardingService:
+
+    def should_trigger(self, user_id: str, event: str) -> dict | None:
+        """
+        event: "FIRST_PREDICTION" | "FIRST_TRIVIA" | "FIRST_RANKING"
+        Retorna el momento pendiente o None si no hay nada que preguntar.
+        """
+
+    def complete_moment(self, user_id: str, moment: str, data: dict) -> None:
+        """
+        Actualiza los campos del perfil y avanza onboarding_stage.
+        Siempre avanza — aunque data esté vacío (usuario salteó).
+        """
+
+    def validate_alias(self, alias: str) -> tuple[bool, str]:
+        """Valida longitud y caracteres. Verifica unicidad en Aurora."""
+
+    def suggest_alias_alternatives(self, alias: str) -> list[str]:
+        """Retorna [alias+'1', alias+'2', alias+random_2_digits]."""
+
+    def generate_temp_alias(self) -> str:
+        """Retorna 'Jugador_' + 4 chars alfanuméricos aleatorios."""
+
+    def suggest_players(self, favorite_team: str | None) -> list[str]:
+        """
+        Top jugadores del equipo para sugerir en M2.
+        Si favorite_team es None → top goleadores globales del torneo.
+        """
+
+    def infer_timezone(self, message_timestamp_utc: str) -> int | None:
+        """Offset UTC en horas, inferido del timestamp del mensaje."""
+
+    def infer_country_from_language(self, lang_code: str) -> str | None:
+        """
+        Solo para casos unívocos:
+        pt → BRA | nl → NLD | de → DEU | ja → JPN | ko → KOR
+        es → None (ambiguo) | fr → None (ambiguo) | ar → None (ambiguo)
+        """
 ```
 
 ---
@@ -190,18 +338,25 @@ Reglas:
 
 | TASK-ID | Descripción | Modo | Est. |
 |---------|-------------|------|------|
-| TASK-019-001 | `src/services/onboarding_service.py` — should_trigger_moment(), complete_moment(), infer_timezone() | IA-Assisted | 4h |
-| TASK-019-002 | Extender USER#/PROFILE en DynamoDB — 8 campos nuevos + onboarding_stage | IA-Autonomous | 2h |
-| TASK-019-003 | `agent/tools/onboarding_tool.py` — get_pending_moment(), save_onboarding_data() | IA-Assisted | 3h |
-| TASK-019-004 | Integrar onboarding_tool en `agent/main.py` system_prompt (sección ONBOARDING_SECTION) | Humano | 2h |
-| TASK-019-005 | Lógica de alias: validación + sugerencias + temporal auto-generado | IA-Assisted | 3h |
-| TASK-019-006 | Inferencia de timezone desde timestamp del mensaje | IA-Assisted | 2h |
-| TASK-019-007 | `tests/unit/test_onboarding/test_onboarding_service.py` — momentos 1, 2 y 3 | IA-Assisted | 4h |
+| TASK-019-001 | `src/services/onboarding_service.py` — lógica completa | IA-Assisted | 4h |
+| TASK-019-002 | Extender `user_dao.py` — 7 campos de perfil + onboarding_stage | IA-Autonomous | 2h |
+| TASK-019-003 | `agent/tools/onboarding_tool.py` — get_pending_moment, save_response | IA-Assisted | 3h |
+| TASK-019-004 | Integrar `ONBOARDING_SECTION` en system_prompt de `agent/main.py` | Humano | 2h |
+| TASK-019-005 | Lambda: M1 via botones inline (team grid + lang grid) | IA-Assisted | 4h |
+| TASK-019-006 | Lambda: M2 jugadores sugeridos según `favorite_team` | IA-Assisted | 3h |
+| TASK-019-007 | Lambda: M2b nivel de trivia como level-cards | IA-Assisted | 2h |
+| TASK-019-008 | Lambda: M3 ranking con badge "nuevo ✨" + goal-cards | IA-Assisted | 3h |
+| TASK-019-009 | `tests/unit/test_onboarding/test_onboarding_service.py` | IA-Assisted | 4h |
+
+---
 
 ## Constraints
-- NUNCA mostrar todos los campos a completar al mismo tiempo — un momento por vez
-- NUNCA preguntar datos que se pueden inferir (timezone si el offset es claro, country si el idioma lo indica)
-- El agente SIEMPRE completa la acción del usuario primero — la pregunta de onboarding va después
-- Los datos de onboarding son sugerencias — el usuario puede actualizarlos después con /perfil
-- `alias` temporal generado si el usuario saltea M1 — nunca dejar campo vacío en DynamoDB
-- El favorite_team se almacena como código FIFA de 3 letras cuando es posible (ARG, BRA, FRA...)
+
+- La acción del usuario (predecir, jugar trivia) se completa **siempre** antes de la pregunta de onboarding
+- `/listo` acepta **siempre** — el agente nunca insiste ni repite la pregunta
+- El alias temporal se genera con `Jugador_` + 4 chars — nunca dejar el campo vacío en DynamoDB
+- La selección de equipo en M1 avanza automáticamente con 1 tap — sin botón de confirmar
+- Solo el idioma requiere confirmación explícita (para evitar cambios accidentales)
+- El `football_knowledge` en M2b se pregunta **antes** de generar la pregunta de trivia
+- La tarjeta de perfil final (M3_COMPLETE) siempre muestra solo los datos que se capturaron (no muestra campos vacíos)
+- `onboarding_stage` avanza siempre, con o sin datos — ningún usuario queda atrapado

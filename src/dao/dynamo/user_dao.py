@@ -5,7 +5,7 @@ import time
 from datetime import datetime, timezone
 from typing import Any
 
-from boto3.dynamodb.conditions import Key
+from boto3.dynamodb.conditions import Attr, Key
 
 from src.dao.dynamo.table import get_table
 
@@ -96,6 +96,7 @@ class UserDAO:
         *,
         alias: str = "Jugador",
         onboarding_stage: str = "M1_PENDING",
+        m1_step: str = "awaiting_alias",
     ) -> dict[str, Any]:
         now = _now_iso()
         item = {
@@ -111,6 +112,7 @@ class UserDAO:
             "groups_owned": 0,
             "invites_sent": 0,
             "onboarding_stage": onboarding_stage,
+            "m1_step": m1_step,
             "notifications_enabled": True,
             "total_points": 0,
             "match_points": 0,
@@ -132,6 +134,61 @@ class UserDAO:
             UpdateExpression="SET pending_first_agent_turn = :p, updated_at = :now",
             ExpressionAttributeValues={":p": pending, ":now": _now_iso()},
         )
+
+    def update_profile(self, user_id: str, **fields: Any) -> None:
+        """Actualiza campos del PROFILE (onboarding, preferencias)."""
+        if not fields:
+            return
+        names: dict[str, str] = {"#updated": "updated_at"}
+        values: dict[str, Any] = {":now": _now_iso()}
+        sets: list[str] = ["#updated = :now"]
+        i = 0
+        for key, val in fields.items():
+            attr = f"#f{i}"
+            val_attr = f":v{i}"
+            names[attr] = key
+            if val is None:
+                if key == "m1_step":
+                    sets.append(f"REMOVE {attr}")
+                i += 1
+                continue
+            values[val_attr] = val
+            sets.append(f"{attr} = {val_attr}")
+            i += 1
+        remove_parts = [s for s in sets if s.startswith("REMOVE")]
+        set_parts = [s for s in sets if not s.startswith("REMOVE")]
+        expr_parts = []
+        if set_parts:
+            expr_parts.append("SET " + ", ".join(set_parts))
+        if remove_parts:
+            expr_parts.append(" ".join(remove_parts))
+        if not expr_parts:
+            return
+        update_expr = " ".join(expr_parts)
+        self._table.update_item(
+            Key={"partition_key": f"USER#{user_id}", "sort_key": "PROFILE"},
+            UpdateExpression=update_expr,
+            ExpressionAttributeNames=names,
+            ExpressionAttributeValues=values,
+        )
+    def alias_taken(self, alias: str, *, exclude_user_id: str | None = None) -> bool:
+        """Unicidad de alias (scan MVP — pocos usuarios en dev)."""
+        target = (alias or "").strip()
+        if not target:
+            return False
+        scan_kwargs: dict[str, Any] = {
+            "FilterExpression": Attr("sort_key").eq("PROFILE") & Attr("alias").eq(target),
+        }
+        while True:
+            resp = self._table.scan(**scan_kwargs)
+            for item in resp.get("Items", []):
+                if exclude_user_id and item.get("user_id") == exclude_user_id:
+                    continue
+                return True
+            if not resp.get("LastEvaluatedKey"):
+                break
+            scan_kwargs["ExclusiveStartKey"] = resp["LastEvaluatedKey"]
+        return False
 
     def consume_pending_first_agent_turn(self, user_id: str) -> bool:
         """Lee y limpia el flag (un solo turno post-/start)."""

@@ -69,12 +69,21 @@ def _post_json(url: str, body: dict[str, Any], timeout: float = 10) -> tuple[int
         return e.code, payload
 
 
-def _send_message(chat_id: int, text: str, token: str) -> None:
+def _send_message(
+    chat_id: int,
+    text: str,
+    token: str,
+    *,
+    reply_markup: dict | None = None,
+) -> None:
     """Texto plano (sin MarkdownV2) para no romper con respuestas del LLM."""
     for chunk in [text[i : i + MAX_TG_LEN] for i in range(0, len(text), MAX_TG_LEN)]:
         for attempt in range(3):
             url = f"{TG_API}/bot{token}/sendMessage"
-            code, j = _post_json(url, {"chat_id": chat_id, "text": chunk})
+            body: dict[str, Any] = {"chat_id": chat_id, "text": chunk}
+            if reply_markup and chunk == text[:MAX_TG_LEN]:
+                body["reply_markup"] = reply_markup
+            code, j = _post_json(url, body)
             if code == 429:
                 time.sleep(float(j.get("parameters", {}).get("retry_after", 2)))
                 continue
@@ -156,11 +165,51 @@ def _invoke_agent(user_id: str, session_id: str, prompt: str) -> str:
         return "Hubo un error. Por favor intentá de nuevo en unos segundos."
 
 
+def _handle_callback_query(callback: dict, ok: dict) -> dict:
+    """Botones inline onboarding M1."""
+    try:
+        data = callback.get("data") or ""
+        chat_id = callback.get("message", {}).get("chat", {}).get("id")
+        from_user = callback.get("from", {})
+        if not chat_id or not data.startswith("onb:"):
+            return ok
+
+        platform_id_hash = hashlib.sha256(str(chat_id).encode()).hexdigest()
+        from src.services.auth_service import AuthService
+
+        user_id, block_message = AuthService().resolve_telegram_access(platform_id_hash)
+        if block_message or not user_id:
+            return ok
+
+        from src.dao.dynamo.user_dao import UserDAO
+        from onboarding_handler import handle_onboarding_callback
+
+        profile = UserDAO().get_profile(user_id) or {}
+        reply, markup = handle_onboarding_callback(user_id, profile, data)
+        token = _get_token()
+        _send_message(chat_id, reply, token, reply_markup=markup)
+
+        cb_id = callback.get("id")
+        if cb_id:
+            _post_json(
+                f"{TG_API}/bot{token}/answerCallbackQuery",
+                {"callback_query_id": cb_id},
+                timeout=5,
+            )
+    except Exception:
+        logger.exception("callback_query failed")
+    return ok
+
+
 def handler(event: dict, context) -> dict:
     """SIEMPRE retorna 200 a Telegram para evitar re-envíos."""
     ok = {"statusCode": 200, "body": "ok"}
     try:
         body = json.loads(event.get("body") or "{}")
+        callback = body.get("callback_query")
+        if callback:
+            return _handle_callback_query(callback, ok)
+
         message = body.get("message") or body.get("edited_message", {})
         if not message:
             return ok
@@ -177,9 +226,10 @@ def handler(event: dict, context) -> dict:
         if text.startswith("/start"):
             from start_handler import handle_start_command
 
-            start_reply = handle_start_command(chat_id, text)
-            if start_reply:
-                _send_message(chat_id, start_reply, token)
+            start_result = handle_start_command(chat_id, text)
+            if start_result:
+                start_reply, start_markup = start_result
+                _send_message(chat_id, start_reply, token, reply_markup=start_markup)
                 return ok
         try:
             _post_json(
@@ -218,6 +268,14 @@ def handler(event: dict, context) -> dict:
             onboarding_stage,
             first_post_start,
         )
+
+        if profile and profile.get("onboarding_stage") == "M1_PENDING":
+            from onboarding_handler import handle_onboarding_message
+
+            onb_text, onb_markup = handle_onboarding_message(user_id, profile, text)
+            if onb_text is not None:
+                _send_message(chat_id, onb_text, token, reply_markup=onb_markup)
+                return ok
 
         try:
             from invitation_commands import handle_invitation_command
