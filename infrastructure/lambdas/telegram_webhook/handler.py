@@ -166,12 +166,11 @@ def _invoke_agent(user_id: str, session_id: str, prompt: str) -> str:
 
 
 def _handle_callback_query(callback: dict, ok: dict) -> dict:
-    """Botones inline onboarding M1."""
+    """Botones inline: trivia (trv:) y onboarding (onb:)."""
     try:
         data = callback.get("data") or ""
         chat_id = callback.get("message", {}).get("chat", {}).get("id")
-        from_user = callback.get("from", {})
-        if not chat_id or not data.startswith("onb:"):
+        if not chat_id or not data:
             return ok
 
         platform_id_hash = hashlib.sha256(str(chat_id).encode()).hexdigest()
@@ -181,13 +180,23 @@ def _handle_callback_query(callback: dict, ok: dict) -> dict:
         if block_message or not user_id:
             return ok
 
-        from src.dao.dynamo.user_dao import UserDAO
-        from onboarding_handler import handle_onboarding_callback
-
-        profile = UserDAO().get_profile(user_id) or {}
-        reply, markup = handle_onboarding_callback(user_id, profile, data)
         token = _get_token()
-        _send_message(chat_id, reply, token, reply_markup=markup)
+
+        if data.startswith("trv:"):
+            from trivia_commands import handle_trivia_callback
+
+            reply = handle_trivia_callback(user_id, data)
+            if reply:
+                _send_message(chat_id, reply, token)
+        elif data.startswith("onb:"):
+            from src.dao.dynamo.user_dao import UserDAO
+            from onboarding_handler import handle_onboarding_callback
+
+            profile = UserDAO().get_profile(user_id) or {}
+            reply, markup = handle_onboarding_callback(user_id, profile, data)
+            _send_message(chat_id, reply, token, reply_markup=markup)
+        else:
+            return ok
 
         cb_id = callback.get("id")
         if cb_id:
@@ -276,6 +285,27 @@ def handler(event: dict, context) -> dict:
             if onb_text is not None:
                 _send_message(chat_id, onb_text, token, reply_markup=onb_markup)
                 return ok
+
+        try:
+            from trivia_prefetch import try_deliver_daily_trivia
+
+            daily = try_deliver_daily_trivia(user_id, profile or {}, text=text)
+            if daily:
+                daily_text, daily_markup = daily
+                _send_message(chat_id, daily_text, token, reply_markup=daily_markup)
+                return ok
+        except Exception:
+            logger.exception("daily_trivia_prefetch failed")
+
+        try:
+            from trivia_commands import handle_trivia_command
+
+            trivia_reply, trivia_markup = handle_trivia_command(user_id, text)
+            if trivia_reply:
+                _send_message(chat_id, trivia_reply, token, reply_markup=trivia_markup)
+                return ok
+        except Exception:
+            logger.exception("trivia_commands failed")
 
         try:
             from invitation_commands import handle_invitation_command

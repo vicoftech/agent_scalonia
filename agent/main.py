@@ -33,8 +33,10 @@ from agent.tools.invitation_tool import make_invitation_tool
 from agent.tools.kb_retrieval_tool import kb_retrieval_tool
 from agent.tools.match_tool import match_tool
 from agent.tools.onboarding_tool import make_onboarding_tool
+from agent.tools.trivia_tool import make_trivia_tool
 from agent.tools.web_search_tool import web_search_tool
 from src.services.onboarding_service import ONBOARDING_SECTION, OnboardingService
+from src.services.trivia_service import TRIVIA_SECTION
 
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 logger = logging.getLogger(__name__)
@@ -87,10 +89,12 @@ Si un día figura con "0 partido(s)" o "Sin partidos", decilo explícito; no nie
 Si el mensaje incluye [Contexto Knowledge Base], ignorá partidos/horarios ahí salvo que uses match_tool.
 Si dice [Instrucción: consulta de PARTIDOS/FIXTURE], usá match_tool o el bloque [Fixture oficial].
 También pueden usar /invitar [cupos] o /mis-invitaciones sin pasar por vos.
-Las features de predicciones, rankings y trivia se habilitan sprint a sprint.
+Trivias: trivia_tool action=play para ronda personal (/trivia en Telegram con botones A-D).
+
+Las features de predicciones y rankings se habilitan sprint a sprint.
 """.strip()
 
-SYSTEM_PROMPT = f"{_BASE_PROMPT}\n\n{ONBOARDING_SECTION}\n\n{GUARDRAIL_SECTION}"
+SYSTEM_PROMPT = f"{_BASE_PROMPT}\n\n{ONBOARDING_SECTION}\n\n{TRIVIA_SECTION}\n\n{GUARDRAIL_SECTION}"
 
 # Cuentas reseller: sin Anthropic. Dev: Mistral Pixtral (tool use). Nova: us.amazon.nova-pro-v1:0
 _DEFAULT_MODEL = "us.mistral.pixtral-large-2502-v1:0"
@@ -156,6 +160,7 @@ def _build_agent(caller_user_id: str) -> Agent:
             web_search_tool,
             make_invitation_tool(caller_user_id),
             make_onboarding_tool(caller_user_id),
+            make_trivia_tool(caller_user_id),
         ],
     )
 

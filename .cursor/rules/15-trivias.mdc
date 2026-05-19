@@ -1,0 +1,517 @@
+---
+description: SPEC-025 — Trivias. Tres tipos (general admin, pre-partido automática, grupo owner), múltiple choice A/B/C/D, generación por LLM desde KB/web_search, puntuación por dificultad. Aplica cuando se trabaja en agent/tools/trivia_tool.py, src/services/trivia_service.py, src/dao/dynamo/trivia_dao.py o infrastructure/lambdas/trivia_dispatcher/.
+globs: agent/tools/trivia_tool.py, src/services/trivia_service.py, src/dao/dynamo/trivia_dao.py, infrastructure/lambdas/trivia_dispatcher/**/*.py
+alwaysApply: false
+---
+
+# SPEC-2026-025 — Sistema de Trivias
+
+**SPEC-ID**: SPEC-2026-025 | **Sprint**: Sprint 3 | **Modo**: Humano (generación LLM) + IA-Assisted
+**Dependencias**: SPEC-2026-017 (KB + web_search), SPEC-2026-018 (auth/grupos), SPEC-2026-019 (onboarding — football_knowledge)
+
+---
+
+## Tres tipos de trivia
+
+| Tipo | Quién la crea | Destinatarios | Nivel | Trigger |
+|------|--------------|---------------|-------|---------|
+| **General** | Admin global | Grupo GLOBAL (todos) | Experto (5 pts) | Manual vía `/trivia-admin` |
+| **Pre-partido** | Sistema automático | Grupo GLOBAL (todos) | Adaptado al partido | 1h antes del kickoff |
+| **De grupo** | Group owner | Solo ese grupo | Owner elige | Manual vía `/trivia-grupo` |
+
+---
+
+## Puntuación por dificultad
+
+| Nivel | Pts por acierto | Descripción |
+|-------|----------------|-------------|
+| `BASIC` | 1 pt | Preguntas de conocimiento general de fútbol |
+| `MEDIUM` | 3 pts | Estadísticas, historia, datos específicos |
+| `EXPERT` | 5 pts | Curiosidades raras, récords oscuros, datos precisos |
+
+Sin penalización por respuesta incorrecta. Máximo 5 rondas/día por usuario.
+
+---
+
+## Flujo de respuesta — múltiple choice A/B/C/D
+
+### Trivia enviada (bot → usuario)
+
+```
+🧠 TRIVIA — Experto  [5 pts si acertás]
+
+¿En qué año marcó Diego Maradona el famoso
+"Gol del Siglo" contra Inglaterra?
+
+[A] 1982   [B] 1986
+[C] 1990   [D] 1994
+```
+
+### Si acierta
+
+```
+✅ ¡Correcto! +5 pts
+
+La respuesta era B — 1986.
+El "Gol del Siglo" fue en los Cuartos de Final
+del Mundial de México, el 22 de junio de 1986.
+Maradona recorrió 60 metros y sorteó 5 rivales.
+
+📊 Tus puntos hoy: 8 pts  |  Total: 92 pts
+Rondas disponibles: 4/5
+```
+
+### Si falla
+
+```
+❌ Incorrecto — sin puntos esta vez
+
+La respuesta correcta era B — 1986.
+[Dato del contexto explicado brevemente]
+
+📊 Rondas disponibles: 4/5
+¿Otra pregunta? [▶️ Siguiente] [No, gracias]
+```
+
+---
+
+## Tipo 1 — Trivia General (admin global)
+
+El admin envía `/trivia-admin` al bot y elige el tema. El LLM genera la pregunta
+desde la KB o web_search. El admin la revisa y la aprueba antes de enviar.
+
+```
+ADMIN: /trivia-admin
+
+BOT: ¿Sobre qué tema querés la trivia?
+     [⚽ Mundiales historia]  [🏆 Récords FIFA]
+     [🇦🇷 Selecciones]       [⭐ Jugadores]
+     [🎯 Reglas del juego]   [✏️ Tema libre]
+
+ADMIN: [🏆 Récords FIFA]
+
+BOT: Generando pregunta de nivel EXPERTO...
+
+     ──────────────────────────────
+     Vista previa — EXPERTO (5 pts)
+     ──────────────────────────────
+     ¿Quién es el máximo goleador en la
+     historia de los Mundiales FIFA?
+
+     A) Pelé (Brasil)
+     B) Ronaldo Nazário (Brasil)
+     C) Miroslav Klose (Alemania)
+     D) Just Fontaine (Francia)
+
+     Respuesta correcta: C
+     ──────────────────────────────
+     Fuente: KB mundiales/records-estadisticas.md
+
+     [✅ Enviar a todos]  [✏️ Editar]  [🔄 Regenerar]  [❌ Cancelar]
+
+ADMIN: [✅ Enviar a todos]
+
+BOT: ✅ Trivia enviada a 247 usuarios del grupo GLOBAL.
+```
+
+---
+
+## Tipo 2 — Trivia Pre-partido (automática)
+
+**Trigger**: EventBridge Scheduler — 1 hora antes del kickoff de cada partido.
+**Destinatarios**: todos los usuarios del grupo GLOBAL con `notifications_enabled=True`.
+**Nivel**: adaptado al partido (siempre EXPERT para maximizar engagement).
+**Contenido**: relacionado con los equipos que juegan ese partido.
+
+### Generación del contenido
+
+```python
+# src/services/trivia_service.py
+
+def generate_pre_match_trivia(match: Match) -> TriviaQuestion:
+    """
+    Genera una pregunta de trivia relacionada con el partido.
+    Estrategia de contenido:
+    1. Buscar en KB: historial del partido (ej: ARG vs ALG → mundiales de Argentina)
+    2. Si KB tiene contexto → generar pregunta basada en ese contenido
+    3. Si KB miss → web_search "curiosidades {home_team} {away_team} mundial historia"
+    4. Generar 4 opciones: 1 correcta + 3 plausibles pero incorrectas
+    5. Verificar que la respuesta sea verificable (no ambigua)
+    """
+```
+
+### Formato enviado automáticamente
+
+```
+⚽ TRIVIA PRE-PARTIDO — 1h antes del inicio
+
+🇦🇷 Argentina vs Argelia 🇩🇿
+Hoy · 00:00 ET · Grupo J
+
+🧠 Pregunta EXPERTO [5 pts]
+
+¿Cuántas veces participó Argelia
+en una Copa del Mundo FIFA?
+
+[A] 2 veces   [B] 4 veces
+[C] 6 veces   [D] 8 veces
+
+⏰ Respondé antes de la veda (23:55 ET)
+¿Ya predijiste este partido? [⚽ Predecir ahora]
+```
+
+El botón `[⚽ Predecir ahora]` lleva directamente al flujo de predicción del partido,
+integrando la trivia con el engagement de predicciones.
+
+### Re-envío como recordatorio de veda
+
+Si el usuario no respondió la trivia pre-partido y llega el reminder de veda (30/20/10 min):
+el reminder incluye la trivia pendiente al final del mensaje.
+
+```
+⏰ Quedan 20 min para que cierre la predicción de ARG vs ALG.
+
+🧠 Todavía podés ganar 5 pts con la trivia del partido:
+¿Cuántas veces participó Argelia en un Mundial?
+[A] 2   [B] 4   [C] 6   [D] 8
+```
+
+---
+
+## Tipo 3 — Trivia de Grupo (owner crea)
+
+Solo los group owners pueden crear trivias para su grupo.
+El LLM genera la pregunta — el owner puede editarla antes de enviar.
+
+### Flujo de creación
+
+```
+OWNER: /trivia-grupo
+
+BOT: 🎯 Crear trivia para "Los Pibes del Laburo"
+
+     ¿Qué nivel querés?
+     [😊 Básico +1pt]  [🔥 Intermedio +3pts]  [🧠 Experto +5pts]
+
+OWNER: [🔥 Intermedio +3pts]
+
+BOT: ¿Sobre qué tema?
+     [⚽ Mundiales]    [🏆 Récords]
+     [🌍 Selecciones]  [⭐ Jugadores]
+     [🎯 Reglas]       [✏️ Tema libre]
+
+OWNER: [⭐ Jugadores]
+
+BOT: Generando... ✨
+
+     ──────────────────────────────────────
+     Vista previa — INTERMEDIO (3 pts)
+     ──────────────────────────────────────
+     ¿Cuántos goles anotó Ronaldo Nazário
+     en total en sus Mundiales?
+
+     A) 10 goles    B) 12 goles
+     C) 15 goles    D) 8 goles
+
+     Respuesta correcta: C — 15 goles
+     ──────────────────────────────────────
+     [✅ Enviar al grupo]  [✏️ Editar]  [🔄 Regenerar]  [❌ Cancelar]
+
+OWNER: [✏️ Editar]
+
+BOT: Editá la pregunta o las opciones:
+     [✏️ Cambiar pregunta]  [🔄 Cambiar opciones]  [✓ Confirmar sin cambios]
+
+OWNER: [✓ Confirmar sin cambios]  →  [✅ Enviar al grupo]
+
+BOT: ✅ Trivia enviada a los 4 miembros de "Los Pibes del Laburo".
+```
+
+### Permisos
+
+- Solo el owner del grupo puede crear trivias para ese grupo
+- El admin global puede crear trivias para cualquier grupo
+- Un usuario FREE no puede crear trivias para grupos ajenos
+
+---
+
+## Generación de preguntas — Motor LLM
+
+```python
+# src/services/trivia_service.py
+
+TRIVIA_GENERATION_PROMPT = """
+Generá una pregunta de trivia de fútbol nivel {level} sobre el tema "{topic}".
+
+REQUISITOS:
+- La pregunta debe ser precisa y tener UNA sola respuesta correcta verificable
+- Las 3 opciones incorrectas deben ser plausibles (no obvias)
+- La respuesta correcta debe poder verificarse en Wikipedia o fuentes oficiales FIFA
+- Incluí una explicación breve (1-2 oraciones) de por qué es correcta
+- Nivel BASIC: conocimiento general ampliamente conocido
+- Nivel MEDIUM: estadísticas y datos que un fanático conocería
+- Nivel EXPERT: curiosidades, récords precisos, datos históricos específicos
+
+Respondé SOLO en JSON:
+{
+  "question": "texto de la pregunta",
+  "options": {"A": "...", "B": "...", "C": "...", "D": "..."},
+  "correct": "A|B|C|D",
+  "explanation": "por qué es correcta en 1-2 oraciones",
+  "source": "KB|web_search",
+  "verified": true|false
+}
+"""
+
+def generate_trivia_question(
+    topic: str,
+    level: str,              # "BASIC" | "MEDIUM" | "EXPERT"
+    context: str = None,     # contenido de KB o web_search como contexto
+) -> TriviaQuestion:
+    """
+    Genera una pregunta via LLM con el contexto de KB o web_search.
+    Si context es None → el LLM usa su conocimiento base.
+    Valida que la respuesta sea verificable antes de retornar.
+    """
+```
+
+### Fuente de contexto según el topic
+
+```python
+TOPIC_SOURCES = {
+    "mundiales":    "kb",          # KB: mundiales/ediciones/
+    "records":      "kb",          # KB: mundiales/records-estadisticas.md
+    "selecciones":  "kb+web",      # KB + web_search para datos actualizados
+    "jugadores":    "kb+web",      # KB + web_search (stats en vivo)
+    "reglas":       "kb",          # KB: reglas/laws-of-the-game.md
+    "libre":        "web",         # web_search sobre lo que especifique el owner
+    "pre_partido":  "kb+web",      # KB del equipo + web_search curiosidades
+}
+```
+
+---
+
+## Modelo DynamoDB — Trivias
+
+### TRIVIA#<trivia_id> / DETAILS — la trivia en sí
+
+```python
+{
+    "partition_key": "TRIVIA#a1b2c3d4",
+    "sort_key":      "DETAILS",
+    "trivia_id":     "a1b2c3d4",         # short UUID 8 chars
+    "type":          "GENERAL",          # GENERAL | PRE_MATCH | GROUP
+    "level":         "EXPERT",           # BASIC | MEDIUM | EXPERT
+    "points":        5,                  # 1 | 3 | 5
+    "question":      "¿Cuántos goles...?",
+    "options":       {"A":"...","B":"...","C":"...","D":"..."},
+    "correct":       "C",
+    "explanation":   "Miroslav Klose anotó 16 goles en 4 mundiales...",
+    "topic":         "records",
+    "source":        "KB",               # KB | web_search | manual
+    "match_id":      None,               # solo para PRE_MATCH
+    "group_id":      "GLOBAL",           # grupo destino
+    "created_by":    "<user_id>",        # admin o owner
+    "status":        "SENT",             # DRAFT | SENT | CLOSED
+    "sent_at":       "2026-06-12T...",
+    "closes_at":     "2026-06-13T...",   # 24h después del envío
+    "total_answers": 0,
+    "correct_count": 0,
+    "ttl_expiry":    unix_30d,           # cleanup automático
+}
+```
+
+### TRIVIA_ANSWER#<trivia_id> / USER#<user_id> — respuesta de cada usuario
+
+```python
+{
+    "partition_key": "TRIVIA_ANSWER#a1b2c3d4",
+    "sort_key":      "USER#<uuid>",
+    "trivia_id":     "a1b2c3d4",
+    "user_id":       "<uuid>",
+    "answer":        "B",               # la opción elegida
+    "is_correct":    False,
+    "points_earned": 0,
+    "answered_at":   "2026-06-12T...",
+    "ttl_expiry":    unix_30d,
+}
+```
+
+### GSI-7-trivias-by-group
+
+```
+PK: group_id (S)   SK: sent_at (S)
+```
+
+Uso: `/mis-trivias`, listar trivias de un grupo ordenadas por fecha.
+
+### GSI-8-trivia-answers-by-user
+
+```
+PK: user_id (S)    SK: answered_at (S)
+```
+
+Uso: verificar si el usuario ya respondió una trivia, historial del usuario.
+
+---
+
+## Límites y reglas de negocio
+
+- Máximo **5 rondas de trivia por usuario por día** (cualquier tipo combinado)
+- `trivia_rounds_today` reseteado a 0 por el daily job a las 3:00 UTC
+- Una trivia no puede responderse dos veces (verificar con GSI-8 antes de mostrar)
+- La trivia cierra 24h después del envío — después no se pueden ganar puntos
+- El owner de grupo puede crear máximo **3 trivias activas simultáneas** para su grupo
+- Las trivias pre-partido no cuentan contra el límite de trivias del owner
+- Sin penalización por respuesta incorrecta (nunca restar puntos)
+
+---
+
+## trivia_tool — @tool del agente
+
+```python
+@tool
+def trivia_tool(
+    action: str,
+    level: str = None,          # "BASIC" | "MEDIUM" | "EXPERT"
+    topic: str = None,          # tema de la pregunta
+    group_id: str = None,       # para trivias de grupo
+    trivia_id: str = None,      # para responder una trivia específica
+    answer: str = None,         # "A" | "B" | "C" | "D"
+    user_id: str = None,
+) -> dict:
+    """
+    Gestiona trivias de fútbol y mundiales.
+
+    action='play'        → inicia una ronda de trivia para el usuario.
+                           Usa football_knowledge del perfil si level no se especifica.
+    action='answer'      → procesa la respuesta A/B/C/D de una trivia activa.
+                           Retorna si es correcto, la explicación y los puntos ganados.
+    action='create'      → owner crea trivia para su grupo (LLM genera contenido).
+    action='send_admin'  → admin crea y envía trivia general a GLOBAL.
+    action='stats'       → estadísticas de una trivia (% aciertos por opción).
+    action='history'     → historial de trivias respondidas por el usuario.
+    """
+```
+
+---
+
+## EventBridge Scheduler — trivia pre-partido
+
+```python
+# Para cada partido al cargarlo en el sistema:
+# Schedule: kickoff_utc - 60min
+# Nombre determinístico: trivia-pre-{match_id}
+# Lambda: trivia_pre_match_dispatcher
+
+# Lambda flow:
+# 1. Generar pregunta con generate_pre_match_trivia(match)
+# 2. Guardar TRIVIA#<id>/DETAILS con type=PRE_MATCH, match_id
+# 3. Obtener usuarios GLOBAL con notifications_enabled=True
+# 4. Enqueue en SQS TriviaDispatchQueue: {trivia_id, user_ids}
+# 5. Lambda trivia_sender: sendMessage a cada usuario via Telegram
+
+# Re-envío con reminder de veda:
+# El reminder_dispatcher (SPEC-021) verifica si el usuario tiene
+# TRIVIA_ANSWER# para la trivia pre-partido de ese match.
+# Si no → incluye la trivia pendiente en el mensaje del reminder.
+```
+
+---
+
+## Gherkin Acceptance Criteria
+
+```gherkin
+Scenario SC-01 — Usuario juega trivia básica
+  Given usuario con football_knowledge=MEDIUM y trivia_rounds_today=0
+  When invoca /trivia
+  Then recibe pregunta de nivel MEDIUM con 4 opciones A/B/C/D
+  And botones inline [A][B][C][D] son la única forma de responder
+
+Scenario SC-02 — Respuesta correcta
+  Given trivia con correct="C" y points=3
+  When usuario toca [C]
+  Then recibe "✅ ¡Correcto! +3 pts" con explicación
+  And UpdateItem ADD trivia_points 3, total_points 3
+  And trivia_rounds_today += 1
+
+Scenario SC-03 — Respuesta incorrecta (sin penalización)
+  Given trivia con correct="B"
+  When usuario toca [A]
+  Then recibe "❌ Incorrecto" con la respuesta correcta y explicación
+  And NO se restan puntos
+  And trivia_rounds_today += 1
+
+Scenario SC-04 — Límite de 5 rondas
+  Given trivia_rounds_today=5
+  When usuario intenta /trivia
+  Then recibe "Ya jugaste tus 5 rondas de hoy. Volvé mañana."
+  And NO se genera nueva pregunta
+
+Scenario SC-05 — Trivia pre-partido enviada automáticamente
+  Given partido ARG vs ALG kickoff 00:00 ET
+  When son las 23:00 ET (1h antes)
+  Then Lambda trivia_pre_match_dispatcher genera pregunta relacionada a ARG o ALG
+  And sendMessage a todos los usuarios GLOBAL con notifications_enabled=True
+  And el mensaje incluye botón [⚽ Predecir ahora] que lleva al flujo del partido
+
+Scenario SC-06 — Re-envío con reminder de veda
+  Given usuario no respondió trivia pre-partido de ARG vs ALG
+  When llega el reminder de veda (30min antes)
+  Then el mensaje de reminder incluye la trivia pendiente al final
+  And si el usuario ya la respondió → el reminder NO la incluye
+
+Scenario SC-07 — Admin crea trivia general
+  Given usuario es admin global
+  When ejecuta /trivia-admin → elige Récords → LLM genera → toca [✅ Enviar a todos]
+  Then TRIVIA# creado con type=GENERAL, group_id=GLOBAL, status=SENT
+  And enviado a todos los usuarios GLOBAL
+  And admin recibe confirmación con cantidad de destinatarios
+
+Scenario SC-08 — Owner crea trivia de grupo
+  Given usuario es owner de "Los Pibes del Laburo"
+  When ejecuta /trivia-grupo → elige MEDIUM → elige tema → LLM genera → edita → envía
+  Then TRIVIA# creado con type=GROUP, group_id del grupo del owner
+  And enviado solo a los 4 miembros del grupo
+  And respuesta incorrecta del owner NO resta puntos
+
+Scenario SC-09 — Trivia ya respondida no se puede responder de nuevo
+  Given TRIVIA_ANSWER# existe para (trivia_id, user_id)
+  When usuario intenta responder la misma trivia
+  Then mensaje "Ya respondiste esta trivia"
+  And NO se actualizan puntos
+
+Scenario SC-10 — Generación desde KB
+  Given topic="mundiales" para trivia sobre ARG vs ALG
+  When generate_pre_match_trivia(match) ejecuta
+  Then kb_retrieval_tool busca contexto sobre Argentina en mundiales
+  And la pregunta generada se basa en ese contexto
+  And el campo source="KB" en el ítem DynamoDB
+```
+
+---
+
+## Tasks
+
+| TASK-ID | Descripción | Modo | Est. |
+|---------|-------------|------|------|
+| TASK-025-001 | `src/services/trivia_service.py` — generate, validate, send | Humano | 6h |
+| TASK-025-002 | `src/dao/dynamo/trivia_dao.py` — CRUD + GSI-7 + GSI-8 | IA-Autonomous | 4h |
+| TASK-025-003 | `agent/tools/trivia_tool.py` — 6 actions completas | Humano | 5h |
+| TASK-025-004 | Lambda `trivia_pre_match_dispatcher` — scheduler + generación + envío | IA-Assisted | 5h |
+| TASK-025-005 | Lambda `trivia_sender` — consumer SQS, sendMessage con inline keyboard | IA-Assisted | 3h |
+| TASK-025-006 | Integrar trivia pendiente en `reminder_dispatcher` (SPEC-021) | IA-Assisted | 3h |
+| TASK-025-007 | CDK DataStack: GSI-7 + GSI-8 + SQS TriviaDispatchQueue | IA-Assisted | 2h |
+| TASK-025-008 | EventBridge Schedule `trivia-pre-{match_id}` al cargar cada partido | IA-Assisted | 2h |
+| TASK-025-009 | `tests/unit/test_trivia/test_trivia_service.py` — SC-01 a SC-10 | IA-Assisted | 5h |
+
+## Constraints
+- Sin penalización por respuesta incorrecta — nunca restar puntos
+- La respuesta solo se procesa si `trivia_rounds_today < 5` — verificar ANTES de mostrar la pregunta
+- `trivia_rounds_today` y `total_points` se actualizan con `UpdateItem ADD` (atómico)
+- Una trivia NO puede responderse dos veces — verificar GSI-8 antes de procesar
+- Las preguntas generadas por LLM deben tener `verified=true` — si no, regenerar (máx 3 intentos)
+- El contenido de la trivia pre-partido SIEMPRE incluye el botón `[⚽ Predecir ahora]`
+- El owner puede crear max 3 trivias activas simultáneas para su grupo
+- Las trivias pre-partido no cuentan contra el límite de trivias del owner del grupo
+- El nombre del EventBridge Schedule es determinístico `trivia-pre-{match_id}` para idempotencia

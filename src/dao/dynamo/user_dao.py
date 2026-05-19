@@ -190,6 +190,19 @@ class UserDAO:
             scan_kwargs["ExclusiveStartKey"] = resp["LastEvaluatedKey"]
         return False
 
+    def add_trivia_round(self, user_id: str, *, points: int, count_round: bool = True) -> None:
+        """Suma puntos de trivia y opcionalmente incrementa rondas del día."""
+        vals: dict[str, Any] = {":p": points, ":now": _now_iso()}
+        add_expr = "trivia_points :p, total_points :p"
+        if count_round:
+            add_expr += ", trivia_rounds_today :one"
+            vals[":one"] = 1
+        self._table.update_item(
+            Key={"partition_key": f"USER#{user_id}", "sort_key": "PROFILE"},
+            UpdateExpression=f"SET updated_at = :now ADD {add_expr}",
+            ExpressionAttributeValues=vals,
+        )
+
     def consume_pending_first_agent_turn(self, user_id: str) -> bool:
         """Lee y limpia el flag (un solo turno post-/start)."""
         profile = self.get_profile(user_id)
