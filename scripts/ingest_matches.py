@@ -6,6 +6,7 @@ Uso:
   python scripts/ingest_matches.py --env dev --generate-group-stage
   python scripts/ingest_matches.py --env dev --from-json data/worldcup2026_matches.json --replace
   python scripts/ingest_matches.py --env dev --from-json data/fixtures/fwc2026_fixture.json --replace
+  python scripts/ingest_matches.py --env dev --from-fwc2026 data/fixtures/FWC2026.json --replace
   python scripts/ingest_matches.py --env dev --from-json data/fixtures/mundial2026_matches.json
   python scripts/ingest_matches.py --generate-group-stage --write-json data/fixtures/mundial2026_matches.json --dry-run
 
@@ -24,6 +25,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from src.dao.dynamo.match_dao import MatchDAO
+from src.fixtures.fwc2026_json_loader import load_fwc2026_json
 from src.fixtures.match_fixture_builder import build_group_stage_matches, match_uuid
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s | %(message)s")
@@ -75,7 +77,12 @@ def main() -> None:
     p = argparse.ArgumentParser(description="Ingesta fixture → DynamoDB MATCH#")
     p.add_argument("--env", default="dev", help="Sufijo tabla ProdeTable-{env}")
     p.add_argument("--table", default="", help="Override nombre tabla DynamoDB")
-    p.add_argument("--from-json", type=Path, help="Archivo JSON de partidos")
+    p.add_argument("--from-json", type=Path, help="Archivo JSON de partidos (lista o {matches:[]})")
+    p.add_argument(
+        "--from-fwc2026",
+        type=Path,
+        help="Fixture oficial FWC2026.json (groups + matches por fase)",
+    )
     p.add_argument(
         "--generate-group-stage",
         action="store_true",
@@ -106,8 +113,11 @@ def main() -> None:
     if args.from_json:
         records = _ensure_ids(_load_json(args.from_json))
 
+    if args.from_fwc2026:
+        records = _ensure_ids(load_fwc2026_json(args.from_fwc2026))
+
     if not records:
-        p.error("Indicá --generate-group-stage y/o --from-json")
+        p.error("Indicá --generate-group-stage, --from-json o --from-fwc2026")
 
     records = _ensure_ids(records)
     n = ingest(records, table=table, dry_run=args.dry_run, replace=args.replace)
