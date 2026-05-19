@@ -51,6 +51,20 @@ def pick_curated_question(
             for q in FALLBACK_QUESTIONS
             if q["level"] == level and q["topic"] in (topic_key, "mundiales", "libre")
         ]
+    return _pick_from_pool(pool, exclude)
+
+
+def pick_any_curated_question(
+    *,
+    exclude_fingerprints: set[str] | None = None,
+) -> dict[str, Any] | None:
+    """Último recurso: cualquier pregunta del banco que no esté en exclude."""
+    exclude = exclude_fingerprints or set()
+    pool = [dict(q) for q in FALLBACK_QUESTIONS]
+    return _pick_from_pool(pool, exclude)
+
+
+def _pick_from_pool(pool: list[dict[str, Any]], exclude: set[str]) -> dict[str, Any] | None:
     random.shuffle(pool)
     for q in pool:
         fp = question_fingerprint(q["question"])

@@ -18,7 +18,11 @@ from src.jobs.daily_trivia_schedule import (
     should_publish_daily_trivia,
 )
 from src.fixtures.trivia_questions import FALLBACK_QUESTIONS
-from src.services.trivia_question_bank import pick_curated_question, question_fingerprint
+from src.services.trivia_question_bank import (
+    pick_any_curated_question,
+    pick_curated_question,
+    question_fingerprint,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -123,7 +127,7 @@ class TriviaService:
     ) -> set[str]:
         fps: set[str] = set()
         if include_recent_broadcasts:
-            fps |= self._trivia.list_recent_question_fingerprints(hours=72)
+            fps |= self._trivia.list_broadcast_question_fingerprints(hours=None)
         if user_id:
             fps |= self._users.get_answered_question_fingerprints(user_id)
         return fps
@@ -152,9 +156,11 @@ class TriviaService:
         if q:
             return q
 
-        fallback = dict(FALLBACK_QUESTIONS[0])
-        fallback["question_fp"] = question_fingerprint(fallback["question"])
-        return fallback
+        q = pick_any_curated_question(exclude_fingerprints=exclude)
+        if q:
+            return q
+
+        raise ValueError("TRIVIA_BANK_EXHAUSTED")
 
     def generate_pre_match_trivia(self, match: dict[str, Any]) -> dict[str, Any]:
         topic = "pre_partido"
@@ -208,7 +214,7 @@ class TriviaService:
             topic=topic,
             level=lvl,
             user_id=user_id,
-            exclude_fingerprints=self._exclude_fingerprints(user_id, include_recent_broadcasts=False),
+            exclude_fingerprints=self._exclude_fingerprints(user_id, include_recent_broadcasts=True),
         )
         session_id = str(uuid.uuid4())
         record = {
@@ -390,7 +396,7 @@ class TriviaService:
                 "trivia_id": existing["trivia_id"],
             }
 
-        exclude = self._trivia.list_recent_question_fingerprints(hours=168)
+        exclude = self._trivia.list_broadcast_question_fingerprints(hours=None)
         q = self.generate_trivia_question(
             topic=DAILY_GENERAL_TOPIC,
             level=DAILY_GENERAL_LEVEL,
@@ -480,7 +486,7 @@ class TriviaService:
         if not profile.get("is_admin"):
             raise ValueError("NOT_ADMIN")
 
-        exclude = self._trivia.list_recent_question_fingerprints(hours=72)
+        exclude = self._trivia.list_broadcast_question_fingerprints(hours=None)
         q = self.generate_trivia_question(
             topic=topic,
             level=level,
@@ -534,7 +540,7 @@ class TriviaService:
         if active >= MAX_ACTIVE_GROUP_TRIVIAS:
             raise ValueError("GROUP_TRIVIA_LIMIT")
 
-        exclude = self._trivia.list_recent_question_fingerprints(hours=72)
+        exclude = self._trivia.list_broadcast_question_fingerprints(hours=None)
         q = self.generate_trivia_question(
             topic=topic,
             level=level,

@@ -251,14 +251,6 @@ def handler(event: dict, context) -> dict:
                 _send_message(chat_id, start_reply, token, reply_markup=start_markup)
                 return ok
 
-        low_text = text.strip().lower()
-        if low_text in ("/help", "help", "/ayuda", "ayuda"):
-            from bot_commands import handle_help_command
-
-            help_text = handle_help_command(user_id) if user_id else None
-            if help_text:
-                _send_message(chat_id, help_text, token)
-                return ok
         try:
             _post_json(
                 f"{TG_API}/bot{token}/sendChatAction",
@@ -287,6 +279,15 @@ def handler(event: dict, context) -> dict:
         users_dao = UserDAO()
         users_dao.set_telegram_chat_id(user_id, int(chat_id))
         profile = users_dao.get_profile(user_id) if user_id else None
+
+        low_text = text.strip().lower()
+        if low_text in ("/help", "help", "/ayuda", "ayuda"):
+            from bot_commands import handle_help_command, help_message
+
+            help_text = handle_help_command(user_id) if user_id else help_message()
+            _send_message(chat_id, help_text, token)
+            return ok
+
         onboarding_stage = (profile or {}).get("onboarding_stage", "?")
         first_post_start = (
             users_dao.consume_pending_first_agent_turn(user_id) if user_id else False

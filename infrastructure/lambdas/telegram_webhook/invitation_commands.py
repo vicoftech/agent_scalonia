@@ -6,7 +6,7 @@ import re
 from src.services.invitation_service import InvitationService
 
 _INVITAR = re.compile(r"^/invitar(?:@[\w_]+)?(?:\s+(\d+))?\s*$", re.IGNORECASE)
-_LISTAR = re.compile(r"^/mis-invitaciones\s*$", re.IGNORECASE)
+_LISTAR = re.compile(r"^/mis[-_]invitaciones\s*$", re.IGNORECASE)
 _REVOCAR = re.compile(r"^/revocar(?:@[\w_]+)?\s+([A-Za-z0-9]{8})\s*$", re.IGNORECASE)
 
 

@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """
 Elimina usuarios y datos ligados en DynamoDB; conserva admin, GROUP#GLOBAL y partidos MATCH#.
+También borra todas las trivias (TRIVIA#, TRIVIA_ANSWER#), resetea puntajes del admin
+y limpia JOB_CTRL#DAILY_TRIVIA.
 
 Uso:
   python scripts/purge_non_admin_users.py --env dev --profile asap_dev --dry-run
@@ -12,6 +14,7 @@ import argparse
 import logging
 import os
 import sys
+from datetime import datetime, timezone
 from typing import Any
 
 import boto3
@@ -87,7 +90,13 @@ def should_delete(item: dict[str, Any], admin_id: str, admin_hash: str | None) -
 
     if pk.startswith("MATCH#"):
         return False
-    if pk.startswith("JOB_CTRL#") or pk.startswith("CACHE#"):
+    if pk.startswith("TRIVIA#") or pk.startswith("TRIVIA_ANSWER#"):
+        return True
+    if pk.startswith("JOB_CTRL#DAILY_TRIVIA"):
+        return True
+    if pk.startswith("CACHE#"):
+        return False
+    if pk.startswith("JOB_CTRL#"):
         return False
 
     if pk == f"GROUP#{GLOBAL_GROUP_ID}" and sk == "DETAILS":
@@ -96,7 +105,10 @@ def should_delete(item: dict[str, Any], admin_id: str, admin_hash: str | None) -
         return False
 
     if pk.startswith("USER#"):
-        return _user_id_from_pk(pk) != admin_id
+        uid = _user_id_from_pk(pk)
+        if uid != admin_id:
+            return True
+        return sk != "PROFILE"
 
     if pk.startswith("PLATFORM#"):
         if admin_hash and admin_hash in pk:
@@ -152,6 +164,24 @@ def purge(table, admin_id: str, admin_hash: str | None, *, execute: bool) -> int
     return deleted
 
 
+def reset_admin_profile(table, admin_id: str, *, execute: bool) -> None:
+    """Puntajes y estado de trivia del admin en cero."""
+    if not execute:
+        logger.info("would reset admin PROFILE scores and trivia state")
+        return
+    table.update_item(
+        Key={"partition_key": f"USER#{admin_id}", "sort_key": "PROFILE"},
+        UpdateExpression=(
+            "SET total_points = :z, match_points = :z, trivia_points = :z, "
+            "trivia_rounds_today = :z, updated_at = :now "
+            "REMOVE trivia_answered_fps, daily_trivia_prompted_id, "
+            "trivia_rounds_reset_date"
+        ),
+        ExpressionAttributeValues={":z": 0, ":now": datetime.now(timezone.utc).isoformat()},
+    )
+    logger.info("Admin PROFILE: puntajes y trivias reseteados")
+
+
 def ensure_admin_global_member(table, admin_id: str, *, execute: bool) -> None:
     from datetime import datetime, timezone
 
@@ -190,12 +220,15 @@ def main() -> None:
     logger.info("Admin conservado: user_id=%s (hash prefix %s)", admin_id[:8], (admin_hash or "?")[:12])
 
     n = purge(table, admin_id, admin_hash, execute=args.execute)
+    reset_admin_profile(table, admin_id, execute=args.execute)
     ensure_admin_global_member(table, admin_id, execute=args.execute)
 
     if not args.execute:
         logger.info("Dry-run completo. Repetí con --execute para borrar.")
     else:
-        logger.info("Listo. Probá invitaciones de cero con el admin.")
+        logger.info(
+            "Listo: solo admin, sin trivias, puntajes en cero. Probá invitaciones y /trivia."
+        )
 
 
 if __name__ == "__main__":

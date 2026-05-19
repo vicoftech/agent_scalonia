@@ -10,7 +10,7 @@ BOT_COMMANDS: list[dict[str, str]] = [
     {"command": "help", "description": "Ver comandos disponibles"},
     {"command": "trivia", "description": "Jugar una trivia (máx. 5 por día)"},
     {"command": "invitar", "description": "Crear invitación (admin): /invitar 5"},
-    {"command": "mis-invitaciones", "description": "Ver tus invitaciones activas"},
+    {"command": "mis_invitaciones", "description": "Ver tus invitaciones activas"},
 ]
 
 ADMIN_COMMANDS: list[dict[str, str]] = [
@@ -42,10 +42,15 @@ Dueño de grupo:
 def register_bot_commands(token: str) -> None:
     from handler import TG_API, _post_json
 
-    body = {"commands": BOT_COMMANDS}
+    body = {
+        "commands": BOT_COMMANDS,
+        "scope": {"type": "all_private_chats"},
+    }
     code, resp = _post_json(f"{TG_API}/bot{token}/setMyCommands", body, timeout=10)
     if code != 200 or not resp.get("ok"):
         logger.warning("setMyCommands failed code=%s resp=%s", code, resp)
+    else:
+        logger.info("setMyCommands ok (%s comandos)", len(BOT_COMMANDS))
 
 
 def help_message(*, is_admin: bool = False, is_group_owner: bool = False) -> str:

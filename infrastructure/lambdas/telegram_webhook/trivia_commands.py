@@ -92,8 +92,14 @@ def handle_trivia_command(user_id: str, text: str) -> tuple[str | None, dict | N
             result = svc.start_play(user_id)
             return result["message"], result["keyboard"]
         except ValueError as exc:
-            if str(exc) == "DAILY_LIMIT":
+            code = str(exc)
+            if code == "DAILY_LIMIT":
                 return "Ya jugaste tus 5 rondas de trivia hoy. Volvé mañana 🌙", None
+            if code == "TRIVIA_BANK_EXHAUSTED":
+                return (
+                    "Por hoy no quedan preguntas nuevas para vos en el banco. "
+                    "Volvé mañana o respondé las trivias publicadas del grupo."
+                ), None
             raise
 
     if low.startswith("/trivia-admin"):
@@ -103,8 +109,14 @@ def handle_trivia_command(user_id: str, text: str) -> tuple[str | None, dict | N
             out = svc.create_and_send_general(user_id, topic=topic, level="EXPERT")
             return _broadcast_admin_reply(out, invoker_user_id=user_id)
         except ValueError as exc:
-            if str(exc) == "NOT_ADMIN":
+            code = str(exc)
+            if code == "NOT_ADMIN":
                 return "Solo el admin global puede usar /trivia-admin.", None
+            if code == "TRIVIA_BANK_EXHAUSTED":
+                return (
+                    "Ya usamos todas las preguntas del banco para ese nivel/tema. "
+                    "Probá otro tema o avisá al equipo para ampliar el banco."
+                ), None
             raise
 
     if low.startswith("/trivia-grupo"):
@@ -122,6 +134,11 @@ def handle_trivia_command(user_id: str, text: str) -> tuple[str | None, dict | N
                 return "No tenés un grupo propio.", None
             if code == "GROUP_TRIVIA_LIMIT":
                 return "Ya hay 3 trivias activas en tu grupo.", None
+            if code == "TRIVIA_BANK_EXHAUSTED":
+                return (
+                    "Ya usamos todas las preguntas del banco para ese tema. "
+                    "Probá otro tema en /trivia-grupo <tema>."
+                ), None
             raise
 
     return None, None
