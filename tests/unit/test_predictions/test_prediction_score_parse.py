@@ -1,0 +1,12 @@
+from src.services.prediction_score_parse import parse_simple_score
+from src.services.team_flags import flag_emoji, format_team
+
+
+def test_parse_simple_score_formats():
+    assert parse_simple_score("2-1") == (2, 1)
+    assert parse_simple_score("3:0") == (3, 0)
+    assert parse_simple_score(" 0 1 ") == (0, 1)
+
+
+def test_flag_argentina():
+    assert "🇦🇷" in format_team("ARG")

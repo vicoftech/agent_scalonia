@@ -40,7 +40,9 @@ def score_picker_keyboard(match: dict, match_number: int, grp8: str) -> dict:
         rows.append(
             [{"text": sc, "callback_data": f"prd:s:{match_number}:{sc}:{grp8}"}]
         )
-    rows.append([{"text": "✏️ Otro (escribí /predecir)", "callback_data": f"prd:x:{match_number}:{grp8}"}])
+    rows.append(
+        [{"text": "✏️ Otro marcador", "callback_data": f"prd:x:{match_number}:{grp8}"}]
+    )
     return {"inline_keyboard": rows}
 
 
@@ -57,20 +59,35 @@ def change_existing_keyboard(match_number: int, grp8: str) -> dict:
 
 def after_save_keyboard(match: dict, group_id: str) -> dict:
     g8 = group_id.replace("-", "")[:8]
+    n = int(match.get("match_number", 0))
     return {
         "inline_keyboard": [
-            [{"text": "🎯 /completo", "callback_data": f"prd:c:{int(match.get('match_number', 0))}:{g8}"}],
+            [{"text": "⚡ Listo (solo resultado)", "callback_data": f"prd:done:{n}:{g8}"}],
+            [{"text": "🎯 Predicción completa", "callback_data": f"prd:full:{n}:{g8}"}],
+        ],
+    }
+
+
+def completo_wizard_red_keyboard(match_number: int, grp8: str) -> dict:
+    n, g = match_number, grp8
+    return {
+        "inline_keyboard": [
+            [{"text": "🟥 No habrá roja", "callback_data": f"prd:fw:rd:0:{n}:{g}"}],
+            [{"text": "🟥 Sí habrá roja (+2)", "callback_data": f"prd:fw:rd:1:{n}:{g}"}],
+            [{"text": "⏭️ Saltar este paso", "callback_data": f"prd:fw:skip:{n}:{g}"}],
+            [{"text": "✅ Terminar", "callback_data": f"prd:fw:done:{n}:{g}"}],
         ],
     }
 
 
 def completo_menu_keyboard(match_number: int, grp8: str) -> dict:
+    """Atajo desde /completo (mismo wizard que prd:full)."""
     n, g = match_number, grp8
     return {
         "inline_keyboard": [
-            [{"text": "🟥 Expulsión +2pts", "callback_data": f"prd:rd:{n}:0:{g}"}],
+            [{"text": "🎯 Iniciar predicción completa", "callback_data": f"prd:full:{n}:{g}"}],
+            [{"text": "🟥 Solo expulsión (rápido)", "callback_data": f"prd:rd:{n}:0:{g}"}],
             [{"text": "🟥 Sí habrá roja", "callback_data": f"prd:rd:{n}:1:{g}"}],
-            [{"text": "✅ Listo", "callback_data": f"prd:done:{n}:{g}"}],
         ],
     }
 

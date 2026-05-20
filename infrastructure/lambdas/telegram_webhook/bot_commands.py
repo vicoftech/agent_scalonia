@@ -44,7 +44,7 @@ ADMIN_COMMANDS: list[dict[str, str]] = [
     },
 ]
 
-_COMMANDS_VERSION = os.environ.get("BOT_COMMANDS_VERSION", "2")
+_COMMANDS_VERSION = os.environ.get("BOT_COMMANDS_VERSION", "3")
 
 
 def commands_for_user(*, is_admin: bool = False) -> list[dict[str, str]]:
@@ -100,27 +100,33 @@ def register_bot_commands(
     from handler import TG_API, _post_json
 
     default_cmds = commands_for_user(is_admin=False)
-    body = {
+    for scope in ({"type": "default"}, {"type": "all_private_chats"}):
+        body = {"commands": default_cmds, "scope": scope}
+        code, resp = _post_json(f"{TG_API}/bot{token}/setMyCommands", body, timeout=10)
+        if code != 200 or not resp.get("ok"):
+            logger.warning(
+                "setMyCommands scope=%s failed code=%s resp=%s", scope, code, resp
+            )
+        else:
+            logger.info(
+                "setMyCommands scope=%s ok v=%s (%s cmds)",
+                scope.get("type"),
+                _COMMANDS_VERSION,
+                len(default_cmds),
+            )
+
+    body_es = {
         "commands": default_cmds,
         "scope": {"type": "all_private_chats"},
         "language_code": "es",
     }
-    code, resp = _post_json(f"{TG_API}/bot{token}/setMyCommands", body, timeout=10)
-    if code != 200 or not resp.get("ok"):
-        logger.warning("setMyCommands default failed code=%s resp=%s", code, resp)
-    else:
-        logger.info(
-            "setMyCommands default ok v=%s (%s comandos)",
-            _COMMANDS_VERSION,
-            len(default_cmds),
-        )
+    _post_json(f"{TG_API}/bot{token}/setMyCommands", body_es, timeout=10)
 
     if is_admin and chat_id is not None:
         admin_cmds = commands_for_user(is_admin=True)
         admin_body = {
             "commands": admin_cmds,
             "scope": {"type": "chat", "chat_id": int(chat_id)},
-            "language_code": "es",
         }
         code2, resp2 = _post_json(
             f"{TG_API}/bot{token}/setMyCommands", admin_body, timeout=10
@@ -131,11 +137,29 @@ def register_bot_commands(
             logger.info("setMyCommands admin chat ok (%s comandos)", len(admin_cmds))
 
 
+def send_main_reply_keyboard(chat_id: int, token: str, *, hint: str | None = None) -> None:
+    """Teclado fijo bajo el input (Partidos, Grupos, etc.)."""
+    from handler import TG_API, _post_json
+    from telegram_keyboards import main_reply_keyboard
+
+    text = hint or "👇 Atajos — tocá un botón o el menú /"
+    _post_json(
+        f"{TG_API}/bot{token}/sendMessage",
+        {
+            "chat_id": chat_id,
+            "text": text,
+            "reply_markup": main_reply_keyboard(),
+        },
+        timeout=10,
+    )
+
+
 def refresh_commands_for_chat(
     token: str, chat_id: int, *, is_admin: bool = False
 ) -> None:
-    """Actualiza menú global + scope del chat (admin)."""
+    """Actualiza menú / + teclado fijo en el chat."""
     register_bot_commands(token, chat_id=chat_id, is_admin=is_admin)
+    send_main_reply_keyboard(chat_id, token)
 
 
 def help_message(*, is_admin: bool = False, is_group_owner: bool = False) -> str:

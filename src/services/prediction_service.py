@@ -11,6 +11,8 @@ from src.dao.dynamo.match_dao import MatchDAO
 from src.dao.dynamo.prediction_dao import PredictionDAO
 from src.dao.dynamo.user_dao import UserDAO
 from src.services.auth_service import USER_STATUS_ACTIVE
+from src.services.prediction_score_parse import parse_simple_score
+from src.services.team_flags import format_team
 
 DISPLAY_TZ = timezone(timedelta(hours=-3))
 GROUP_PHASE = frozenset({"GROUP"})
@@ -44,6 +46,9 @@ class PredictionService:
         self._matches = match_dao or MatchDAO()
         self._groups = group_dao or GroupDAO()
         self._users = user_dao or UserDAO()
+
+    def format_match_title(self, match: dict) -> str:
+        return f"{format_team(match['home_team'])} vs {format_team(match['away_team'])}"
 
     def check_can_predict(self, user_id: str) -> tuple[bool, str]:
         profile = self._users.get_profile(user_id)
@@ -226,7 +231,7 @@ class PredictionService:
             playoff_winner=playoff_winner if home_goals == away_goals else None,
         )
         gname = (self._groups.get_group(group_id) or {}).get("name", group_id)
-        score_txt = f"{match['home_team']} {home_goals}-{away_goals} {match['away_team']}"
+        score_txt = self.format_match_title(match) + f"  {home_goals}-{away_goals}"
         prefix = "✅" if not had else "🔄"
         extra = " (actualizada)" if had else ""
         mins = self._minutes_to_veda(match)
@@ -234,10 +239,11 @@ class PredictionService:
         from src.services.prediction_telegram_ui import after_save_keyboard
 
         msg = (
-            f"{prefix} {score_txt} guardada{extra}\n"
+            f"{prefix} Predicción rápida guardada{extra}\n"
+            f"{score_txt}\n"
             f"👥 {gname}\n"
             f"Veda en {mins}  ·  Máx posible: {max_pts} pts\n\n"
-            "Para sumar hasta 8 pts extra: /completo"
+            "¿Querés sumar goleador, expulsión y MVP?"
         )
         return msg, after_save_keyboard(match, group_id)
 
@@ -300,7 +306,7 @@ class PredictionService:
             status = self._match_list_status(m, pred)
             num = int(m.get("match_number", 0))
             lines.append(
-                f"{idx}️⃣  {m['home_team']} vs {m['away_team']}  │ Grupo {gl} │ {time_s}  {status}"
+                f"{idx}️⃣  {self.format_match_title(m)}  │ Grupo {gl} │ {time_s}  {status}"
             )
             if not self._veda_closed(m) and (m.get("status") or "").upper() != "FINISHED":
                 buttons.append(
@@ -335,7 +341,7 @@ class PredictionService:
             return "Partido no encontrado.", None
         if self._veda_closed(match):
             return (
-                f"⛔ La veda para {match['home_team']} vs {match['away_team']} está activa.",
+                f"⛔ La veda para {self.format_match_title(match)} está activa.",
                 None,
             )
         gid = group_id or self.get_active_group_id(user_id)
@@ -352,7 +358,7 @@ class PredictionService:
 
             mins = self._minutes_to_veda(match)
             return (
-                f"🔄 {match['home_team']} vs {match['away_team']} — "
+                f"🔄 {self.format_match_title(match)} — "
                 f"tenés {existing['home_goals']}-{existing['away_goals']}\n"
                 f"👥 {gname}\nVeda cierra en {mins}\n\n¿Querés cambiarla?",
                 change_existing_keyboard(num, g8),
@@ -364,7 +370,7 @@ class PredictionService:
             ko_hint = "\n\n💡 Fase eliminatoria: si predís empate elegí definición (ET/penales)."
 
         lines = [
-            f"{match['home_team']} vs {match['away_team']}",
+            self.format_match_title(match),
             f"Grupo {match.get('group_letter') or '—'}  │  {match.get('venue', '')} · {match.get('city', '')}",
             f"{self._format_kickoff(match)} · Veda en {self._minutes_to_veda(match)}",
             f"👥 {gname}",
@@ -407,10 +413,32 @@ class PredictionService:
             )
         return self.save_score(user_id, match["match_id"], gid, home_goals, away_goals)
 
-    def format_completo_menu(self, user_id: str) -> tuple[str, dict | None]:
-        gid = self.get_active_group_id(user_id)
+    def format_completo_menu(
+        self,
+        user_id: str,
+        *,
+        match_number: int | None = None,
+        group_id: str | None = None,
+    ) -> tuple[str, dict | None]:
+        gid = group_id or self.get_active_group_id(user_id)
         if not gid:
             return self.no_group_message()
+
+        if match_number is not None:
+            m = self._matches.get_by_match_number(match_number)
+            if not m:
+                return "Partido no encontrado.", None
+            p = self._preds.get_active(user_id, m["match_id"], gid)
+            if not p:
+                return (
+                    f"Primero guardá el resultado con /partidos.\n"
+                    f"Partido: {self.format_match_title(m)}",
+                    None,
+                )
+            if self._veda_closed(m):
+                return "La veda ya está activa para ese partido.", None
+            return self.start_completo_wizard(user_id, match_number, gid)
+
         preds = self._preds.list_user_predictions(user_id, group_id=gid, status="ACTIVE")
         open_preds = []
         for p in preds:
@@ -419,17 +447,23 @@ class PredictionService:
                 open_preds.append((m, p))
         if not open_preds:
             return "No tenés predicciones activas con veda abierta. Usá /partidos primero.", None
-        m, p = open_preds[0]
-        gname = (self._groups.get_group(gid) or {}).get("name", gid)
-        g8 = gid.replace("-", "")[:8]
-        num = int(m.get("match_number", 0))
-        from src.services.prediction_telegram_ui import completo_menu_keyboard
+        if len(open_preds) == 1:
+            m, _p = open_preds[0]
+            return self.start_completo_wizard(
+                user_id, int(m.get("match_number", 0)), gid
+            )
+        lines = ["🎯 Elegí qué predicción completar:", ""]
+        from src.services.prediction_telegram_ui import merge_button_rows
 
-        return (
-            f"🎯 Completar — {m['home_team']} {p['home_goals']}-{p['away_goals']} {m['away_team']}\n"
-            f"👥 {gname}\n\nVariables opcionales — hasta +8 pts extra:",
-            completo_menu_keyboard(num, g8),
-        )
+        buttons: list[list[dict[str, str]]] = []
+        g8 = gid.replace("-", "")[:8]
+        for m, p in open_preds[:8]:
+            num = int(m.get("match_number", 0))
+            label = f"{self.format_match_title(m)} {p['home_goals']}-{p['away_goals']}"[:60]
+            buttons.append(
+                [{"text": label, "callback_data": f"prd:full:{num}:{g8}"}]
+            )
+        return "\n".join(lines), merge_button_rows(buttons)
 
     def apply_completo_red_card(
         self, user_id: str, match_number: int, group_id: str, has_red: bool
@@ -456,3 +490,127 @@ class PredictionService:
         ]
         groups = [g for g in groups if g]
         return "Elegí el grupo activo para predecir:", group_picker_keyboard(groups)
+
+    def begin_custom_score(
+        self, user_id: str, match_number: int, group_id: str
+    ) -> tuple[str, dict | None]:
+        match = self._matches.get_by_match_number(match_number)
+        if not match:
+            return "Partido no encontrado.", None
+        if self._veda_closed(match):
+            return "Veda activa para este partido.", None
+        gid = group_id or self.get_active_group_id(user_id)
+        if not gid:
+            return self.no_group_message()
+        self._users.update_profile(
+            user_id,
+            prediction_awaiting_score={
+                "match_number": match_number,
+                "group_id": gid,
+            },
+        )
+        return (
+            f"{self.format_match_title(match)}\n\n"
+            "✏️ Escribí el marcador (ej: 2-1, 3:0 o 0:1).\n"
+            "Enviá /cancel para salir.",
+            None,
+        )
+
+    def _clear_prediction_pending(self, user_id: str) -> None:
+        self._users.update_profile(
+            user_id,
+            prediction_awaiting_score=None,
+            prediction_completo_pending=None,
+        )
+
+    def handle_pending_message(
+        self, user_id: str, text: str
+    ) -> tuple[str, dict | None] | None:
+        profile = self._users.get_profile(user_id) or {}
+        low = (text or "").strip().lower()
+        if low in ("/cancel", "/cancelar"):
+            if profile.get("prediction_awaiting_score") or profile.get(
+                "prediction_completo_pending"
+            ):
+                self._clear_prediction_pending(user_id)
+                return "Predicción cancelada.", None
+            return None
+
+        awaiting = profile.get("prediction_awaiting_score")
+        if awaiting and not text.strip().startswith("/"):
+            parsed = parse_simple_score(text)
+            if not parsed:
+                return (
+                    "No entendí el marcador. Usá formato 2-1 o 3:0 (solo números).",
+                    None,
+                )
+            hg, ag = parsed
+            num = int(awaiting.get("match_number", 0))
+            gid = awaiting.get("group_id") or self.get_active_group_id(user_id)
+            match = self._matches.get_by_match_number(num)
+            if not match:
+                self._clear_prediction_pending(user_id)
+                return "Partido no encontrado.", None
+            self._clear_prediction_pending(user_id)
+            phase = (match.get("phase") or "GROUP").upper()
+            if hg == ag and phase in KO_PHASES:
+                g8 = (gid or "").replace("-", "")[:8]
+                from src.services.prediction_telegram_ui import ko_playoff_keyboard
+
+                return (
+                    "Empate en eliminatoria: elegí definición y ganador.",
+                    ko_playoff_keyboard(match, num, f"{hg}-{ag}", g8),
+                )
+            return self.save_score(user_id, match["match_id"], gid, hg, ag)
+
+        return None
+
+    def start_completo_wizard(
+        self, user_id: str, match_number: int, group_id: str
+    ) -> tuple[str, dict | None]:
+        match = self._matches.get_by_match_number(match_number)
+        if not match:
+            return "Partido no encontrado.", None
+        p = self._preds.get_active(user_id, match["match_id"], group_id)
+        if not p:
+            return (
+                "Guardá primero el resultado (predicción rápida) desde /partidos.",
+                None,
+            )
+        if self._veda_closed(match):
+            return "Veda activa.", None
+        gname = (self._groups.get_group(group_id) or {}).get("name", group_id)
+        g8 = group_id.replace("-", "")[:8]
+        from src.services.prediction_telegram_ui import completo_wizard_red_keyboard
+
+        self._users.update_profile(
+            user_id,
+            prediction_completo_pending={
+                "match_number": match_number,
+                "group_id": group_id,
+                "step": "red",
+            },
+        )
+        return (
+            f"🎯 Predicción completa\n"
+            f"{self.format_match_title(match)}  →  {p['home_goals']}-{p['away_goals']}\n"
+            f"👥 {gname}\n\n"
+            "Paso 1/1 — ¿Habrá tarjeta roja? (+2 pts si acertás)",
+            completo_wizard_red_keyboard(match_number, g8),
+        )
+
+    def apply_completo_wizard_red(
+        self, user_id: str, match_number: int, group_id: str, has_red: bool | None
+    ) -> tuple[str, dict | None]:
+        if has_red is not None:
+            msg = self.apply_completo_red_card(user_id, match_number, group_id, has_red)
+        else:
+            msg = "⏭️ Expulsión sin definir."
+        self._clear_prediction_pending(user_id)
+        match = self._matches.get_by_match_number(match_number) or {}
+        return (
+            f"{msg}\n\n"
+            f"✅ Predicción completa cerrada para {self.format_match_title(match)}.\n"
+            "Goleador y MVP: próximamente.",
+            None,
+        )

@@ -311,6 +311,12 @@ def handler(event: dict, context) -> dict:
         if not chat_id or not text:
             return ok
 
+        from telegram_keyboards import normalize_reply_button
+
+        mapped = normalize_reply_button(text)
+        if mapped:
+            text = mapped
+
         logger.info("Telegram update recibido")
 
         token = _get_token()
@@ -334,6 +340,9 @@ def handler(event: dict, context) -> dict:
             if start_result:
                 start_reply, start_markup = start_result
                 _send_message(chat_id, start_reply, token, reply_markup=start_markup)
+                from bot_commands import send_main_reply_keyboard
+
+                send_main_reply_keyboard(int(chat_id), token)
                 return ok
 
         try:
@@ -373,7 +382,7 @@ def handler(event: dict, context) -> dict:
 
                 refresh_commands_for_chat(
                     token,
-                    chat_id,
+                    int(chat_id),
                     is_admin=bool(profile.get("is_admin")),
                 )
 
@@ -383,6 +392,10 @@ def handler(event: dict, context) -> dict:
 
             help_text = handle_help_command(user_id) if user_id else help_message()
             _send_message(chat_id, help_text, token)
+            if user_id and profile:
+                from bot_commands import send_main_reply_keyboard
+
+                send_main_reply_keyboard(int(chat_id), token)
             return ok
 
         try:
@@ -392,6 +405,10 @@ def handler(event: dict, context) -> dict:
             if shortcut_reply:
                 stext, smarkup = shortcut_reply
                 _send_message(chat_id, stext, token, reply_markup=smarkup)
+                if text.strip().lower().startswith("/menu"):
+                    from bot_commands import send_main_reply_keyboard
+
+                    send_main_reply_keyboard(int(chat_id), token)
                 return ok
         except Exception:
             logger.exception("shortcut_commands failed")
@@ -431,6 +448,21 @@ def handler(event: dict, context) -> dict:
                 token,
             )
             return ok
+
+        if profile and (
+            profile.get("prediction_awaiting_score")
+            or profile.get("prediction_completo_pending")
+        ):
+            try:
+                from prediction_service import PredictionService
+
+                pred_pending = PredictionService().handle_pending_message(user_id, text)
+                if pred_pending:
+                    ptext, pmarkup = pred_pending
+                    _send_message(chat_id, ptext, token, reply_markup=pmarkup)
+                    return ok
+            except Exception:
+                logger.exception("prediction_pending_message failed")
 
         if profile and (
             profile.get("group_create_step")

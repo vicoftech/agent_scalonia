@@ -101,7 +101,47 @@ def handle_prediction_callback(user_id: str, data: str) -> tuple[str, dict | Non
         return f'👥 Grupo activo: "{name}".\nUsá /partidos para ver el fixture.', None
 
     if parts[1] == "c" and len(parts) >= 4:
-        return svc.format_completo_menu(user_id)
+        try:
+            num = int(parts[2])
+        except ValueError:
+            return "Partido inválido.", None
+        gid = svc.resolve_group_short(user_id, parts[3]) or svc.get_active_group_id(user_id)
+        if not gid:
+            return svc.no_group_message()
+        return svc.format_completo_menu(user_id, match_number=num, group_id=gid)
+
+    if parts[1] == "full" and len(parts) >= 4:
+        try:
+            num = int(parts[2])
+        except ValueError:
+            return "Partido inválido.", None
+        gid = svc.resolve_group_short(user_id, parts[3]) or svc.get_active_group_id(user_id)
+        if not gid:
+            return svc.no_group_message()
+        return svc.start_completo_wizard(user_id, num, gid)
+
+    if parts[1] == "fw" and len(parts) >= 5:
+        sub = parts[2]
+        gid = None
+        num = 0
+        try:
+            if sub == "rd" and len(parts) >= 6:
+                has_red = parts[3] == "1"
+                num = int(parts[4])
+                grp8 = parts[5]
+                gid = svc.resolve_group_short(user_id, grp8) or svc.get_active_group_id(user_id)
+                if not gid:
+                    return svc.no_group_message()
+                return svc.apply_completo_wizard_red(user_id, num, gid, has_red)
+            if sub in ("skip", "done") and len(parts) >= 5:
+                num = int(parts[3])
+                grp8 = parts[4]
+                gid = svc.resolve_group_short(user_id, grp8) or svc.get_active_group_id(user_id)
+                if not gid:
+                    return svc.no_group_message()
+                return svc.apply_completo_wizard_red(user_id, num, gid, None)
+        except (IndexError, ValueError):
+            return "Datos inválidos.", None
 
     if parts[1] == "rd" and len(parts) >= 5:
         num = int(parts[2])
@@ -112,13 +152,20 @@ def handle_prediction_callback(user_id: str, data: str) -> tuple[str, dict | Non
             return svc.no_group_message()
         return svc.apply_completo_red_card(user_id, num, gid, has_red), None
 
-    if parts[1] == "done":
-        return "🎯 Predicción base lista. Más variables opcionales próximamente.", None
+    if parts[1] == "done" and len(parts) >= 4:
+        match = MatchDAO().get_by_match_number(int(parts[2]))
+        title = svc.format_match_title(match) if match else "el partido"
+        return f"⚡ Listo — predicción rápida guardada para {title}.", None
 
     if parts[1] == "x" and len(parts) >= 4:
-        return (
-            "Escribí con /predecir, por ejemplo:\n/predecir ARG 2-0 ALG",
-            None,
-        )
+        try:
+            num = int(parts[2])
+        except ValueError:
+            return "Partido inválido.", None
+        grp8 = parts[3]
+        gid = svc.resolve_group_short(user_id, grp8) or svc.get_active_group_id(user_id)
+        if not gid:
+            return svc.no_group_message()
+        return svc.begin_custom_score(user_id, num, gid)
 
     return None

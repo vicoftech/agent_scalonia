@@ -88,12 +88,12 @@ def handle_shortcut_command(
 
     if _MENU.match(text):
         return (
-            "✅ Menú actualizado.\n\n"
+            "✅ Menú actualizado (botón / y teclado de abajo).\n\n"
             "Atajos:\n"
-            "/partidos — fixture y predecir\n"
-            "/mi_puntuacion — tu puntaje\n"
-            "/grupos — tus grupos\n"
-            "/resultados — partidos finalizados",
+            "⚽ Partidos — fixture y predecir\n"
+            "📊 Mi puntaje\n"
+            "👥 Grupos\n"
+            "🏁 Resultados",
             None,
         )
 
@@ -119,4 +119,5 @@ def should_refresh_bot_menu(text: str) -> bool:
         "/mi_puntuacion",
         "/mi-puntuacion",
         "/resultados",
+        "/completo",
     }
