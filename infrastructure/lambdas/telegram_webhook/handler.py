@@ -255,7 +255,17 @@ def handler(event: dict, context) -> dict:
             from bot_commands import register_bot_commands
             from start_handler import handle_start_command
 
-            register_bot_commands(token)
+            platform_id_hash_start = hashlib.sha256(str(chat_id).encode()).hexdigest()
+            from src.dao.dynamo.user_dao import UserDAO as _UserDAOStart
+
+            _prof_start = _UserDAOStart().get_by_platform_hash(
+                "TELEGRAM", platform_id_hash_start
+            )
+            register_bot_commands(
+                token,
+                chat_id=chat_id,
+                is_admin=bool(_prof_start and _prof_start.get("is_admin")),
+            )
             start_result = handle_start_command(chat_id, text)
             if start_result:
                 start_reply, start_markup = start_result
@@ -293,8 +303,14 @@ def handler(event: dict, context) -> dict:
 
         low_text = text.strip().lower()
         if low_text in ("/help", "help", "/ayuda", "ayuda"):
-            from bot_commands import handle_help_command, help_message
+            from bot_commands import handle_help_command, help_message, register_bot_commands
 
+            if user_id and profile:
+                register_bot_commands(
+                    token,
+                    chat_id=chat_id,
+                    is_admin=bool(profile.get("is_admin")),
+                )
             help_text = handle_help_command(user_id) if user_id else help_message()
             _send_message(chat_id, help_text, token)
             return ok
@@ -339,6 +355,12 @@ def handler(event: dict, context) -> dict:
                 return ok
         except Exception:
             logger.exception("group_commands failed")
+            _send_message(
+                chat_id,
+                "No pude procesar el comando de grupos. Intentá de nuevo en unos segundos.",
+                token,
+            )
+            return ok
 
         try:
             from trivia_prefetch import try_deliver_daily_trivia

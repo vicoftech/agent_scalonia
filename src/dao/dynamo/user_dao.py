@@ -151,8 +151,7 @@ class UserDAO:
             val_attr = f":v{i}"
             names[attr] = key
             if val is None:
-                if key == "m1_step":
-                    sets.append(f"REMOVE {attr}")
+                sets.append(f"REMOVE {attr}")
                 i += 1
                 continue
             values[val_attr] = val

@@ -2,8 +2,12 @@
 from __future__ import annotations
 
 import logging
+import re
 
 logger = logging.getLogger(__name__)
+
+_TRIVIA_ADMIN = re.compile(r"^/trivia[-_]admin(?:@[\w_]+)?", re.IGNORECASE)
+_TRIVIA_GRUPO = re.compile(r"^/trivia[-_]grupo(?:@[\w_]+)?", re.IGNORECASE)
 
 _TOPIC_MAP = {
     "mundiales": "mundiales",
@@ -102,7 +106,7 @@ def handle_trivia_command(user_id: str, text: str) -> tuple[str | None, dict | N
                 ), None
             raise
 
-    if low.startswith("/trivia-admin"):
+    if _TRIVIA_ADMIN.match(stripped):
         parts = stripped.split(maxsplit=1)
         topic = _TOPIC_MAP.get((parts[1] if len(parts) > 1 else "records").lower(), "records")
         try:
@@ -119,7 +123,7 @@ def handle_trivia_command(user_id: str, text: str) -> tuple[str | None, dict | N
                 ), None
             raise
 
-    if low.startswith("/trivia-grupo"):
+    if _TRIVIA_GRUPO.match(stripped):
         parts = stripped.split(maxsplit=1)
         topic = _TOPIC_MAP.get((parts[1] if len(parts) > 1 else "jugadores").lower(), "jugadores")
         try:

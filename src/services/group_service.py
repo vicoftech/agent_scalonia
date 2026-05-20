@@ -103,11 +103,7 @@ class GroupService:
                 "Para crear más:",
                 limit_reached_keyboard(),
             )
-        self._users.update_profile(
-            user_id,
-            group_create_step="awaiting_name",
-            group_draft_name=None,
-        )
+        self._users.update_profile(user_id, group_create_step="awaiting_name")
         return "¡Vamos a crear tu grupo! 🎉\n\n¿Cómo se va a llamar?", None
 
     def submit_create_name(self, user_id: str, name: str) -> tuple[str, dict | None]:

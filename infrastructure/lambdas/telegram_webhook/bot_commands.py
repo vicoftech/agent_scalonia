@@ -1,34 +1,58 @@
-"""Menú de comandos de Telegram (setMyCommands) y texto /help."""
+"""Menú de comandos de Telegram (setMyCommands) y texto /help.
+
+Telegram solo acepta nombres con a-z, 0-9 y _. Los handlers aceptan
+también guiones (/crear-grupo, /trivia-admin) por compatibilidad.
+"""
 from __future__ import annotations
 
 import logging
 
 logger = logging.getLogger(__name__)
 
+# Comandos visibles para todos (máx. descripción 256 chars, nombre ≤32)
 BOT_COMMANDS: list[dict[str, str]] = [
     {"command": "start", "description": "Registrarte o volver al inicio"},
     {"command": "help", "description": "Ver comandos disponibles"},
     {"command": "grupos", "description": "Ver tus grupos"},
-    {"command": "crear_grupo", "description": "Crear tu grupo (Free: 1 máx.)"},
+    {"command": "crear_grupo", "description": "Crear tu grupo (plan Free: 1 máx.)"},
+    {"command": "editar_grupo", "description": "Administrar tu grupo (solo dueño)"},
+    {"command": "miembros", "description": "Ver miembros de tu grupo"},
     {"command": "trivia", "description": "Jugar una trivia (máx. 5 por día)"},
-    {"command": "invitar", "description": "Crear invitación: /invitar 5"},
+    {"command": "trivia_grupo", "description": "Publicar trivia a tu grupo (dueño)"},
+    {"command": "invitar", "description": "Crear invitación — ej. /invitar 5"},
     {"command": "mis_invitaciones", "description": "Ver tus invitaciones activas"},
 ]
 
+# Solo admin global (scope chat del admin o menú ampliado)
 ADMIN_COMMANDS: list[dict[str, str]] = [
-    {"command": "trivia-admin", "description": "Publicar trivia general (solo admin)"},
-    {"command": "trivia-grupo", "description": "Trivia para tu grupo (dueño de grupo)"},
+    {"command": "trivia_admin", "description": "Trivia Experto para todos (solo admin)"},
+    {"command": "admin_grupos", "description": "Panel de administración de grupos"},
 ]
+
+
+def commands_for_user(*, is_admin: bool = False) -> list[dict[str, str]]:
+    """Lista única para setMyCommands según rol."""
+    if is_admin:
+        seen: set[str] = set()
+        out: list[dict[str, str]] = []
+        for cmd in BOT_COMMANDS + ADMIN_COMMANDS:
+            if cmd["command"] not in seen:
+                seen.add(cmd["command"])
+                out.append(cmd)
+        return out
+    return list(BOT_COMMANDS)
+
 
 HELP_USER = """📖 Comandos del Prode Mundial 2026
 
 /start — Registro o bienvenida
 /help — Esta ayuda
 /grupos — Ver tus grupos
-/crear-grupo — Crear tu grupo (plan Free: 1 máximo)
+/crear-grupo (o /crear_grupo) — Crear tu grupo (plan Free: 1 máximo)
 /editar-grupo — Administrar tu grupo (dueño)
 /miembros — Ver miembros de tu grupo
 /trivia — Una ronda de trivia con botones A B C D (máx. 5/día)
+/trivia-grupo [tema] — Trivia a tu grupo (dueño)
 
 Invitaciones:
 /invitar <cupos> — Genera link de invitación a tu grupo
@@ -39,24 +63,41 @@ También podés hablar con el agente en lenguaje natural sobre partidos, fixture
 HELP_ADMIN_EXTRA = """
 Solo admin:
 /trivia-admin [tema] — Publica trivia Experto a todos
-/admin-grupos — Panel de administración de grupos
-
-Dueño de grupo:
-/trivia-grupo [tema] — Trivia Intermedia a miembros del grupo"""
+/admin-grupos — Panel de administración de grupos"""
 
 
-def register_bot_commands(token: str) -> None:
+def register_bot_commands(
+    token: str,
+    *,
+    chat_id: int | None = None,
+    is_admin: bool = False,
+) -> None:
     from handler import TG_API, _post_json
 
+    default_cmds = commands_for_user(is_admin=False)
     body = {
-        "commands": BOT_COMMANDS,
+        "commands": default_cmds,
         "scope": {"type": "all_private_chats"},
     }
     code, resp = _post_json(f"{TG_API}/bot{token}/setMyCommands", body, timeout=10)
     if code != 200 or not resp.get("ok"):
-        logger.warning("setMyCommands failed code=%s resp=%s", code, resp)
+        logger.warning("setMyCommands default failed code=%s resp=%s", code, resp)
     else:
-        logger.info("setMyCommands ok (%s comandos)", len(BOT_COMMANDS))
+        logger.info("setMyCommands default ok (%s comandos)", len(default_cmds))
+
+    if is_admin and chat_id is not None:
+        admin_cmds = commands_for_user(is_admin=True)
+        admin_body = {
+            "commands": admin_cmds,
+            "scope": {"type": "chat", "chat_id": int(chat_id)},
+        }
+        code2, resp2 = _post_json(
+            f"{TG_API}/bot{token}/setMyCommands", admin_body, timeout=10
+        )
+        if code2 != 200 or not resp2.get("ok"):
+            logger.warning("setMyCommands admin chat failed code=%s resp=%s", code2, resp2)
+        else:
+            logger.info("setMyCommands admin chat ok (%s comandos)", len(admin_cmds))
 
 
 def help_message(*, is_admin: bool = False, is_group_owner: bool = False) -> str:
