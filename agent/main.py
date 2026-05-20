@@ -35,8 +35,8 @@ from agent.tools.match_tool import match_tool
 from agent.tools.onboarding_tool import make_onboarding_tool
 from agent.tools.trivia_tool import make_trivia_tool
 from agent.tools.web_search_tool import web_search_tool
+from agent.prompt_sections import TRIVIA_SECTION
 from src.services.onboarding_service import ONBOARDING_SECTION, OnboardingService
-from src.services.trivia_service import TRIVIA_SECTION
 
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 logger = logging.getLogger(__name__)

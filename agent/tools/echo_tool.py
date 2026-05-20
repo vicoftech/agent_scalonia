@@ -21,6 +21,6 @@ def echo_tool(message: str) -> str:
             "web_search",
             "invitations",
         ],
-        "features_pending": ["predicciones", "veda", "rankings", "grupos", "trivia"],
+        "features_pending": ["predicciones", "veda", "rankings", "grupos"],
     }
     return json.dumps(payload, ensure_ascii=False)

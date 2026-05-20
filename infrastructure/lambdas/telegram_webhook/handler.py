@@ -160,8 +160,12 @@ def _invoke_agent(user_id: str, session_id: str, prompt: str) -> str:
         )
         text = _read_agent_stream(response)
         return text or "No pude generar una respuesta. Intentá de nuevo."
-    except Exception:
-        logger.exception("invoke_agent_runtime error")
+    except Exception as exc:
+        logger.exception(
+            "invoke_agent_runtime error type=%s msg=%s",
+            type(exc).__name__,
+            str(exc)[:500],
+        )
         return "Hubo un error. Por favor intentá de nuevo en unos segundos."
 
 

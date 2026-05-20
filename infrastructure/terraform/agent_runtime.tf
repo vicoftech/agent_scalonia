@@ -17,6 +17,8 @@ locals {
     "${local.repo_root}/src/services/${f}" if !endswith(f, "/") && !strcontains(f, "__pycache__")],
     [for f in sort(fileset("${local.repo_root}/src/fixtures", "**")) :
     "${local.repo_root}/src/fixtures/${f}" if !endswith(f, "/") && !strcontains(f, "__pycache__")],
+    [for f in sort(fileset("${local.repo_root}/src/jobs", "**")) :
+    "${local.repo_root}/src/jobs/${f}" if !endswith(f, "/") && !strcontains(f, "__pycache__")],
   )
   agent_source_hash = sha256(join("", concat(
     [filesha256("${local.repo_root}/requirements-agent.txt")],
