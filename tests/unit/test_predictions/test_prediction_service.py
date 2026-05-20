@@ -29,14 +29,16 @@ def _match(**overrides):
 
 
 def _svc(**kwargs) -> PredictionService:
-    preds = MagicMock()
+    preds = kwargs.get("prediction_dao") or MagicMock()
     preds.get_active.return_value = None
     preds.save_prediction.return_value = {"home_goals": 2, "away_goals": 0}
-    matches = MagicMock()
+    matches = kwargs.get("match_dao")
+    if matches is None:
+        matches = MagicMock()
+        matches.list_matches.return_value = [_match()]
     matches.get_match.return_value = _match()
     matches.get_by_match_number.return_value = _match()
-    matches.list_matches.return_value = [_match()]
-    groups = MagicMock()
+    groups = kwargs.get("group_dao") or MagicMock()
     groups.list_group_ids_for_user.return_value = ["GLOBAL", "grp-private"]
     def _get_group(gid: str):
         return {
@@ -47,7 +49,7 @@ def _svc(**kwargs) -> PredictionService:
         }
 
     groups.get_group.side_effect = _get_group
-    users = MagicMock()
+    users = kwargs.get("user_dao") or MagicMock()
     users.get_profile.return_value = {
         "user_id": "u1",
         "status": "ACTIVE",
@@ -58,7 +60,6 @@ def _svc(**kwargs) -> PredictionService:
         match_dao=matches,
         group_dao=groups,
         user_dao=users,
-        **kwargs,
     )
 
 
@@ -108,3 +109,66 @@ def test_prediction_sk_format():
 def test_parse_predecir_command():
     parsed = _svc().parse_predecir_command("/predecir ARG 2-0 ALG")
     assert parsed == ("ARG", 2, 0, "ALG")
+
+
+def test_list_partidos_includes_far_future_group_match():
+    far = (_NOW + timedelta(days=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    matches = MagicMock()
+    matches.list_matches.return_value = [_match(kickoff_utc=far, match_number=1)]
+    svc = _svc(match_dao=matches)
+    text, markup = svc.list_partidos_view("u1")
+    assert "ARG" in text
+    assert "Fase de grupos" in text
+    assert markup is not None
+
+
+def test_list_partidos_excludes_knockout():
+    ko = (_NOW + timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    matches = MagicMock()
+    matches.list_matches.return_value = [
+        _match(kickoff_utc=ko, phase="QF", match_number=90),
+    ]
+    svc = _svc(match_dao=matches)
+    text, markup = svc.list_partidos_view("u1")
+    assert "ingest" in text.lower() or "grupos" in text.lower()
+    assert markup is None
+
+
+def test_list_partidos_pagination():
+    base = _NOW + timedelta(days=1)
+    group_matches = [
+        _match(
+            match_id=f"m{i}",
+            match_number=i,
+            kickoff_utc=(base + timedelta(hours=i)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            home_team=f"T{i}",
+            away_team=f"U{i}",
+        )
+        for i in range(1, 11)
+    ]
+    matches = MagicMock()
+    matches.list_matches.return_value = group_matches
+    svc = _svc(match_dao=matches)
+    text0, kb0 = svc.list_partidos_view("u1", page=0)
+    text1, kb1 = svc.list_partidos_view("u1", page=1)
+    assert "Página 1/2" in text0
+    assert "T1" in text0
+    assert "T9" not in text0
+    assert "Página 2/2" in text1
+    assert "T9" in text1
+    def _nav_row(kb: dict) -> list[dict]:
+        for row in kb["inline_keyboard"]:
+            if any("prd:pg:" in b.get("callback_data", "") for b in row):
+                return row
+        return []
+
+    assert any("Siguiente" in b["text"] for b in _nav_row(kb0))
+    assert any("Anterior" in b["text"] for b in _nav_row(kb1))
+
+
+def test_list_partidos_empty_when_no_matches_in_db():
+    matches = MagicMock()
+    matches.list_matches.return_value = []
+    svc = _svc(match_dao=matches)
+    text, _ = svc.list_partidos_view("u1")
+    assert "ingest" in text.lower()

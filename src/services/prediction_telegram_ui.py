@@ -12,6 +12,19 @@ def merge_button_rows(rows: list[list[dict[str, str]]]) -> dict:
     return {"inline_keyboard": rows}
 
 
+def partidos_nav_keyboard(page: int, total_pages: int, grp8: str) -> list[dict[str, str]] | None:
+    """Fila ◀️ página ▶️ para /partidos (fase de grupos)."""
+    if total_pages <= 1:
+        return None
+    row: list[dict[str, str]] = []
+    if page > 0:
+        row.append({"text": "◀️ Anterior", "callback_data": f"prd:pg:{page - 1}:{grp8}"})
+    row.append({"text": f"{page + 1}/{total_pages}", "callback_data": "prd:noop"})
+    if page < total_pages - 1:
+        row.append({"text": "Siguiente ▶️", "callback_data": f"prd:pg:{page + 1}:{grp8}"})
+    return row
+
+
 def no_group_keyboard() -> dict:
     return {
         "inline_keyboard": [

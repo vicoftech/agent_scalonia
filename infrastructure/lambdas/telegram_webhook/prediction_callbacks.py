@@ -80,6 +80,16 @@ def handle_prediction_callback(user_id: str, data: str) -> tuple[str, dict | Non
             playoff_winner=winner,
         )
 
+    if parts[1] == "pg" and len(parts) >= 4:
+        try:
+            page = int(parts[2])
+        except ValueError:
+            page = 0
+        gid = svc.resolve_group_short(user_id, parts[3]) or svc.get_active_group_id(user_id)
+        if not gid:
+            return svc.no_group_message()
+        return svc.list_partidos_view(user_id, page=page)
+
     if parts[1] == "cg":
         return svc.group_picker_keyboard(user_id)
 

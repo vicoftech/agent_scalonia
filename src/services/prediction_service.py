@@ -13,6 +13,8 @@ from src.dao.dynamo.user_dao import UserDAO
 from src.services.auth_service import USER_STATUS_ACTIVE
 
 DISPLAY_TZ = timezone(timedelta(hours=-3))
+GROUP_PHASE = frozenset({"GROUP"})
+PARTIDOS_PAGE_SIZE = 8
 KO_PHASES = frozenset(
     {"R16", "ROUND_OF_32", "ROUND_OF_16", "QF", "QUARTER_FINAL", "SF", "SEMI_FINAL", "FINAL", "THIRD_PLACE"}
 )
@@ -99,10 +101,59 @@ class PredictionService:
     def _parse_kickoff(self, iso: str) -> datetime:
         return datetime.fromisoformat(iso.replace("Z", "+00:00"))
 
+    def _kickoff_or_none(self, match: dict) -> datetime | None:
+        raw = match.get("kickoff_utc")
+        if not raw:
+            return None
+        try:
+            return self._parse_kickoff(str(raw))
+        except (ValueError, TypeError):
+            return None
+
+    def _group_stage_matches(self) -> list[tuple[datetime, dict]]:
+        """Todos los partidos de fase de grupos, ordenados por fecha."""
+        rows: list[tuple[datetime, dict]] = []
+        for m in self._matches.list_matches():
+            if (m.get("phase") or "").upper() not in GROUP_PHASE:
+                continue
+            ko = self._kickoff_or_none(m)
+            sort_key = ko or datetime.max.replace(tzinfo=timezone.utc)
+            rows.append((sort_key, m))
+        rows.sort(key=lambda x: (x[0], int(x[1].get("match_number", 0))))
+        return rows
+
+    def _format_list_kickoff(self, match: dict) -> str:
+        ko_dt = self._kickoff_or_none(match)
+        if ko_dt is None:
+            return "—"
+        kick_local = ko_dt.astimezone(DISPLAY_TZ)
+        today = datetime.now(DISPLAY_TZ).date()
+        if kick_local.date() == today:
+            return kick_local.strftime("%H:%M")
+        return kick_local.strftime("%d/%m %H:%M")
+
+    def _match_list_status(self, match: dict, pred: dict | None) -> str:
+        if (match.get("status") or "").upper() == "FINISHED":
+            if pred:
+                icons = self._pred_icons(pred)
+                return f"✅ {pred['home_goals']}-{pred['away_goals']}{icons}"
+            return "🏁 Finalizado"
+        if self._veda_closed(match):
+            if pred:
+                icons = self._pred_icons(pred)
+                return f"✅ {pred['home_goals']}-{pred['away_goals']}{icons}"
+            return "🔒 Sin predecir (veda)"
+        if pred:
+            icons = self._pred_icons(pred)
+            return f"✅ {pred['home_goals']}-{pred['away_goals']}{icons}"
+        return "⏳ Sin predecir"
+
     def _veda_closed(self, match: dict) -> bool:
         if match.get("veda_active"):
             return True
-        kickoff = self._parse_kickoff(match.get("kickoff_utc", ""))
+        kickoff = self._kickoff_or_none(match)
+        if kickoff is None:
+            return False
         return datetime.now(timezone.utc) >= kickoff - timedelta(minutes=5)
 
     def validate_save(
@@ -191,7 +242,9 @@ class PredictionService:
         return msg, after_save_keyboard(match, group_id)
 
     def _minutes_to_veda(self, match: dict) -> str:
-        kickoff = self._parse_kickoff(match.get("kickoff_utc", ""))
+        kickoff = self._kickoff_or_none(match)
+        if kickoff is None:
+            return "—"
         veda_at = kickoff - timedelta(minutes=30)
         delta = veda_at - datetime.now(timezone.utc)
         if delta.total_seconds() <= 0:
@@ -205,7 +258,7 @@ class PredictionService:
     def _max_possible_points(self, ko_tie: bool) -> int:
         return 22 if ko_tie else 10
 
-    def list_partidos_view(self, user_id: str) -> tuple[str, dict | None]:
+    def list_partidos_view(self, user_id: str, *, page: int = 0) -> tuple[str, dict | None]:
         ok, code = self.check_can_predict(user_id)
         if not ok:
             if code == "NO_GROUP_MEMBERSHIP":
@@ -217,53 +270,50 @@ class PredictionService:
             return self.no_group_message()
 
         g = self._groups.get_group(gid) or {}
-        now = datetime.now(timezone.utc)
-        window_end = now + timedelta(hours=48)
-        rows: list[tuple[dict, dict | None, int]] = []
+        all_rows = self._group_stage_matches()
+        if not all_rows:
+            return (
+                "No hay partidos de fase de grupos cargados.\n"
+                "Un admin debe ejecutar el ingest del fixture (scripts/ingest_matches.py).",
+                None,
+            )
 
-        for m in self._matches.list_matches():
-            if m.get("status") == "FINISHED":
-                continue
-            ko = self._parse_kickoff(m.get("kickoff_utc", ""))
-            if ko > window_end:
-                continue
-            pred = self._preds.get_active(user_id, m["match_id"], gid)
-            closed = self._veda_closed(m)
-            rows.append((m, pred, int(m.get("match_number", 0))))
+        total = len(all_rows)
+        page_size = PARTIDOS_PAGE_SIZE
+        total_pages = max(1, (total + page_size - 1) // page_size)
+        page = max(0, min(page, total_pages - 1))
+        slice_rows = all_rows[page * page_size : (page + 1) * page_size]
 
-        rows.sort(key=lambda x: (self._parse_kickoff(x[0]["kickoff_utc"]), x[2]))
-        if not rows:
-            return "No hay partidos próximos en las próximas 48 h.", None
-
-        day_label = datetime.now(DISPLAY_TZ).strftime("%a %d %b")
-        lines = [f"⚽ Próximos partidos — {day_label}", f"👥 Grupo activo: {g.get('name', gid)}", ""]
+        lines = [
+            "⚽ Fase de grupos",
+            f"👥 Grupo activo: {g.get('name', gid)}",
+            f"📄 Página {page + 1}/{total_pages} · {total} partidos",
+            "",
+        ]
         buttons: list[list[dict[str, str]]] = []
         g8 = gid.replace("-", "")[:8]
 
-        for idx, (m, pred, num) in enumerate(rows[:12], start=1):
-            closed = self._veda_closed(m)
+        for idx, (_ko, m) in enumerate(slice_rows, start=1):
+            pred = self._preds.get_active(user_id, m["match_id"], gid)
             gl = m.get("group_letter") or "—"
-            kick_local = self._parse_kickoff(m["kickoff_utc"]).astimezone(DISPLAY_TZ)
-            time_s = kick_local.strftime("%H:%M")
-            if closed and not pred:
-                status = "🔒 Sin predecir (veda)"
-            elif pred:
-                icons = self._pred_icons(pred)
-                status = f"✅ {pred['home_goals']}-{pred['away_goals']}{icons}"
-            else:
-                status = "⏳ Sin predecir"
+            time_s = self._format_list_kickoff(m)
+            status = self._match_list_status(m, pred)
+            num = int(m.get("match_number", 0))
             lines.append(
                 f"{idx}️⃣  {m['home_team']} vs {m['away_team']}  │ Grupo {gl} │ {time_s}  {status}"
             )
-            if not closed:
+            if not self._veda_closed(m) and (m.get("status") or "").upper() != "FINISHED":
                 buttons.append(
                     [{"text": str(idx), "callback_data": f"prd:o:{num}:{g8}"}]
                 )
 
+        from src.services.prediction_telegram_ui import merge_button_rows, partidos_nav_keyboard
+
+        nav = partidos_nav_keyboard(page, total_pages, g8)
+        if nav:
+            buttons.append(nav)
         if len(self._predictable_groups(user_id)) > 1:
             buttons.append([{"text": "🔄 Cambiar grupo", "callback_data": f"prd:cg:{g8}"}])
-
-        from src.services.prediction_telegram_ui import merge_button_rows
 
         return "\n".join(lines), merge_button_rows(buttons)
 
@@ -326,8 +376,10 @@ class PredictionService:
         return "\n".join(lines) + ko_hint, score_picker_keyboard(match, num, g8)
 
     def _format_kickoff(self, match: dict) -> str:
-        dt = self._parse_kickoff(match["kickoff_utc"]).astimezone(DISPLAY_TZ)
-        return dt.strftime("%H:%M ARG")
+        ko = self._kickoff_or_none(match)
+        if ko is None:
+            return "—"
+        return ko.astimezone(DISPLAY_TZ).strftime("%H:%M ARG")
 
     def parse_predecir_command(self, text: str) -> tuple[str, int, int, str] | None:
         m = _PREDICT_CMD.match(text.strip())
@@ -387,9 +439,11 @@ class PredictionService:
             return "Partido no encontrado."
         if self._veda_closed(match):
             return "Veda activa."
-        self._preds.update_optional_fields(
+        updated = self._preds.update_optional_fields(
             user_id, match["match_id"], group_id, has_red_card=has_red
         )
+        if not updated:
+            return "No tenés predicción guardada para ese partido. Usá /partidos primero."
         label = "Sí, habrá roja" if has_red else "No habrá roja"
         return f"✅ Expulsión: {label} guardado."
 
