@@ -208,12 +208,37 @@ def _handle_callback_query(callback: dict, ok: dict) -> dict:
             reply, markup = handle_onboarding_callback(user_id, profile, data)
             _send_message(chat_id, reply, token, reply_markup=markup)
         elif data.startswith("grp:"):
+            cb_id = callback.get("id")
+            if cb_id:
+                _post_json(
+                    f"{TG_API}/bot{token}/answerCallbackQuery",
+                    {"callback_query_id": cb_id},
+                    timeout=5,
+                )
             from group_commands import handle_group_callback
 
-            result = handle_group_callback(user_id, data)
-            if result:
-                reply, markup = result
-                _send_message(chat_id, reply, token, reply_markup=markup)
+            try:
+                result = handle_group_callback(user_id, data)
+                if result:
+                    reply, markup = result
+                    if reply:
+                        _send_message(chat_id, reply, token, reply_markup=markup)
+                    else:
+                        logger.warning("grp callback empty reply data=%s", data[:40])
+                else:
+                    _send_message(
+                        chat_id,
+                        "No pude procesar esa acción. Probá de nuevo con /crear_grupo.",
+                        token,
+                    )
+            except Exception:
+                logger.exception("grp callback failed data=%s", data[:60])
+                _send_message(
+                    chat_id,
+                    "Hubo un error al guardar el grupo. Intentá de nuevo con /crear_grupo.",
+                    token,
+                )
+            return ok
         else:
             return ok
 
@@ -334,17 +359,6 @@ def handler(event: dict, context) -> dict:
                 _send_message(chat_id, onb_text, token, reply_markup=onb_markup)
                 return ok
 
-        if profile and (
-            profile.get("group_create_step") or profile.get("group_edit_pending")
-        ):
-            from group_commands import handle_group_pending_message
-
-            grp_result = handle_group_pending_message(user_id, profile, text)
-            if grp_result:
-                grp_text, grp_markup = grp_result
-                _send_message(chat_id, grp_text, token, reply_markup=grp_markup)
-                return ok
-
         try:
             from group_commands import handle_group_command
 
@@ -361,6 +375,17 @@ def handler(event: dict, context) -> dict:
                 token,
             )
             return ok
+
+        if profile and (
+            profile.get("group_create_step") or profile.get("group_edit_pending")
+        ):
+            from group_commands import handle_group_pending_message
+
+            grp_result = handle_group_pending_message(user_id, profile, text)
+            if grp_result and grp_result[0]:
+                grp_text, grp_markup = grp_result
+                _send_message(chat_id, grp_text, token, reply_markup=grp_markup)
+                return ok
 
         try:
             from trivia_prefetch import try_deliver_daily_trivia

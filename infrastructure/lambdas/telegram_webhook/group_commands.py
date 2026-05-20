@@ -89,7 +89,7 @@ def handle_group_callback(user_id: str, data: str) -> tuple[str, dict | None] | 
         try:
             inv = InvitationService().create_invitation(user_id, max_uses=5, group_id=gid)
             return (
-                f"🔗 Invitación creada ({inv['max_uses']} cupos):\n{inv.get('invite_url', '')}",
+                f"🔗 Invitación creada ({inv['max_uses']} cupos):\n{inv.get('link', inv.get('invite_url', ''))}",
                 None,
             )
         except ValueError as exc:

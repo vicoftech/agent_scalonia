@@ -163,7 +163,9 @@ class UserDAO:
         if set_parts:
             expr_parts.append("SET " + ", ".join(set_parts))
         if remove_parts:
-            expr_parts.append(" ".join(remove_parts))
+            # DynamoDB: una sola cláusula REMOVE attr1, attr2, ...
+            remove_attrs = [part.split(" ", 1)[1] for part in remove_parts]
+            expr_parts.append("REMOVE " + ", ".join(remove_attrs))
         if not expr_parts:
             return
         update_expr = " ".join(expr_parts)

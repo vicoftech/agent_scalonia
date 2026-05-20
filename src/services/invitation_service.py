@@ -59,7 +59,7 @@ class InvitationService:
         if not creator or creator.get("status") != USER_STATUS_ACTIVE:
             raise ValueError("Usuario no encontrado o inactivo")
 
-        if self._auth.is_admin_global(creator_user_id):
+        if self._auth.is_admin_global(creator_user_id) and not group_id:
             target_group_id = GLOBAL_GROUP_ID
         else:
             target_group_id = group_id or self._groups.get_owner_group_id(creator_user_id)

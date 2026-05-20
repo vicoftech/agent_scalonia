@@ -103,6 +103,7 @@ class GroupService:
                 "Para crear más:",
                 limit_reached_keyboard(),
             )
+        self._clear_create_state(user_id)
         self._users.update_profile(user_id, group_create_step="awaiting_name")
         return "¡Vamos a crear tu grupo! 🎉\n\n¿Cómo se va a llamar?", None
 
@@ -117,7 +118,10 @@ class GroupService:
         )
         from src.services.group_telegram_ui import avatar_picker_keyboard
 
-        return "Elegí un avatar para el grupo:", avatar_picker_keyboard()
+        return (
+            "Elegí un avatar para el grupo:\n(/cancel para salir)",
+            avatar_picker_keyboard(),
+        )
 
     def finish_create_group(self, user_id: str, avatar: str) -> str:
         profile = self._users.get_profile(user_id) or {}
@@ -147,9 +151,11 @@ class GroupService:
 
         from src.services.invitation_service import InvitationService
 
-        inv = InvitationService().create_invitation(user_id, max_uses=5, group_id=group["group_id"])
+        inv = InvitationService().create_invitation(
+            user_id, max_uses=5, group_id=group["group_id"]
+        )
         code = group.get("invite_code", "")
-        link = inv.get("invite_url") or self._invite_link(code)
+        link = inv.get("link") or inv.get("invite_url") or self._invite_link(inv["invite_id"])
 
         return (
             f'✅ Grupo "{draft_name}" creado\n\n'
@@ -351,9 +357,35 @@ class GroupService:
 
     def handle_pending_with_markup(
         self, user_id: str, text: str
-    ) -> tuple[str | None, dict | None]:
+    ) -> tuple[str, dict | None] | None:
+        """Respuesta solo si el mensaje pertenece al flujo pendiente; si no, None."""
         profile = self._users.get_profile(user_id) or {}
-        if profile.get("group_create_step") == "awaiting_name":
+        step = profile.get("group_create_step")
+        pending = profile.get("group_edit_pending")
+        low = text.strip().lower()
+
+        if low in ("/cancel", "/cancelar"):
+            if step or pending:
+                self._clear_create_state(user_id)
+                return "Creación/edición cancelada.", None
+            return None
+
+        if step == "awaiting_name":
             return self.submit_create_name(user_id, text)
-        msg = self.handle_pending_message(user_id, text)
-        return msg, None
+
+        if (pending or {}).get("action") == "rename":
+            msg = self.apply_rename(user_id, text)
+            return (msg, None) if msg else None
+
+        if step == "awaiting_avatar":
+            if text.strip().startswith("/"):
+                return None
+            from src.services.group_telegram_ui import avatar_picker_keyboard
+
+            return (
+                "Elegí un avatar con los botones de arriba 👆\n"
+                "O enviá /cancel para salir.",
+                avatar_picker_keyboard(),
+            )
+
+        return None
