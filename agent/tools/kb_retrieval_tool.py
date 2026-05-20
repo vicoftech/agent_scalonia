@@ -11,9 +11,13 @@ logger = logging.getLogger(__name__)
 @tool
 def kb_retrieval_tool(query: str, max_results: int = 5) -> str:
     """
-    Busca primero en la Knowledge Base (pgvector): historia, reglas, tácticas, cultura.
+    Busca primero en la Knowledge Base (pgvector): historia, reglas, tácticas, cultura y
+    fichas de las 48 selecciones del Mundial 2026 (DT, récord reciente, figuras, táctica, ligas).
 
-    Si no hay pasajes relevantes o la pregunta es comparativa/estadísticas/tendencias,
+    Usar para preguntas sobre un país/selección concreta antes que web. Incluí el nombre del
+    equipo y «Mundial 2026» en query si ayuda. max_results=8 si la pregunta es amplia (varios equipos).
+
+    Si no hay pasajes relevantes o la pregunta es comparativa en vivo / noticias recientes,
     hace fallback automático a búsqueda web (Tavily) y puede encolar enriquecimiento de KB.
 
     NO usar para fixture, horarios, rivales ni calendario — eso es match_tool.
