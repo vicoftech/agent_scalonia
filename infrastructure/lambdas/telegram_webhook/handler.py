@@ -207,6 +207,21 @@ def _handle_callback_query(callback: dict, ok: dict) -> dict:
             profile = UserDAO().get_profile(user_id) or {}
             reply, markup = handle_onboarding_callback(user_id, profile, data)
             _send_message(chat_id, reply, token, reply_markup=markup)
+        elif data.startswith("inv:"):
+            cb_id = callback.get("id")
+            if cb_id:
+                _post_json(
+                    f"{TG_API}/bot{token}/answerCallbackQuery",
+                    {"callback_query_id": cb_id},
+                    timeout=5,
+                )
+            from invitation_callbacks import handle_invitation_callback
+
+            result = handle_invitation_callback(user_id, data)
+            if result:
+                reply, markup = result
+                _send_message(chat_id, reply, token, reply_markup=markup)
+            return ok
         elif data.startswith("grp:"):
             cb_id = callback.get("id")
             if cb_id:
@@ -420,7 +435,11 @@ def handler(event: dict, context) -> dict:
 
             invite_reply = handle_invitation_command(user_id, text)
             if invite_reply:
-                _send_message(chat_id, invite_reply, token)
+                if isinstance(invite_reply, tuple):
+                    inv_text, inv_markup = invite_reply
+                else:
+                    inv_text, inv_markup = invite_reply, None
+                _send_message(chat_id, inv_text, token, reply_markup=inv_markup)
                 return ok
         except Exception:
             logger.exception("invitation_commands failed")

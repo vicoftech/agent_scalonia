@@ -52,6 +52,42 @@ def handle_start_command(chat_id: int, text: str) -> tuple[str, dict | None] | N
             if step == M1_STEP_LANG:
                 return "¿En qué idioma preferís que te responda?", language_keyboard()
             return m1_welcome_message(), None
+        if invite_id:
+            try:
+                result = invitations.accept_invitation_for_existing_user(
+                    existing["user_id"], invite_id
+                )
+            except ValueError as exc:
+                code = str(exc)
+                if code in (
+                    "INVITATION_NOT_USABLE",
+                    "INVITATION_NOT_ACTIVE",
+                    "INVITATION_INVALID",
+                ):
+                    return (
+                        "Esta invitación ya no está vigente. "
+                        "Pedile a quien te la mandó que genere una nueva.",
+                        None,
+                    )
+                if code == "INVITATION_EXPIRED":
+                    return (
+                        "Esta invitación expiró (tenía 24hs de vigencia). Pedí una nueva.",
+                        None,
+                    )
+                if code == "LIMIT_REACHED_INVITES":
+                    return (
+                        "El grupo ya no tiene cupo. Pedile al admin que amplíe el límite.",
+                        None,
+                    )
+                raise
+            name = result.get("group_name", "el grupo")
+            if result.get("joined_new"):
+                return (
+                    f'✅ Te sumamos a "{name}".\nUsá /grupos para ver tus grupos.',
+                    None,
+                )
+            return f'ℹ️ Ya formás parte de "{name}".', None
+
         alias = existing.get("alias", "jugador")
         return f"¡Hola de nuevo, {alias}! Ya estás registrado.", None
 

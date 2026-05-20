@@ -10,6 +10,14 @@ _CREAR = re.compile(r"^/crear[-_]grupo(?:@[\w_]+)?\s*$", re.IGNORECASE)
 _EDITAR = re.compile(r"^/editar[-_]grupo(?:@[\w_]+)?\s*$", re.IGNORECASE)
 _MIEMBROS = re.compile(r"^/miembros(?:@[\w_]+)?\s*$", re.IGNORECASE)
 _ADMIN = re.compile(r"^/admin[-_]grupos(?:@[\w_]+)?\s*$", re.IGNORECASE)
+_CREAR_PARA = re.compile(
+    r"^/crear[-_]grupo[-_]para(?:@[\w_]+)?\s+(\S+)\s*$",
+    re.IGNORECASE,
+)
+_AGREGAR = re.compile(
+    r"^/agregar[-_]miembro(?:@[\w_]+)?(?:\s+(\S+))?\s*$",
+    re.IGNORECASE,
+)
 
 
 def handle_group_command(user_id: str, text: str) -> tuple[str, dict | None] | None:
@@ -31,6 +39,28 @@ def handle_group_command(user_id: str, text: str) -> tuple[str, dict | None] | N
         if not AuthService().is_admin_global(user_id):
             return "Solo el admin global puede usar este comando.", None
         return svc.format_admin_groups_list(), None
+
+    m = _CREAR_PARA.match(text.strip())
+    if m:
+        try:
+            return svc.start_create_group_for_user(user_id, m.group(1))
+        except ValueError as exc:
+            return str(exc), None
+
+    m = _AGREGAR.match(text.strip())
+    if m:
+        alias = m.group(1)
+        if not alias:
+            return (
+                "Uso: /agregar-miembro <alias>\n"
+                "Ejemplo: /agregar-miembro vic",
+                None,
+            )
+        try:
+            return svc.begin_add_member_by_alias(user_id, alias)
+        except ValueError as exc:
+            return str(exc), None
+
     return None
 
 
@@ -82,14 +112,39 @@ def handle_group_callback(user_id: str, data: str) -> tuple[str, dict | None] | 
         gid = parts[2]
         return svc.format_members_list(user_id, gid), None
 
+    if len(parts) >= 3 and parts[1] == "addalias":
+        gid = parts[2]
+        svc._users.update_profile(user_id, group_add_member_group_id=gid)
+        return (
+            "Enviá /agregar-miembro <alias> para sumar a este grupo.\n"
+            "Ejemplo: /agregar-miembro vic",
+            None,
+        )
+
+    if len(parts) >= 3 and parts[1] == "add":
+        gid = parts[2]
+        alias = parts[3] if len(parts) > 3 else None
+        profile = svc._users.get_profile(user_id) or {}
+        alias = alias or profile.get("group_add_member_alias")
+        if not alias:
+            return "No encontré el alias. Usá /agregar-miembro <alias>.", None
+        try:
+            ok, msg = svc.add_member_by_alias(user_id, alias, group_id=gid)
+            return msg, None
+        except ValueError as exc:
+            return str(exc), None
+
     if len(parts) >= 3 and parts[1] == "inv":
         from src.services.invitation_service import InvitationService
 
         gid = parts[2]
         try:
-            inv = InvitationService().create_invitation(user_id, max_uses=5, group_id=gid)
+            inv = InvitationService().create_invitation(
+                user_id, max_uses=5, group_id=gid
+            )
             return (
-                f"🔗 Invitación creada ({inv['max_uses']} cupos):\n{inv.get('link', inv.get('invite_url', ''))}",
+                f"🔗 Invitación creada ({inv['max_uses']} cupos):\n"
+                f"{inv.get('link', inv.get('invite_url', ''))}",
                 None,
             )
         except ValueError as exc:

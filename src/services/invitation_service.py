@@ -117,40 +117,80 @@ class InvitationService:
             f"Cuando alguien lo use, te aviso. Podés cancelarla con /revocar {inv['invite_id']}"
         )
 
-    def validate_and_use(self, invite_id: str, new_user_id: str) -> dict:
+    def _load_active_invite(self, invite_id: str) -> dict:
         invite = self._invites.get(invite_id)
         if not invite:
             raise ValueError("INVITATION_INVALID")
-
         if invite.get("status") != "ACTIVE":
             raise ValueError("INVITATION_NOT_ACTIVE")
-
         if invite.get("expires_at", "") < _now_iso():
             self._invites.update_status(invite_id, "EXPIRED")
             raise ValueError("INVITATION_EXPIRED")
+        return invite
 
-        try:
-            updated = self._invites.increment_uses(invite_id)
-        except ValueError as exc:
-            if str(exc) == "INVITATION_NOT_USABLE":
-                raise ValueError("INVITATION_NOT_USABLE") from exc
-            raise
-
+    def _join_user_to_invite_group(
+        self, user_id: str, invite_id: str, invite: dict, *, consume_slot: bool
+    ) -> dict:
         group_id = invite["group_id"]
-        self._invites.record_use(invite_id, new_user_id, group_joined=group_id)
+        group_name = invite.get("group_name", group_id)
+        already_in_target = self._groups.is_member(group_id, user_id)
 
-        self._groups.add_member(group_id, new_user_id)
+        if already_in_target:
+            return {
+                "group_id": group_id,
+                "group_name": group_name,
+                "joined_new": False,
+            }
+
+        slots = self._auth.slots_available(group_id)
+        if slots is not None and slots <= 0:
+            raise ValueError("LIMIT_REACHED_INVITES")
+
+        updated = None
+        if consume_slot:
+            try:
+                updated = self._invites.increment_uses(invite_id)
+            except ValueError as exc:
+                if str(exc) == "INVITATION_NOT_USABLE":
+                    raise ValueError("INVITATION_NOT_USABLE") from exc
+                raise
+            self._invites.record_use(invite_id, user_id, group_joined=group_id)
+
+        self._groups.add_member(group_id, user_id)
         if group_id != GLOBAL_GROUP_ID:
-            self._groups.add_member(GLOBAL_GROUP_ID, new_user_id)
+            self._groups.add_member(GLOBAL_GROUP_ID, user_id)
 
-        if updated.get("status") == "EXHAUSTED":
+        if updated and updated.get("status") == "EXHAUSTED":
             self._notify_inviter_exhausted(updated)
 
         return {
             "group_id": group_id,
-            "group_name": invite.get("group_name", group_id),
-            "is_new_group_member": True,
-            "is_global_member": group_id == GLOBAL_GROUP_ID or True,
+            "group_name": group_name,
+            "joined_new": True,
+        }
+
+    def accept_invitation_for_existing_user(
+        self, user_id: str, invite_id: str, *, consume_slot: bool = True
+    ) -> dict:
+        """Usuario ACTIVE: unirse al grupo de la invitación sin crear USER# nuevo."""
+        creator = self._users.get_profile(user_id)
+        if not creator or creator.get("status") != USER_STATUS_ACTIVE:
+            raise ValueError("Usuario no encontrado o inactivo")
+        invite = self._load_active_invite(invite_id)
+        return self._join_user_to_invite_group(
+            user_id, invite_id, invite, consume_slot=consume_slot
+        )
+
+    def validate_and_use(self, invite_id: str, new_user_id: str) -> dict:
+        invite = self._load_active_invite(invite_id)
+        result = self._join_user_to_invite_group(
+            new_user_id, invite_id, invite, consume_slot=True
+        )
+        return {
+            "group_id": result["group_id"],
+            "group_name": result["group_name"],
+            "is_new_group_member": result["joined_new"],
+            "is_global_member": True,
         }
 
     def revoke_invitation(self, invite_id: str, revoker_user_id: str) -> bool:

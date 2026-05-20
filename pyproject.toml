@@ -37,6 +37,9 @@ build-backend = "poetry.core.masonry.api"
 testpaths    = ["tests"]
 asyncio_mode = "auto"
 addopts      = "--cov=src --cov=agent --cov-report=term-missing --cov-fail-under=80"
+markers      = [
+    "spec029: SPEC-2026-029 invitaciones avanzadas y grupos (contratos TDD)",
+]
 
 [tool.ruff]
 line-length = 100

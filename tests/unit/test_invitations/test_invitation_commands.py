@@ -4,18 +4,40 @@ from unittest.mock import MagicMock, patch
 from infrastructure.lambdas.telegram_webhook.invitation_commands import handle_invitation_command
 
 
-def test_invitar_command_creates_invitation():
-    mock_svc = MagicMock()
-    mock_svc.create_invitation.return_value = {"message": "✅ link https://t.me/bot?start=abc"}
-
-    with patch(
-        "infrastructure.lambdas.telegram_webhook.invitation_commands.InvitationService",
-        return_value=mock_svc,
+def test_invitar_command_shows_destination_keyboard():
+    with (
+        patch(
+            "infrastructure.lambdas.telegram_webhook.invitation_commands.AuthService"
+        ) as mock_auth,
+        patch(
+            "infrastructure.lambdas.telegram_webhook.invitation_commands.GroupDAO"
+        ) as mock_groups,
     ):
+        mock_auth.return_value.is_admin_global.return_value = True
+        mock_groups.return_value.get_owner_group_id.return_value = None
         reply = handle_invitation_command("user-1", "/invitar 2")
 
-    assert "link" in reply
-    mock_svc.create_invitation.assert_called_once_with("user-1", max_uses=2)
+    text, markup = reply
+    assert "GLOBAL" in text or "grupo destino" in text.lower()
+    assert markup is not None
+    assert any(
+        "inv:grp" in btn.get("callback_data", "")
+        for row in markup.get("inline_keyboard", [])
+        for btn in row
+    )
+
+
+def test_unirme_accepts_existing_user():
+    with patch(
+        "infrastructure.lambdas.telegram_webhook.invitation_commands.InvitationService"
+    ) as mock_svc:
+        mock_svc.return_value.accept_invitation_for_existing_user.return_value = {
+            "group_name": "Los Pibes",
+            "joined_new": True,
+        }
+        text, markup = handle_invitation_command("user-1", "/unirme inv12345")
+    assert markup is None
+    assert "Los Pibes" in text
 
 
 def test_non_command_returns_none():

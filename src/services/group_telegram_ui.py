@@ -42,6 +42,7 @@ def group_edit_menu_keyboard(group_id: str) -> dict:
             [{"text": "🎨 Cambiar avatar", "callback_data": f"grp:avpick:{group_id}"}],
             [{"text": "👥 Gestionar miembros", "callback_data": f"grp:members:{group_id}"}],
             [{"text": "🔗 Nueva invitación", "callback_data": f"grp:inv:{group_id}"}],
+            [{"text": "➕ Agregar por alias", "callback_data": f"grp:addalias:{group_id}"}],
             [{"text": "🗑️ Eliminar grupo", "callback_data": f"grp:del:ask:{group_id}"}],
             [{"text": "← Volver a /grupos", "callback_data": "grp:list"}],
         ],

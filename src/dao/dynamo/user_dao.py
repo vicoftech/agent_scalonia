@@ -175,6 +175,59 @@ class UserDAO:
             ExpressionAttributeNames=names,
             ExpressionAttributeValues=values,
         )
+    def find_by_alias(self, alias: str, *, limit: int = 10) -> list[dict[str, Any]]:
+        """Usuarios ACTIVE con alias (comparación case-insensitive, scan MVP)."""
+        needle = (alias or "").strip().lower()
+        if not needle:
+            return []
+        matches: list[dict[str, Any]] = []
+        scan_kwargs: dict[str, Any] = {
+            "FilterExpression": Attr("sort_key").eq("PROFILE") & Attr("alias").exists(),
+            "ProjectionExpression": "user_id, alias, #st, is_admin",
+            "ExpressionAttributeNames": {"#st": "status"},
+        }
+        while True:
+            resp = self._table.scan(**scan_kwargs)
+            for item in resp.get("Items", []):
+                if (item.get("alias") or "").strip().lower() == needle:
+                    if item.get("status") == "ACTIVE":
+                        matches.append(item)
+            if len(matches) >= limit or not resp.get("LastEvaluatedKey"):
+                break
+            scan_kwargs["ExclusiveStartKey"] = resp["LastEvaluatedKey"]
+        return matches[:limit]
+
+    def resolve_alias(self, alias: str) -> dict[str, Any] | None:
+        """Un único perfil ACTIVE; None si no existe."""
+        hits = self.find_by_alias(alias, limit=2)
+        if len(hits) == 1:
+            return self.get_profile(hits[0]["user_id"]) or hits[0]
+        return None
+
+    def find_alias_suggestions(self, alias: str, *, limit: int = 3) -> list[str]:
+        """Coincidencias parciales para mensajes de error."""
+        needle = (alias or "").strip().lower()
+        if len(needle) < 2:
+            return []
+        seen: list[str] = []
+        scan_kwargs: dict[str, Any] = {
+            "FilterExpression": Attr("sort_key").eq("PROFILE") & Attr("alias").exists(),
+            "ProjectionExpression": "alias, #st",
+            "ExpressionAttributeNames": {"#st": "status"},
+        }
+        while True:
+            resp = self._table.scan(**scan_kwargs)
+            for item in resp.get("Items", []):
+                if item.get("status") != "ACTIVE":
+                    continue
+                a = (item.get("alias") or "").strip()
+                if needle in a.lower() and a not in seen:
+                    seen.append(a)
+            if len(seen) >= limit or not resp.get("LastEvaluatedKey"):
+                break
+            scan_kwargs["ExclusiveStartKey"] = resp["LastEvaluatedKey"]
+        return seen[:limit]
+
     def alias_taken(self, alias: str, *, exclude_user_id: str | None = None) -> bool:
         """Unicidad de alias (scan MVP — pocos usuarios en dev)."""
         target = (alias or "").strip()

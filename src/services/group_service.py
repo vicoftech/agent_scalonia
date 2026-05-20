@@ -125,6 +125,9 @@ class GroupService:
 
     def finish_create_group(self, user_id: str, avatar: str) -> str:
         profile = self._users.get_profile(user_id) or {}
+        if profile.get("group_create_for_user_id"):
+            return self.finish_create_group_for_user(user_id, avatar)
+
         draft_name = (profile.get("group_draft_name") or "").strip()
         if not draft_name:
             self._clear_create_state(user_id)
@@ -184,6 +187,208 @@ class GroupService:
             group_create_step=None,
             group_draft_name=None,
             group_edit_pending=None,
+            group_create_for_user_id=None,
+            group_create_for_user_alias=None,
+            group_add_member_alias=None,
+            group_add_member_target_id=None,
+            group_add_member_group_id=None,
+        )
+
+    def resolve_alias_user(self, alias: str) -> dict:
+        """Perfil ACTIVE único por alias (SPEC-029)."""
+        target = (alias or "").strip()
+        if not target:
+            raise ValueError("Indicá un alias.")
+        profile = self._users.resolve_alias(target)
+        if profile:
+            if profile.get("status") != "ACTIVE":
+                raise ValueError(f'El usuario "{profile.get("alias", target)}" no está activo.')
+            return profile
+        suggestions = self._users.find_alias_suggestions(target)
+        if suggestions:
+            raise ValueError(
+                f'No encontré usuario con alias "{target}". '
+                f"¿Quisiste decir: {', '.join(suggestions)}?"
+            )
+        raise ValueError(f'No encontré usuario con alias "{target}".')
+
+    def add_member_by_alias(
+        self,
+        actor_id: str,
+        alias: str,
+        *,
+        group_id: str | None = None,
+    ) -> tuple[bool, str]:
+        target = self.resolve_alias_user(alias)
+        target_id = target["user_id"]
+        target_alias = target.get("alias", alias)
+
+        profile = self._users.get_profile(actor_id) or {}
+        gid = group_id or profile.get("group_add_member_group_id")
+        if not gid:
+            if self._auth.is_admin_global(actor_id):
+                raise ValueError(
+                    "Elegí el grupo en el menú (desde /agregar-miembro) o "
+                    "usá ➕ Agregar por alias en /editar-grupo."
+                )
+            gid = self.get_owned_group_id(actor_id)
+        if not gid:
+            return False, "Creá un grupo con /crear-grupo antes de agregar miembros."
+
+        if not self._can_manage(actor_id, gid):
+            return False, "Sin permiso para agregar miembros a este grupo."
+
+        g = self._groups.get_group(gid)
+        if not g or g.get("is_global"):
+            return False, "No podés agregar miembros al grupo GLOBAL así."
+
+        if self._groups.is_member(gid, target_id):
+            return True, f'ℹ️ {target_alias} ya está en "{g.get("name", gid)}".'
+
+        slots = self._auth.slots_available(gid)
+        if slots is not None and slots <= 0:
+            return False, "El grupo ya no tiene cupo disponible."
+
+        self._groups.add_member(gid, target_id)
+        if gid != GLOBAL_GROUP_ID:
+            self._groups.add_member(GLOBAL_GROUP_ID, target_id)
+
+        gname = g.get("name", gid)
+        self._users.update_profile(
+            actor_id,
+            group_add_member_group_id=None,
+            group_add_member_alias=None,
+            group_add_member_target_id=None,
+        )
+        return True, f'✅ {target_alias} sumado a "{gname}".'
+
+    def begin_add_member_by_alias(self, actor_id: str, alias: str) -> tuple[str, dict | None]:
+        """Resuelve alias; admin recibe teclado de grupos."""
+        target = self.resolve_alias_user(alias)
+        if self._auth.is_admin_global(actor_id):
+            from src.services.invitation_telegram_ui import add_member_group_pick_keyboard
+
+            groups = self._groups.list_active_groups(limit=12)
+            self._users.update_profile(
+                actor_id,
+                group_add_member_alias=target.get("alias", alias),
+                group_add_member_target_id=target["user_id"],
+            )
+            return (
+                f'¿A qué grupo sumamos a "{target.get("alias", alias)}"?',
+                add_member_group_pick_keyboard(groups, target.get("alias", alias)),
+            )
+        ok, msg = self.add_member_by_alias(actor_id, alias)
+        return msg, None
+
+    def create_group_for_user(
+        self,
+        admin_id: str,
+        *,
+        target_alias: str,
+        name: str,
+        avatar: str = "⚽",
+    ) -> str:
+        """Admin: crea grupo en un paso (tests / agent tool)."""
+        if not self._auth.is_admin_global(admin_id):
+            raise ValueError("Solo el admin global puede crear grupos en nombre de otro usuario.")
+        target = self.resolve_alias_user(target_alias)
+        tid = target["user_id"]
+        owned = self._groups.get_owner_group_id(tid)
+        if owned:
+            old = self._groups.get_group(owned) or {}
+            raise ValueError(
+                f'{target.get("alias", target_alias)} ya tiene un grupo propio '
+                f'("{old.get("name", owned)}").'
+            )
+        valid, n = self.validate_group_name(name)
+        if not valid:
+            raise ValueError(n)
+        group = self._groups.create_group(
+            owner_id=tid,
+            name=n,
+            avatar=avatar,
+            max_members=5,
+        )
+        self._groups.add_member(GLOBAL_GROUP_ID, tid)
+        self._users.update_profile(tid, groups_owned=1)
+        from src.services.invitation_service import InvitationService
+
+        inv = InvitationService().create_invitation(
+            admin_id, max_uses=5, group_id=group["group_id"]
+        )
+        link = inv.get("link") or self._invite_link(inv["invite_id"])
+        return (
+            f'✅ Grupo "{n}" creado para {target.get("alias", target_alias)}\n'
+            f"Link: {link}"
+        )
+
+    def start_create_group_for_user(self, admin_id: str, target_alias: str) -> tuple[str, dict | None]:
+        if not self._auth.is_admin_global(admin_id):
+            raise ValueError("Solo el admin global puede crear grupos en nombre de otro usuario.")
+        target = self.resolve_alias_user(target_alias)
+        tid = target["user_id"]
+        owned = self._groups.get_owner_group_id(tid)
+        if owned:
+            old = self._groups.get_group(owned) or {}
+            raise ValueError(
+                f'{target.get("alias", target_alias)} ya tiene un grupo propio '
+                f'("{old.get("name", owned)}"). Editá ese grupo o eliminálo primero.'
+            )
+        self._clear_create_state(admin_id)
+        self._users.update_profile(
+            admin_id,
+            group_create_step="awaiting_name",
+            group_create_for_user_id=tid,
+            group_create_for_user_alias=target.get("alias", target_alias),
+        )
+        label = target.get("alias", target_alias)
+        return (
+            f'Creando grupo para "{label}".\n\n¿Cómo se va a llamar el grupo?',
+            None,
+        )
+
+    def finish_create_group_for_user(self, admin_id: str, avatar: str) -> str:
+        profile = self._users.get_profile(admin_id) or {}
+        target_id = profile.get("group_create_for_user_id")
+        draft_name = (profile.get("group_draft_name") or "").strip()
+        target_alias = profile.get("group_create_for_user_alias", "el usuario")
+        if not target_id or not draft_name:
+            self._clear_create_state(admin_id)
+            return "No encontré el flujo de creación. Empezá con /crear-grupo-para <alias>."
+
+        group = self._groups.create_group(
+            owner_id=target_id,
+            name=draft_name,
+            avatar=avatar,
+            max_members=5,
+        )
+        self._groups.add_member(GLOBAL_GROUP_ID, target_id)
+        self._users.update_profile(
+            target_id,
+            groups_owned=1,
+        )
+        self._clear_create_state(admin_id)
+
+        from src.services.invitation_service import InvitationService
+
+        inv = InvitationService().create_invitation(
+            admin_id, max_uses=5, group_id=group["group_id"]
+        )
+        link = inv.get("link") or inv.get("invite_url") or self._invite_link(inv["invite_id"])
+
+        notify = ""
+        target_prof = self._users.get_profile(target_id) or {}
+        if target_prof.get("tg_chat_id"):
+            notify = (
+                f'\nSe notificó a "{target_alias}" por Telegram (si tiene el bot abierto).'
+            )
+
+        return (
+            f'✅ Grupo "{draft_name}" creado para {target_alias}\n\n'
+            f"Owner: {target_alias}\n"
+            f"Link de invitación (5 cupos):\n{link}"
+            f"{notify}"
         )
 
     def get_owned_group_id(self, user_id: str) -> str | None:
@@ -382,8 +587,11 @@ class GroupService:
                 return None
             from src.services.group_telegram_ui import avatar_picker_keyboard
 
+            who = ""
+            if profile.get("group_create_for_user_alias"):
+                who = f' para "{profile["group_create_for_user_alias"]}"'
             return (
-                "Elegí un avatar con los botones de arriba 👆\n"
+                f"Elegí un avatar para el grupo{who} 👆\n"
                 "O enviá /cancel para salir.",
                 avatar_picker_keyboard(),
             )

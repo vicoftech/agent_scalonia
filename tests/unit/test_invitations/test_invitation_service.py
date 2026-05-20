@@ -117,6 +117,9 @@ def test_validate_and_use_adds_global():
     inv_dao.increment_uses.return_value = {**invite, "uses_count": 1, "status": "EXHAUSTED"}
 
     group_dao = MagicMock()
+    group_dao.is_member.return_value = False
+    group_dao.get_group.return_value = {"group_id": "grp-1", "max_members": 10}
+    group_dao.count_members.return_value = 1
     svc = InvitationService(invitation_dao=inv_dao, group_dao=group_dao)
 
     result = svc.validate_and_use("inv12345", "user-new")

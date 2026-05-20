@@ -46,6 +46,7 @@ Leyenda: ✅ en código | 🚀 requiere deploy | ⚠️ parcial / solo unit | �
 | **R-18** | Predicciones + veda | Sprint 1 | `prediction_tool.py` existe | ❌ no en `agent/main` tools |
 | **R-19** | Rankings WS / daily job | Sprint 2–3 | stubs / schema Aurora | ❌ |
 | **R-20** | Microsoft Teams | Sprint 1 | — | ❌ |
+| **R-29** | Invitaciones avanzadas + grupos proxy | SPEC-029 | `accept_invitation` existente, `/invitar` multi-grupo, `/crear-grupo-para`, `/agregar-miembro` | ✅ 🚀 |
 
 ---
 
@@ -130,6 +131,21 @@ Prioridad: **P0** bloqueante | **P1** importante | **P2** menor
 | 3.2 | Invitado abre `/start <id>` | Alta ACTIVE; bienvenida **una vez** |
 | 3.3 | `/mis_invitaciones` (admin) | Lista invitaciones propias |
 | 3.4 | Cupo agotado | Mensaje claro; no crea usuario duplicado |
+
+### R-29 — Invitaciones avanzadas + grupos (P0) — SPEC-029
+
+> **Estado:** implementado en repo. Tests: `test_spec029_invitations_groups.py` (7 passed).
+
+| # | Escenario | Resultado esperado |
+|---|-----------|-------------------|
+| 29.1 | Admin `/invitar 2` | Link **GLOBAL** por defecto + teclado para elegir otro grupo |
+| 29.2 | Admin elige grupo G en teclado | Link con destino G; cupos correctos |
+| 29.3 | Usuario **ya registrado** abre deep link invitación | Se suma al grupo; **no** «Ya estás registrado» sin unir |
+| 29.4 | Usuario ya miembro abre mismo link | «Ya formás parte…»; no consume cupo |
+| 29.5 | Owner `/agregar-miembro vic` (vic existe) | Miembro agregado; cupo decrementado |
+| 29.6 | Admin `/crear-grupo-para vic` → nombre → avatar | Grupo owner=`vic`; admin no es owner |
+| 29.7 | Target con grupo FREE ya existente | Rechazo claro (MVP) |
+| 29.8 | Regresión admin sin group_id | Sigue siendo GLOBAL (`test_admin_invitar_without_group_id_targets_global`) |
 
 ### R-04 / R-05 — Onboarding (P0)
 
@@ -222,6 +238,8 @@ py -m pytest tests/smoke/ -q --no-cov
 |---------|--------|
 | `tests/unit/test_agent/` | echo, bedrock config, tools |
 | `tests/unit/test_invitations/` | invitaciones, auth gate, start |
+| `tests/unit/test_invitations/test_spec029_invitations_groups.py` | SPEC-029 contratos (skip hasta implementar) |
+| `tests/unit/test_groups/` | grupos MVP SPEC-026 |
 | `tests/unit/test_onboarding/` | servicio + handler |
 | `tests/unit/test_matches/` | fixture, fechas, intent |
 | `tests/unit/test_kb/` | resolve, web, chunking |
@@ -285,7 +303,9 @@ flowchart TD
 | `.cursor/rules/02-features.mdc` | Backlog completo por sprint |
 | `.cursor/rules/09-onboarding.mdc` | Onboarding |
 | `.cursor/rules/10-invitations.mdc` | Invitaciones |
+| [SPEC-2026-029](SPEC-2026-029-invitaciones-grupos-usuarios-existentes.md) | Invitar existentes, admin multi-grupo, crear-grupo-para |
 | `.cursor/rules/15-trivias.mdc` | Trivias |
+| `.cursor/rules/16-grupos.mdc` | Grupos MVP |
 
 ---
 
@@ -298,4 +318,4 @@ Actualizar esta spec cuando:
 - Se cierre un sprint con features antes ❌
 - Un issue de regresión (027, …) pase a “cerrado” tras deploy
 
-**Versión:** 2026-05-18 — baseline post onboarding + trivias + SPEC-027.
+**Versión:** 2026-05-18 — baseline post onboarding + trivias + SPEC-027; R-29 SPEC-029 añadido.

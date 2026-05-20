@@ -19,14 +19,20 @@ BOT_COMMANDS: list[dict[str, str]] = [
     {"command": "miembros", "description": "Ver miembros de tu grupo"},
     {"command": "trivia", "description": "Jugar una trivia (máx. 5 por día)"},
     {"command": "trivia_grupo", "description": "Publicar trivia a tu grupo (dueño)"},
-    {"command": "invitar", "description": "Crear invitación — ej. /invitar 5"},
+    {"command": "invitar", "description": "Crear invitación (elegís grupo destino)"},
     {"command": "mis_invitaciones", "description": "Ver tus invitaciones activas"},
+    {"command": "unirme", "description": "Unirte con código — ej. /unirme abc12345"},
+    {"command": "agregar_miembro", "description": "Sumar usuario por alias a tu grupo"},
 ]
 
 # Solo admin global (scope chat del admin o menú ampliado)
 ADMIN_COMMANDS: list[dict[str, str]] = [
     {"command": "trivia_admin", "description": "Trivia Experto para todos (solo admin)"},
     {"command": "admin_grupos", "description": "Panel de administración de grupos"},
+    {
+        "command": "crear_grupo_para",
+        "description": "Crear grupo en nombre de un alias — ej. /crear_grupo_para vic",
+    },
 ]
 
 
@@ -55,15 +61,18 @@ HELP_USER = """📖 Comandos del Prode Mundial 2026
 /trivia-grupo [tema] — Trivia a tu grupo (dueño)
 
 Invitaciones:
-/invitar <cupos> — Genera link de invitación a tu grupo
+/invitar <cupos> — Elegís grupo (admin: GLOBAL u otro) y generás el link
 /mis_invitaciones — Tus invitaciones activas
+/unirme <código> — Si ya tenés cuenta, unirte a un grupo con el código del link
+/agregar-miembro <alias> — Sumar a alguien que ya usa el bot (dueño del grupo)
 
 También podés hablar con el agente en lenguaje natural sobre partidos, fixture y reglas."""
 
 HELP_ADMIN_EXTRA = """
 Solo admin:
 /trivia-admin [tema] — Publica trivia Experto a todos
-/admin-grupos — Panel de administración de grupos"""
+/admin-grupos — Panel de administración de grupos
+/crear-grupo-para <alias> — Crear grupo en nombre de otro usuario (nombre + avatar)"""
 
 
 def register_bot_commands(
