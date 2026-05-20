@@ -17,6 +17,9 @@ BOT_COMMANDS: list[dict[str, str]] = [
     {"command": "crear_grupo", "description": "Crear tu grupo (plan Free: 1 máx.)"},
     {"command": "editar_grupo", "description": "Administrar tu grupo (solo dueño)"},
     {"command": "miembros", "description": "Ver miembros de tu grupo"},
+    {"command": "partidos", "description": "Ver partidos y predecir en tu grupo"},
+    {"command": "predecir", "description": "Marcador — ej. /predecir ARG 2-0 ALG"},
+    {"command": "completo", "description": "Variables opcionales de tu predicción"},
     {"command": "trivia", "description": "Jugar una trivia (máx. 5 por día)"},
     {"command": "trivia_grupo", "description": "Publicar trivia a tu grupo (dueño)"},
     {"command": "invitar", "description": "Crear invitación (elegís grupo destino)"},
@@ -57,6 +60,9 @@ HELP_USER = """📖 Comandos del Prode Mundial 2026
 /crear-grupo (o /crear_grupo) — Crear tu grupo (plan Free: 1 máximo)
 /editar-grupo — Administrar tu grupo (dueño)
 /miembros — Ver miembros de tu grupo
+/partidos — Fixture y botones para predecir (grupo activo)
+/predecir ARG 2-0 ALG — Marcador rápido
+/completo — Variables opcionales (expulsión, etc.)
 /trivia — Una ronda de trivia con botones A B C D (máx. 5/día)
 /trivia-grupo [tema] — Trivia a tu grupo (dueño)
 

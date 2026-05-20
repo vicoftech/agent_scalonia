@@ -1,51 +1,179 @@
-"""
-src/dao/dynamo/prediction_dao.py
-PK=USER#<userId>  SK=PRED#<matchId>
-SPEC: SPEC-2026-002 | TASK: TASK-004 | Modo: IA-Autonomous
-"""
-import os
-from dataclasses import dataclass
-from typing import Optional
-import boto3
-from boto3.dynamodb.conditions import Key, Attr
+"""Predicciones USER#/PRED#<match_id>#GROUP#<group_id> — SPEC-2026-021."""
+from __future__ import annotations
 
-TABLE_NAME = os.environ.get("DYNAMODB_TABLE", "ProdeTable")
+from datetime import datetime, timezone
+from typing import Any
+
+from boto3.dynamodb.conditions import Attr, Key
+
+from src.dao.dynamo.table import get_table
+
+STATUS_ACTIVE = "ACTIVE"
+STATUS_SUPERSEDED = "SUPERSEDED"
+STATUS_SCORED = "SCORED"
 
 
-@dataclass
-class Prediction:
-    user_id: str; match_id: str
-    home_goals: int; away_goals: int
-    status: str        # ACTIVE | SUPERSEDED | SCORED
-    created_at: str; updated_at: str
-    points_earned: Optional[int] = None
-    scoring_reason: Optional[str] = None
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def prediction_sk(match_id: str, group_id: str) -> str:
+    return f"PRED#{match_id}#GROUP#{group_id}"
 
 
 class PredictionDAO:
-    def __init__(self):
-        self._table = boto3.resource("dynamodb").Table(TABLE_NAME)
+    def __init__(self, table_name: str | None = None):
+        self._table = get_table(table_name)
 
     def check_veda_active(self, match_id: str) -> bool:
-        """SIEMPRE llamar antes de save_prediction. Fuente de verdad: DynamoDB."""
-        raise NotImplementedError("TASK-004")
+        resp = self._table.get_item(
+            Key={"partition_key": f"MATCH#{match_id}", "sort_key": "DETAILS"},
+            ProjectionExpression="veda_active",
+        )
+        item = resp.get("Item") or {}
+        return bool(item.get("veda_active"))
 
-    def save_prediction(self, user_id: str, match_id: str, home: int, away: int) -> Prediction:
-        """PutItem con ConditionExpression=attribute_not_exists. Idempotente."""
-        raise NotImplementedError("TASK-004")
+    def get_active(
+        self, user_id: str, match_id: str, group_id: str
+    ) -> dict[str, Any] | None:
+        resp = self._table.get_item(
+            Key={
+                "partition_key": f"USER#{user_id}",
+                "sort_key": prediction_sk(match_id, group_id),
+            },
+        )
+        item = resp.get("Item")
+        if item and item.get("status") == STATUS_ACTIVE:
+            return item
+        return None
 
-    def update_prediction(self, user_id: str, match_id: str, home: int, away: int) -> Prediction:
-        """Anterior → SUPERSEDED, nueva → ACTIVE. Solo si veda inactiva."""
-        raise NotImplementedError("TASK-004")
+    def list_user_predictions(
+        self, user_id: str, *, group_id: str | None = None, status: str | None = None
+    ) -> list[dict[str, Any]]:
+        filt = Attr("sort_key").begins_with("PRED#")
+        if group_id:
+            filt = filt & Attr("group_id").eq(group_id)
+        if status:
+            filt = filt & Attr("status").eq(status)
+        items: list[dict[str, Any]] = []
+        kwargs: dict[str, Any] = {
+            "KeyConditionExpression": Key("partition_key").eq(f"USER#{user_id}"),
+            "FilterExpression": filt,
+        }
+        while True:
+            resp = self._table.query(**kwargs)
+            items.extend(resp.get("Items", []))
+            if not resp.get("LastEvaluatedKey"):
+                break
+            kwargs["ExclusiveStartKey"] = resp["LastEvaluatedKey"]
+        return items
 
-    def get_prediction(self, user_id: str, match_id: str) -> Optional[Prediction]:
-        """GetItem directo. Sub-5ms."""
-        raise NotImplementedError("TASK-004")
+    def save_prediction(
+        self,
+        *,
+        user_id: str,
+        match_id: str,
+        group_id: str,
+        home_goals: int,
+        away_goals: int,
+        playoff_via: str | None = None,
+        playoff_winner: str | None = None,
+        scorer_name: str | None = None,
+        scorer_goals: int | None = None,
+        has_red_card: bool | None = None,
+        mvp_name: str | None = None,
+    ) -> dict[str, Any]:
+        """Nueva ACTIVE; anterior ACTIVE → SUPERSEDED."""
+        sk = prediction_sk(match_id, group_id)
+        existing = self.get_active(user_id, match_id, group_id)
+        now = _now_iso()
+        self._supersede_active(user_id, match_id, group_id, now)
 
-    def list_user_predictions(self, user_id: str) -> list[Prediction]:
-        """Query PK=USER#<userId> SK begins_with PRED#"""
-        raise NotImplementedError("TASK-004")
+        item = {
+            "partition_key": f"USER#{user_id}",
+            "sort_key": sk,
+            "user_id": user_id,
+            "match_id": match_id,
+            "group_id": group_id,
+            "home_goals": int(home_goals),
+            "away_goals": int(away_goals),
+            "playoff_via": playoff_via,
+            "playoff_winner": playoff_winner,
+            "scorer_name": scorer_name,
+            "scorer_goals": scorer_goals,
+            "has_red_card": has_red_card,
+            "mvp_name": mvp_name,
+            "status": STATUS_ACTIVE,
+            "created_at": (existing or {}).get("created_at", now),
+            "updated_at": now,
+            "points_earned": None,
+            "scoring_detail": None,
+        }
+        self._table.put_item(Item=item)
+        return item
 
-    def get_predictions_for_match(self, match_id: str) -> list[Prediction]:
-        """Query GSI-2-match-predictions. Para sync y notificaciones post-resultado."""
-        raise NotImplementedError("TASK-004")
+    def _supersede_active(
+        self, user_id: str, match_id: str, group_id: str, now: str
+    ) -> None:
+        sk = prediction_sk(match_id, group_id)
+        try:
+            self._table.update_item(
+                Key={"partition_key": f"USER#{user_id}", "sort_key": sk},
+                UpdateExpression="SET #st = :sup, updated_at = :now",
+                ConditionExpression="#st = :act",
+                ExpressionAttributeNames={"#st": "status"},
+                ExpressionAttributeValues={
+                    ":act": STATUS_ACTIVE,
+                    ":sup": STATUS_SUPERSEDED,
+                    ":now": now,
+                },
+            )
+        except Exception as exc:
+            if exc.__class__.__name__ != "ConditionalCheckFailedException":
+                raise
+
+    def update_optional_fields(
+        self, user_id: str, match_id: str, group_id: str, **fields: Any
+    ) -> dict[str, Any] | None:
+        pred = self.get_active(user_id, match_id, group_id)
+        if not pred:
+            return None
+        names: dict[str, str] = {"#u": "updated_at"}
+        values: dict[str, Any] = {":now": _now_iso()}
+        sets: list[str] = ["#u = :now"]
+        i = 0
+        for key, val in fields.items():
+            if val is None:
+                continue
+            attr = f"#f{i}"
+            val_a = f":v{i}"
+            names[attr] = key
+            values[val_a] = val
+            sets.append(f"{attr} = {val_a}")
+            i += 1
+        if i == 0:
+            return pred
+        self._table.update_item(
+            Key={
+                "partition_key": f"USER#{user_id}",
+                "sort_key": prediction_sk(match_id, group_id),
+            },
+            UpdateExpression="SET " + ", ".join(sets),
+            ExpressionAttributeNames=names,
+            ExpressionAttributeValues=values,
+        )
+        return self.get_active(user_id, match_id, group_id)
+
+    def get_predictions_for_match(self, match_id: str) -> list[dict[str, Any]]:
+        items: list[dict[str, Any]] = []
+        kwargs: dict[str, Any] = {
+            "IndexName": "GSI-2-match-predictions",
+            "KeyConditionExpression": Key("match_id").eq(match_id),
+        }
+        while True:
+            resp = self._table.query(**kwargs)
+            items.extend(resp.get("Items", []))
+            if not resp.get("LastEvaluatedKey"):
+                break
+            kwargs["ExclusiveStartKey"] = resp["LastEvaluatedKey"]
+        return [i for i in items if i.get("status") == STATUS_ACTIVE]

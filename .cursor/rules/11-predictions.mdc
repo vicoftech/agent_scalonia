@@ -1,0 +1,546 @@
+---
+description: SPEC-021 — Feature de Predicciones v2.0. Flujo UX validado en simulación prode-sim-v2.html. Predicciones por grupo (un usuario puede tener predicciones diferentes por grupo). Solo usuarios con al menos un grupo pueden predecir. Aplica cuando se trabaja en agent/tools/prediction_tool.py, src/services/prediction_service.py, src/dao/dynamo/prediction_dao.py o infrastructure/lambdas/prediction_flow/.
+globs: agent/tools/prediction_tool.py, src/services/prediction_service.py, src/dao/dynamo/prediction_dao.py, src/dao/aurora/prediction_repo.py, infrastructure/lambdas/prediction_flow/**/*.py
+alwaysApply: false
+---
+
+# SPEC-2026-021 — Feature de Predicciones v2.0
+
+**SPEC-ID**: SPEC-2026-021 | **Sprint**: Sprint 2 | **MVP Telegram**: implementado en repo (ver `docs/issues/SPEC-2026-021-predictions-mvp-run.md`)
+**Dependencias**: SPEC-2026-018 (auth), SPEC-2026-022 (scoring), SPEC-2026-026 (grupos)
+**Validado en**: simulación `prode-sim-v2.html` sección Predicciones
+
+---
+
+## Precondición crítica — quién puede predecir
+
+```python
+def check_can_predict(user_id: str) -> tuple[bool, str]:
+    """
+    SIEMPRE llamar antes de abrir cualquier flujo de predicción.
+    Retorna (True, "ok") o (False, reason_code).
+    """
+    user = user_dao.get_profile(user_id)
+    if user.status != "ACTIVE":
+        return False, "USER_INACTIVE"
+
+    # Debe pertenecer a AL MENOS UN grupo además del GLOBAL
+    groups = group_dao.list_user_groups(user_id)
+    if not any(not g.is_global for g in groups):
+        return False, "NO_GROUP_MEMBERSHIP"
+
+    return True, "ok"
+```
+
+Mensaje al usuario sin grupo:
+```
+⚠️ Para predecir necesitás pertenecer a al menos un grupo.
+
+[➕ Crear mi grupo]  [🔗 Unirme con código]
+```
+
+---
+
+## Predicciones por grupo — principio central
+
+El mismo usuario puede tener predicciones DISTINTAS para el mismo partido en cada grupo.
+
+```
+GolazoFan predice ARG vs ALG:
+  "Los Pibes del Laburo" → ARG 2-0 (Messi ×2, sin roja, MVP Messi)
+  "GLOBAL"               → ARG 1-0 (sin variables opcionales)
+```
+
+### Clave DynamoDB
+
+```
+PK: USER#<user_id>
+SK: PRED#<match_id>#GROUP#<group_id>
+```
+
+Esto garantiza independencia total entre grupos para el mismo partido.
+
+### Grupo activo en el flujo
+
+El bot siempre muestra en qué grupo está operando:
+
+```
+👥 Grupo activo: Los Pibes del Laburo
+[🔄 Cambiar grupo]
+```
+
+`[🔄 Cambiar grupo]` permite al usuario cambiar el contexto y predecir en otro grupo.
+
+---
+
+## Flujo 1 — /partidos
+
+**Lambda directa.** Query MATCH# por fecha + predicciones del usuario en el grupo activo.
+
+```
+/partidos
+
+⚽ Partidos de hoy — Jue 12 Jun
+👥 Grupo activo: Los Pibes del Laburo
+
+1️⃣  🇦🇷 ARG vs ALG 🇩🇿  │ Grupo J │ 00:00 ET   ⏳ Sin predecir
+2️⃣  🏴󠁧󠁢󠁥󠁮󠁧󠁿 ENG vs CRO 🇭🇷  │ Grupo L │ 19:00 ET   ⏳ Sin predecir
+3️⃣  🇺🇿 UZB vs COL 🇨🇴  │ Grupo K │ 16:00 ET   ✅ 2-1
+
+[1] [2] [3]
+[🔄 Cambiar grupo]
+```
+
+Estado de cada partido:
+- `⏳` sin predicción en el grupo activo, veda abierta
+- `✅ X-X` predicción ACTIVE (muestra marcador)
+- `🔒` veda activa sin predicción — al final de la lista, sin botón
+- Si tiene variables opcionales: `✅ 2-0 ⚽🟥⭐` (iconos de lo que predijo)
+
+---
+
+## Flujo 2 — tap en partido → marcadores sugeridos
+
+**Lambda directa.** Callback `predict_open:{match_num}:{group_id_short}`.
+
+```
+[tap en 1️⃣]
+
+🇦🇷 Argentina vs Argelia 🇩🇿
+Grupo J  │  AT&T Stadium · Dallas
+00:00 ET · Veda cierra en 3h 42min
+👥 Los Pibes del Laburo
+
+¿Cuánto terminan?
+[2-0] [1-0] [3-1] [1-1] [0-1] [✏️ Otro]
+
+💡 Fase eliminatoria: si predís empate se pide la definición
+   ← solo mostrar este aviso en partidos KO
+```
+
+Marcadores sugeridos: 5 resultados más probables calculados en Lambda
+por historial FIFA entre esos equipos. Fallback: `["1-0","2-0","1-1","2-1","0-1"]`.
+
+---
+
+## Flujo 3 — guardar predicción base
+
+**Lambda directa.**
+
+```
+[tap en 2-0]
+
+✅ Argentina 2 - 0 Argelia guardada
+👥 Los Pibes del Laburo
+Veda en 3h 40min  ·  Máx posible: 10 pts
+
+Para sumar hasta 8 pts extra: /completo
+─────────────────────────────────────
+[➡️ ENG vs CRO  19:00]  [🎯 /completo]
+```
+
+- Botón siguiente partido solo si hay otro sin predecir en el mismo grupo
+- `/completo` sugerido UNA SOLA VEZ — no se repite en mensajes siguientes
+- Si es el último partido del día → flujo de cierre de jornada
+
+---
+
+## Flujo 4 — eliminatorias con empate
+
+Si el usuario elige 0-0, 1-1, 2-2... en fase R16/QF/SF/FINAL:
+
+```
+[tap en 1-1]  ← partido QF
+
+Predijiste empate en fase eliminatoria.
+
+¿Cómo se define?
+[⏱️ Tiempo extra]  [🥅 Penales]
+
+¿Quién gana al final?
+[🏆 Equipo A]  [🏆 Equipo B]
+```
+
+Los dos pares de botones en el MISMO mensaje (dos filas).
+Solo cuando ambos están seleccionados → se guarda todo de una vez.
+
+```
+USUARIO: [🥅 Penales] + [🇦🇷 Argentina]
+
+✅ ARG 1-1 FRA → Penales → Argentina
+👥 Los Pibes del Laburo
+Máx posible: 22 pts ⭐
+
+Para sumar hasta 9 pts extra: /completo
+```
+
+Si elige victoria directa (ej: 2-0) → NO aparecen botones de vía.
+
+---
+
+## Flujo 5 — texto libre (agente)
+
+```
+[tap en ✏️ Otro]
+
+Escribí tu predicción:
+"ARG 3-1 ALG"  o  "gana 2 a 0"
+[input]  [→]
+
+USUARIO: "ponle 3 a 1 para Argentina con gol de Messi"
+
+AGENTE: [1.2s]
+        Entendí: Argentina 3 - 1 Argelia
+        [✅ Confirmar]  [Cambiar]
+```
+
+Si el agente detecta un jugador en el texto libre:
+
+```
+✅ Argentina 3 - 1 Argelia guardada
+
+Detecté que mencionaste a Messi.
+¿Cuántos goles hace?
+[1 gol +1pt]  [2 goles +3pts]  [No guardar]
+```
+
+El agente NUNCA guarda inferencias sin confirmar — siempre muestra lo que extrajo.
+
+---
+
+## Flujo 6 — /completo (variables opcionales)
+
+**Lambda directa.** Solo disponible con predicción ACTIVE y veda abierta.
+
+```
+/completo
+
+🎯 Completar — ARG vs ALG
+Argentina 2-0 Argelia ya guardada
+👥 Los Pibes del Laburo
+
+Variables opcionales — hasta +8 pts extra:
+[⚽ Goleador +3pts] [🟥 Expulsión +2pts] [⭐ MVP +3pts]
+[✅ Listo — sin opcionales]
+```
+
+### Sub-flujo goleador
+
+```
+[⚽ Goleador]
+
+¿Quién hace gol para Argentina?
+[Messi] [Lautaro] [Di María] [✏️ Otro]
+  ↑ favorite_player del perfil va primero si es del equipo
+
+[Messi seleccionado]
+
+¿Cuántos goles hace Messi?
+[1 gol  +1pt si marca] [2 goles  +3pts exacto] [3 goles  +3pts exacto]
+
+[2 goles seleccionado]
+
+⚽ Goleador: Messi × 2 guardado  (+3pts si acierta exacto)
+[🟥 Expulsión] [⭐ MVP] [✅ Listo]
+```
+
+### Sub-flujo expulsión
+
+```
+[🟥 Expulsión]
+
+¿Habrá expulsión en este partido?
+[🟥 Sí, habrá roja  +2pts]  [✅ No habrá  +1pt]
+
+[No habrá seleccionado]
+
+✅ Sin expulsiones guardado  (+1pt si no hay roja)
+[⭐ MVP] [✅ Listo]
+```
+
+### Sub-flujo MVP
+
+```
+[⭐ MVP]
+
+¿Quién será el jugador del partido?
+[Messi] [Lautaro] [Di María] [✏️ Otro]
+  ↑ si el usuario ya eligió goleador, ese jugador aparece primero
+
+[Messi seleccionado]
+
+⭐ MVP: Messi guardado  (+3pts si gana el premio)
+[✅ Listo]
+```
+
+### Confirmación final /completo
+
+```
+[✅ Listo]
+
+🎯 ARG 2-0 ALG — predicción completa
+👥 Los Pibes del Laburo
+
+Marcador:   Argentina 2 - 0 Argelia     hasta 10 pts
+Goleador:   Messi × 2                   hasta  3 pts
+Expulsión:  No habrá roja               hasta  1 pt
+MVP:        Messi                       hasta  3 pts
+────────────────────────────────────────────────────
+Máximo posible:                               17 pts ⭐
+
+Veda cierra en 3h 35min
+```
+
+---
+
+## Flujo 7 — modificar antes de veda
+
+```
+[tap en 3️⃣ UZB vs COL — ya predicha ✅]
+
+🔄 UZB vs COL — ya tenés guardado UZB 2-1 COL
+👥 Los Pibes del Laburo
+Veda cierra en 45min
+
+¿Querés cambiarla?
+[Sí, cambiar]  [No, mantener]
+
+[Sí, cambiar] → abre flujo normal
+→ confirmación: "UZB 3-0 COL  (antes: ~~2-1~~)"
+```
+
+La predicción anterior → status=SUPERSEDED. Nunca se borra.
+
+---
+
+## Flujo 8 — veda activa
+
+Mensaje proactivo cuando se activa la veda (EventBridge → Lambda → Telegram):
+
+```
+🎰 ¡NO VA MÁS!
+La veda para ARG vs ALG está activa
+El partido empieza en 5 minutos · 00:00 ET
+
+Tu predicción: ARG 2-0 ALG está guardada ✅
+           ← o: "No tenías predicción para este partido ⚠️"
+
+[Ver próximo partido: ENG vs CRO  19:00]
+```
+
+Si el usuario intenta predecir después de la veda:
+
+```
+⛔ La veda para ARG vs ALG está activa.
+El partido empieza en 4 minutos.
+Podés predecir los otros partidos de hoy:
+[2️⃣ ENG vs CRO  19:00 ⏳]
+```
+
+---
+
+## Flujo 9 — reminders (3 notificaciones)
+
+Solo para usuarios sin predicción en el partido en su grupo activo.
+
+```
+Reminder 1 — 30 min antes de la veda:
+┌──────────────────────────────────────┐  fondo amarillo #fef3c7
+│ ⏰ Quedan 30 min                    │
+│ Todavía podés predecir ARG vs ALG.  │
+│ Empieza a las 00:00 ET (01:00 ARG). │
+└──────────────────────────────────────┘
+[Predecir ahora]  [Snooze]
+
+Reminder 2 — 20 min antes:
+┌──────────────────────────────────────┐  fondo naranja #ffedd5
+│ ⚠️ Quedan 20 min                   │
+│ ARG vs ALG empieza en 25 minutos.   │
+│ ¡Última chance antes de la veda!    │
+└──────────────────────────────────────┘
+[¡Predecir ya!]  [Snooze]
+
+Reminder 3 — 10 min antes:
+┌──────────────────────────────────────┐  fondo rojo #fee2e2
+│ 🔴 ÚLTIMOS 10 MINUTOS              │
+│ La veda cierra en 10 minutos.       │
+│ Después no se puede predecir.       │
+└──────────────────────────────────────┘
+[⚡ ¡PREDECIR AHORA!]  [Snooze]
+```
+
+Si trivia pre-partido pendiente → se incluye al final del reminder (SPEC-025).
+Si predice entre el 1ro y el 2do → los siguientes NO se envían.
+Snooze: posterga 10 minutos. Máximo 1 snooze por reminder.
+
+---
+
+## Flujo 10 — cierre de jornada
+
+Al predecir el último partido sin predecir del día en el grupo activo:
+
+```
+✅ Ya predijiste todos los partidos de hoy
+👥 Los Pibes del Laburo
+
+🇦🇷 ARG vs ALG  →  ARG 2-0  │ Máx 17 pts
+🏴󠁧󠁢󠁥󠁮󠁧󠁿 ENG vs CRO  →  ENG 1-0  │ Máx 10 pts
+🇺🇿 UZB vs COL  →  UZB 2-1  │ Máx 10 pts ← ya tenías esta
+
+Mañana hay 4 partidos desde las 12:00 ET.
+```
+
+Sin botones adicionales. Solo resumen y próximo día.
+
+---
+
+## Flujo 11 — desglose de puntos post-resultado
+
+Enviado automáticamente al usuario cuando el partido termina y se procesa el scoring.
+
+```
+🏁 Resultado final — ARG vs ALG
+
+🇦🇷 Argentina  2 - 0  Argelia 🇩🇿
+Goles: Messi 45' · Lautaro 78' · MVP: Messi
+
+── Tu predicción en Los Pibes del Laburo ──
+
+✅ Marcador: ARG 2-0 (exacto)          +10 pts  ← verde
+✅ Goleador: Messi ×2 (exacto)          +3 pts  ← verde
+✅ Expulsión: No hubo roja              +1 pt   ← verde
+✅ MVP: Messi                           +3 pts  ← verde
+
+Puntos ganados: +17 pts 🎉
+Posición: #1 en Los Pibes del Laburo · #1 global 🔥
+```
+
+Colores según la simulación:
+- `hit` verde `#dcfce7` = acierto total
+- `neutral` gris `#f0f4f8` = acierto parcial (ej: goleador marca pero cantidad diferente)
+- `miss` rojo `#fee2e2` = error
+
+Si no tenía predicción:
+```
+😔 No tenías predicción para ARG vs ALG.
+No sumaste puntos este partido.
+Para el próximo: [⚽ ENG vs CRO  19:00]
+```
+
+---
+
+## Modelo DynamoDB
+
+```python
+{
+    "partition_key":  "USER#<user_id>",
+    "sort_key":       "PRED#<match_id>#GROUP#<group_id>",
+
+    # Identificación
+    "user_id":        "<uuid>",
+    "match_id":       "<uuid>",
+    "group_id":       "<uuid>",      # GLOBAL o id del grupo privado
+
+    # Resultado 90' (obligatorio)
+    "home_goals":     2,
+    "away_goals":     0,
+
+    # Playoffs (solo si empate en 90' en fases KO)
+    "playoff_via":    None,          # "ET" | "PENALTIES" | None
+    "playoff_winner": None,          # código FIFA | None
+
+    # Variables opcionales (/completo)
+    "scorer_name":    "Messi",       # None si no completó
+    "scorer_goals":   2,             # None si no completó
+    "has_red_card":   False,         # None si no completó
+    "mvp_name":       "Messi",       # None si no completó
+
+    # Estado
+    "status":         "ACTIVE",      # ACTIVE | SUPERSEDED | SCORED
+    "created_at":     "2026-06-12T...",
+    "updated_at":     "2026-06-12T...",
+
+    # Scoring (null hasta result_processed=True)
+    "points_earned":  None,
+    "scoring_detail": None,          # JSON del ScoringDetail completo
+}
+```
+
+### GSI-2-match-predictions (clave compuesta)
+
+```
+PK: match_id#group_id   SK: user_id
+```
+
+Permite listar todas las predicciones de un partido para un grupo específico.
+Usado por el scoring post-resultado y por el ranking del grupo.
+
+---
+
+## Callback data (límite 64 bytes Telegram)
+
+```
+predict_open:{match_num}:{grp8}
+predict_save:{match_num}:{score}:{grp8}
+predict_ko:{match_num}:{score}:{via}:{winner}:{grp8}
+completo_start:{match_num}:{grp8}
+scorer_p:{match_num}:{p_idx}:{grp8}
+scorer_g:{match_num}:{p_idx}:{goals}:{grp8}
+red_card:{match_num}:{bool}:{grp8}
+mvp_p:{match_num}:{p_idx}:{grp8}
+change_group:{grp8}
+```
+
+`grp8` = primeros 8 chars del group UUID. La Lambda resuelve el UUID completo.
+`p_idx` = índice en la lista de jugadores sugeridos (no el nombre — evita overflow).
+
+---
+
+## Validaciones en prediction_service
+
+```python
+def validate(input: PredictionInput, match: Match, user_id: str) -> ValidationResult:
+    """
+    Orden estricto:
+    1. check_can_predict(user_id) → USER_INACTIVE | NO_GROUP_MEMBERSHIP
+    2. veda_active=True en DynamoDB MATCH# → VEDA_ACTIVE (no escribir nunca)
+    3. kickoff_utc - now() <= 5min → safety net temporal
+    4. home_goals >= 0 AND away_goals >= 0
+    5. Fase KO AND empate → playoff_via + playoff_winner requeridos
+    6. Fase KO AND no empate → playoff_via ignorado silenciosamente
+    7. scorer_goals sin scorer_name → error
+    8. playoff_winner debe ser home_team o away_team del partido
+    """
+```
+
+---
+
+## Mapping determinístico / agéntico
+
+| Interacción | Tipo | Latencia |
+|-------------|------|---------|
+| `/partidos`, `/next` | Lambda | ~200ms |
+| Tap botón de partido | Lambda | ~200ms |
+| Tap marcador sugerido | Lambda | ~200ms |
+| Tap variable opcional | Lambda | ~200ms |
+| `/completo` | Lambda | ~200ms |
+| Cambiar grupo activo | Lambda | ~200ms |
+| `/predecir ARG 2-0 BRA` (regex exacto) | Lambda | ~200ms |
+| Texto libre con marcador | Agente | 1-3s |
+| Jugador detectado en texto | Agente + extracción | 1-3s |
+| "¿cómo juega Argelia?" | Agente + KB | 2-4s |
+
+---
+
+## Constraints
+
+- `check_can_predict()` siempre antes de abrir el flujo — sin grupo → redirigir a crear/unirse
+- `veda_active` verificado en DynamoDB antes de CUALQUIER escritura — safety net temporal adicional
+- SK `PRED#<match_id>#GROUP#<group_id>` garantiza independencia por grupo
+- `playoff_via` y `playoff_winner` ignorados si la predicción de 90' no es empate
+- Predicción anterior → SUPERSEDED — nunca se borra (historial completo siempre)
+- Desglose post-resultado enviado automáticamente (SQS fire-and-forget desde scoring_service)
+- Reminders cancelados si el usuario predice entre notificaciones
+- `/completo` solo si hay ACTIVE + veda abierta + grupo activo válido
+- El grupo activo se muestra siempre en cada mensaje del flujo — no dejar al usuario sin contexto
+- En KO con empate: via + ganador en EL MISMO mensaje (dos filas) — nunca en mensajes separados

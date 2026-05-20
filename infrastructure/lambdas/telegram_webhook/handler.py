@@ -222,6 +222,30 @@ def _handle_callback_query(callback: dict, ok: dict) -> dict:
                 reply, markup = result
                 _send_message(chat_id, reply, token, reply_markup=markup)
             return ok
+        elif data.startswith("prd:"):
+            cb_id = callback.get("id")
+            if cb_id:
+                _post_json(
+                    f"{TG_API}/bot{token}/answerCallbackQuery",
+                    {"callback_query_id": cb_id},
+                    timeout=5,
+                )
+            from prediction_callbacks import handle_prediction_callback
+
+            try:
+                result = handle_prediction_callback(user_id, data)
+                if result:
+                    reply, markup = result
+                    if reply:
+                        _send_message(chat_id, reply, token, reply_markup=markup)
+            except Exception:
+                logger.exception("prediction_callback failed data=%s", data[:60])
+                _send_message(
+                    chat_id,
+                    "No pude guardar la predicción. Probá de nuevo con /partidos.",
+                    token,
+                )
+            return ok
         elif data.startswith("grp:"):
             cb_id = callback.get("id")
             if cb_id:
@@ -426,6 +450,23 @@ def handler(event: dict, context) -> dict:
                 chat_id,
                 "No pude procesar la trivia en este momento. "
                 "Si acaba de desplegarse el bot, probá de nuevo en un minuto.",
+                token,
+            )
+            return ok
+
+        try:
+            from prediction_commands import handle_prediction_command
+
+            pred_reply = handle_prediction_command(user_id, text)
+            if pred_reply:
+                pred_text, pred_markup = pred_reply
+                _send_message(chat_id, pred_text, token, reply_markup=pred_markup)
+                return ok
+        except Exception:
+            logger.exception("prediction_commands failed")
+            _send_message(
+                chat_id,
+                "No pude procesar el comando de predicciones. Intentá /partidos.",
                 token,
             )
             return ok

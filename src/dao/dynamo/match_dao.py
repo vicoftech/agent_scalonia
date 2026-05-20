@@ -70,6 +70,16 @@ class MatchDAO:
             )
         return len(items)
 
+    def set_veda_active(self, match_id: str, *, active: bool) -> None:
+        self._table.update_item(
+            Key={"partition_key": f"MATCH#{match_id}", "sort_key": "DETAILS"},
+            UpdateExpression="SET veda_active = :v, updated_at = :now",
+            ExpressionAttributeValues={
+                ":v": active,
+                ":now": _now_iso(),
+            },
+        )
+
     def list_matches(self) -> list[dict[str, Any]]:
         """Scan de partidos (≤104 ítems — aceptable en MVP)."""
         items: list[dict[str, Any]] = []

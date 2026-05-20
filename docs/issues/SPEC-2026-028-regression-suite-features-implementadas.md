@@ -43,7 +43,7 @@ Leyenda: ✅ en código | 🚀 requiere deploy | ⚠️ parcial / solo unit | �
 | **R-15** | Rondas trivia unificadas | SPEC-025, 027 | play + broadcast cuentan `trivia_rounds_today` | ✅ 🚀 |
 | **R-16** | Sync Dynamo → Aurora | ADR-002 | `sync_dynamo_to_aurora` Lambda | ✅ ⚠️ (sin validación UI) |
 | **R-17** | Motor scoring (lógica) | SPEC-013 | `scoring_engine.py` | ✅ ⚠️ unit only |
-| **R-18** | Predicciones + veda | Sprint 1 | `prediction_tool.py` existe | ❌ no en `agent/main` tools |
+| **R-18** | Predicciones + veda | SPEC-021 | `prediction_service`, `/partidos`, `prd:*` | ✅ 🚀 (MVP Lambda; agent tool pendiente) |
 | **R-19** | Rankings WS / daily job | Sprint 2–3 | stubs / schema Aurora | ❌ |
 | **R-20** | Microsoft Teams | Sprint 1 | — | ❌ |
 | **R-29** | Invitaciones avanzadas + grupos proxy | SPEC-029 | `accept_invitation` existente, `/invitar` multi-grupo, `/crear-grupo-para`, `/agregar-miembro` | ✅ 🚀 |
@@ -131,6 +131,17 @@ Prioridad: **P0** bloqueante | **P1** importante | **P2** menor
 | 3.2 | Invitado abre `/start <id>` | Alta ACTIVE; bienvenida **una vez** |
 | 3.3 | `/mis_invitaciones` (admin) | Lista invitaciones propias |
 | 3.4 | Cupo agotado | Mensaje claro; no crea usuario duplicado |
+
+### R-30 — Predicciones MVP (P0) — SPEC-021
+
+| # | Escenario | Resultado esperado |
+|---|-----------|-------------------|
+| 30.1 | Usuario solo en GLOBAL | Mensaje «necesitás un grupo» |
+| 30.2 | `/partidos` con grupo privado | Lista + botones numéricos |
+| 30.3 | Tap marcador 2-0 | Guardada + grupo activo en mensaje |
+| 30.4 | Veda activa | No permite guardar |
+| 30.5 | `/predecir ARG 2-0 ALG` | Guarda si partido abierto |
+| 30.6 | `/completo` tras predicción | Menú variables (expulsión MVP) |
 
 ### R-29 — Invitaciones avanzadas + grupos (P0) — SPEC-029
 
@@ -240,6 +251,7 @@ py -m pytest tests/smoke/ -q --no-cov
 | `tests/unit/test_invitations/` | invitaciones, auth gate, start |
 | `tests/unit/test_invitations/test_spec029_invitations_groups.py` | SPEC-029 contratos (skip hasta implementar) |
 | `tests/unit/test_groups/` | grupos MVP SPEC-026 |
+| `tests/unit/test_predictions/` | predicciones SPEC-021 |
 | `tests/unit/test_onboarding/` | servicio + handler |
 | `tests/unit/test_matches/` | fixture, fechas, intent |
 | `tests/unit/test_kb/` | resolve, web, chunking |
