@@ -170,7 +170,7 @@ def _invoke_agent(user_id: str, session_id: str, prompt: str) -> str:
 
 
 def _handle_callback_query(callback: dict, ok: dict) -> dict:
-    """Botones inline: trivia (trv:) y onboarding (onb:)."""
+    """Botones inline: trivia (trv:), onboarding (onb:), grupos (grp:)."""
     try:
         data = callback.get("data") or ""
         chat_id = callback.get("message", {}).get("chat", {}).get("id")
@@ -207,6 +207,13 @@ def _handle_callback_query(callback: dict, ok: dict) -> dict:
             profile = UserDAO().get_profile(user_id) or {}
             reply, markup = handle_onboarding_callback(user_id, profile, data)
             _send_message(chat_id, reply, token, reply_markup=markup)
+        elif data.startswith("grp:"):
+            from group_commands import handle_group_callback
+
+            result = handle_group_callback(user_id, data)
+            if result:
+                reply, markup = result
+                _send_message(chat_id, reply, token, reply_markup=markup)
         else:
             return ok
 
@@ -310,6 +317,28 @@ def handler(event: dict, context) -> dict:
             if onb_text is not None:
                 _send_message(chat_id, onb_text, token, reply_markup=onb_markup)
                 return ok
+
+        if profile and (
+            profile.get("group_create_step") or profile.get("group_edit_pending")
+        ):
+            from group_commands import handle_group_pending_message
+
+            grp_result = handle_group_pending_message(user_id, profile, text)
+            if grp_result:
+                grp_text, grp_markup = grp_result
+                _send_message(chat_id, grp_text, token, reply_markup=grp_markup)
+                return ok
+
+        try:
+            from group_commands import handle_group_command
+
+            group_reply = handle_group_command(user_id, text)
+            if group_reply:
+                grp_text, grp_markup = group_reply
+                _send_message(chat_id, grp_text, token, reply_markup=grp_markup)
+                return ok
+        except Exception:
+            logger.exception("group_commands failed")
 
         try:
             from trivia_prefetch import try_deliver_daily_trivia

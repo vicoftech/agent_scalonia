@@ -1,0 +1,413 @@
+---
+description: SPEC-026 — Gestión de grupos. Usuario FREE (1 grupo, 5 miembros, avatar, renombrar, eliminar miembros). Admin global (grupos ilimitados, administrar grupos ajenos, suspender). Validado en simulación prode-sim-v2.html. Aplica cuando se trabaja en agent/tools/group_tool.py, src/services/group_service.py, src/dao/dynamo/group_dao.py.
+globs: agent/tools/group_tool.py, src/services/group_service.py, src/dao/dynamo/group_dao.py, src/services/auth_service.py
+alwaysApply: false
+---
+
+# SPEC-2026-026 — Gestión de Grupos
+
+**SPEC-ID**: SPEC-2026-026 | **Sprint**: Sprint 2
+**Dependencias**: SPEC-2026-018 (auth/tiers), SPEC-2026-020 (invitaciones)
+**Validado en**: simulación `prode-sim-v2.html` sección Grupos
+
+---
+
+## Permisos por rol
+
+| Acción | Usuario FREE | Group Owner | Admin global |
+|--------|-------------|-------------|--------------|
+| Crear grupo | ✓ (1 máx) | ya tiene 1 | ✓ ilimitado |
+| Renombrar su grupo | — | ✓ | ✓ cualquier grupo |
+| Cambiar avatar de su grupo | — | ✓ | ✓ cualquier grupo |
+| Ver miembros de su grupo | — | ✓ | ✓ cualquier grupo |
+| Eliminar miembro de su grupo | — | ✓ | ✓ cualquier grupo |
+| Generar invitación | — | ✓ (5 slots) | ✓ ilimitado |
+| Eliminar su grupo | — | ✓ | ✓ cualquier grupo |
+| Suspender grupo ajeno | ✗ | ✗ | ✓ |
+| Administrar grupo ajeno | ✗ | ✗ | ✓ |
+| Ver todos los grupos | ✗ | ✗ | ✓ |
+| Eliminar grupo GLOBAL | ✗ | ✗ | ✗ (nunca) |
+
+---
+
+## Flujo 1 — /grupos (lista)
+
+**Lambda directa.** Query GSI-3 por user_id → grupos donde es miembro o owner.
+
+```
+/grupos
+
+👥 Mis grupos
+
+🌐 Mundial 2026 — General          GLOBAL
+   247 miembros
+
+⚽ Los Pibes del Laburo             owner
+   4 miembros · código: AB3X9K     [✏️] [🗑️]
+
+[➕ Crear grupo]  [🔗 Unirme con código]
+```
+
+- Badge `GLOBAL` → sin botones de edición (no modificable por nadie excepto admin)
+- Badge `owner` → muestra botones ✏️ editar y 🗑️ eliminar
+- Badge `miembro` → sin botones de acción directa
+- Si el usuario FREE ya tiene 1 grupo propio → el botón "➕ Crear grupo" muestra la pantalla de límite alcanzado
+
+---
+
+## Flujo 2 — Crear grupo (usuario FREE)
+
+**Agente** — flujo conversacional con input de nombre y selección de emoji.
+
+### Caso A: primer grupo (permitido)
+
+```
+/crear-grupo
+
+BOT: ¡Vamos a crear tu grupo! 🎉
+     ¿Cómo se va a llamar?
+     [input text]
+
+USUARIO: Los Pibes del Laburo
+
+BOT: Elegí un avatar para el grupo:
+     [⚽] [🏆] [🔥] [🌟] [🎯] [💪] [🤙] [✏️ Otro]
+
+USUARIO: [⚽]
+
+BOT: ✅ Grupo "Los Pibes del Laburo" creado
+
+     ┌─────────────────────────────┐
+     │  Tu código de invitación:   │
+     │  AB3X9K                     │  ← 6 chars, fuente grande
+     │  Compartilo con hasta 5     │
+     │  amigos. El link directo:   │
+     │  t.me/ProdeBot?start=ab3x9k │
+     └─────────────────────────────┘
+
+     [Ver mis grupos]
+```
+
+El código de 6 chars se genera en el momento de creación.
+El link `t.me/ProdeBot?start=<code>` lleva al flujo de invitaciones (SPEC-020).
+
+### Caso B: límite alcanzado (ya tiene 1 grupo)
+
+```
+/crear-grupo
+
+BOT: Ya tenés un grupo propio ("Los Pibes del Laburo").
+     En el plan Free podés tener 1 grupo.
+     Para crear más:
+
+     [📩 Pedir al admin]  [Cancelar]
+
+USUARIO: [📩 Pedir al admin]
+
+BOT: Tu pedido fue enviado al admin.
+     Te avisamos cuando tengamos una respuesta.
+     Estado: Pendiente ⏳
+```
+
+Esto crea un `LIMIT_REQ#` en DynamoDB con `request_type=NEW_GROUP` (SPEC-018).
+
+---
+
+## Flujo 3 — Editar grupo
+
+**Lambda directa.** Solo el owner o el admin pueden acceder.
+
+```
+[tap en ✏️ en la lista de grupos]
+
+BOT: Editando "Los Pibes del Laburo"
+
+     [✏️ Cambiar nombre]
+     [🎨 Cambiar avatar]
+     [👥 Ver y gestionar miembros]
+     [🔗 Nueva invitación]
+     [← Volver]
+```
+
+### Sub-flujo: cambiar nombre
+
+```
+[tap en ✏️ Cambiar nombre]
+
+BOT: ¿Nuevo nombre para el grupo?
+     [input con el nombre actual pre-cargado]
+
+USUARIO: Los Cracks del Mundial
+
+BOT: ✅ Nombre actualizado a "Los Cracks del Mundial"
+```
+
+### Sub-flujo: cambiar avatar
+
+```
+[tap en 🎨 Cambiar avatar]
+
+BOT: Elegí el nuevo avatar:
+     [⚽] [🏆] [🔥] [🌟] [🎯] [💪] [🤙] [⭐] [✏️ Otro]
+
+USUARIO: [🏆]
+
+BOT: ✅ Avatar actualizado
+```
+
+### Sub-flujo: gestionar miembros
+
+```
+[tap en 👥 Ver y gestionar miembros]
+
+BOT: 👥 Los Pibes del Laburo — 4/5 miembros
+
+     ⚽ GolazoFan (vos — owner)
+     👤 Juampi            [🚫 Eliminar]
+     👤 Caro              [🚫 Eliminar]
+     👤 Nacho             [🚫 Eliminar]
+
+     Podés agregar 1 miembro más.
+     [🔗 Generar invitación]
+```
+
+### Sub-flujo: eliminar miembro
+
+```
+[tap en 🚫 Eliminar junto a Juampi]
+
+BOT: ¿Eliminás a Juampi del grupo?
+     Ya no podrá ver el ranking ni las predicciones del grupo.
+
+     [✅ Sí, eliminar]  [Cancelar]
+
+USUARIO: [✅ Sí, eliminar]
+
+BOT: ✅ Juampi fue eliminado del grupo.
+     Ahora tenés 3/5 miembros.
+     Podés invitar a 2 personas más.
+     [🔗 Generar invitación]
+```
+
+Cuando un miembro es eliminado:
+- Su membresía `GROUP#<id>/MEMBER#<user_id>` se elimina de DynamoDB
+- Sigue en el grupo GLOBAL (la eliminación es solo del grupo privado)
+- El owner puede volver a invitarlo si hay cupo disponible
+- Sus predicciones históricas del grupo se conservan (para el ranking histórico)
+- El slot liberado puede ser reutilizado inmediatamente
+
+---
+
+## Flujo 4 — Eliminar grupo
+
+```
+[tap en 🗑️ en la lista]
+
+BOT: ¿Seguro que querés eliminar "Los Pibes del Laburo"?
+     Los 4 miembros perderán acceso al ranking del grupo.
+     Esta acción no se puede deshacer.
+
+     [🗑️ Sí, eliminar]  [Cancelar]
+
+USUARIO: [🗑️ Sí, eliminar]
+
+BOT: ✅ Grupo "Los Pibes del Laburo" eliminado.
+```
+
+Al eliminar un grupo:
+- `GROUP#<id>/DETAILS` → status=DELETED (no se borra físicamente, para historial)
+- Todas las membresías `GROUP#<id>/MEMBER#*` se eliminan
+- Todas las invitaciones pendientes del grupo → status=REVOKED
+- Los miembros siguen en el grupo GLOBAL
+- Los rankings históricos del grupo se conservan en Aurora `ranking_history`
+
+---
+
+## Flujo 5 — Admin global: panel de administración
+
+El admin accede con `/admin-grupos` o tocando "Administrar" en cualquier grupo.
+
+```
+/admin-grupos
+
+BOT: 🔧 Panel Admin — Grupos
+
+     [🌐 Ver todos los grupos]
+     [🔍 Buscar grupo por nombre]
+     [📊 Estadísticas generales]
+```
+
+### Sub-flujo admin: ver todos los grupos
+
+```
+BOT: 📋 Todos los grupos (12 activos)
+
+     🌐 Mundial 2026 — General    247 miembros  GLOBAL
+     ⚽ Los Pibes del Laburo        4 miembros   owner: GolazoFan  [⚙️]
+     🏆 Team Cracks                 3 miembros   owner: Juampi     [⚙️]
+     🔥 Las Estrellas               2 miembros   owner: Caro       [⚙️]
+     ...
+
+     [← Anterior]  [Siguiente →]
+```
+
+### Sub-flujo admin: administrar grupo ajeno
+
+```
+[tap en ⚙️ junto a "Los Pibes del Laburo"]
+
+BOT: ⚙️ Administrando "Los Pibes del Laburo"
+     Owner: GolazoFan · 4 miembros · Activo
+
+     [✏️ Renombrar]
+     [🎨 Cambiar avatar]
+     [👥 Gestionar miembros]
+     [⏸️ Suspender grupo]
+     [🗑️ Eliminar grupo]
+     [← Volver]
+```
+
+### Sub-flujo admin: suspender grupo
+
+```
+[tap en ⏸️ Suspender grupo]
+
+BOT: ¿Suspendés "Los Pibes del Laburo"?
+     Los miembros no podrán ver el ranking ni interactuar en el grupo.
+     El owner puede solicitar la reactivación.
+
+     [⏸️ Sí, suspender]  [Cancelar]
+
+USUARIO: [⏸️ Sí, suspender]
+
+BOT: ✅ Grupo suspendido.
+     GolazoFan recibirá una notificación.
+     [🔄 Reactivar]  [🗑️ Eliminar definitivamente]
+```
+
+Al suspender:
+- `GROUP#<id>/DETAILS` → status=SUSPENDED
+- El owner recibe notificación con motivo (si el admin lo especifica)
+- Los miembros ven el grupo como "suspendido" en `/grupos`
+- Las predicciones e historial se conservan
+- El admin puede reactivar o eliminar definitivamente
+
+---
+
+## Modelo DynamoDB — campos nuevos en GROUP#/DETAILS
+
+```python
+{
+    "partition_key": "GROUP#<uuid>",
+    "sort_key":      "DETAILS",
+
+    # Existentes
+    "group_id":      "<uuid>",
+    "name":          "Los Pibes del Laburo",
+    "owner_id":      "<user_id>",
+    "invite_code":   "AB3X9K",
+    "max_members":   5,
+    "is_global":     False,
+
+    # Nuevos en SPEC-026
+    "avatar":        "⚽",                  # emoji del grupo (default ⚽)
+    "status":        "ACTIVE",              # ACTIVE | SUSPENDED | DELETED
+    "member_count":  4,                     # contador atómico (ADD en DynamoDB)
+    "suspended_at":  None,
+    "suspended_by":  None,                  # user_id del admin que suspendió
+    "deleted_at":    None,
+    "created_at":    "2026-06-12T...",
+    "updated_at":    "2026-06-12T...",
+}
+```
+
+### Operaciones atómicas en miembros
+
+```python
+# Al agregar miembro → ADD member_count 1
+# Al eliminar miembro → ADD member_count -1
+# NUNCA leer-modificar-escribir el member_count
+```
+
+---
+
+## Comandos disponibles
+
+| Comando | Quién puede | Descripción |
+|---------|------------|-------------|
+| `/grupos` | Todos | Lista de grupos donde participa |
+| `/crear-grupo` | Todos (límite FREE) | Crea un nuevo grupo |
+| `/editar-grupo` | Owner + Admin | Menú de edición del grupo |
+| `/miembros` | Owner + Admin | Ver y gestionar miembros |
+| `/admin-grupos` | Solo Admin | Panel de administración global |
+| `/invitar [N]` | Owner + Admin | Genera invitación (SPEC-020) |
+
+---
+
+## Gherkin — casos clave
+
+```gherkin
+SC-01: Usuario FREE sin grupos → /crear-grupo → escribe nombre → elige avatar
+  → GROUP#/DETAILS creado con status=ACTIVE, avatar, member_count=1
+  → invite_code de 6 chars generado
+  → link t.me/ProdeBot?start=<code> mostrado
+
+SC-02: Usuario FREE con 1 grupo → /crear-grupo
+  → mensaje de límite + [📩 Pedir al admin]
+  → tap en pedir → LIMIT_REQ# creado, admin notificado
+
+SC-03: Owner renombra grupo
+  → /editar-grupo → Cambiar nombre → "Nuevo nombre"
+  → UpdateItem GROUP#/DETAILS name="Nuevo nombre"
+  → confirmación ✅
+
+SC-04: Owner cambia avatar
+  → /editar-grupo → Cambiar avatar → tap en emoji
+  → UpdateItem GROUP#/DETAILS avatar="🏆"
+  → confirmación ✅
+
+SC-05: Owner elimina miembro
+  → /miembros → tap en 🚫 junto a Juampi → confirmar
+  → DELETE GROUP#<id>/MEMBER#<juampi_id>
+  → UpdateItem GROUP# member_count ADD -1 (atómico)
+  → Juampi sigue en GLOBAL, slot liberado
+
+SC-06: Owner puede re-invitar al miembro eliminado
+  → member_count < max_members → /invitar disponible
+  → nuevo invite_id generado → Juampi puede unirse de nuevo
+
+SC-07: Owner elimina su grupo
+  → /grupos → tap 🗑️ → confirmar
+  → UpdateItem GROUP# status=DELETED
+  → todas las membresías eliminadas
+  → invitaciones activas → REVOKED
+  → notificación a ex-miembros
+
+SC-08: Admin suspende grupo ajeno
+  → /admin-grupos → ⚙️ → Suspender → confirmar
+  → UpdateItem GROUP# status=SUSPENDED, suspended_by=admin_id
+  → owner recibe notificación de suspensión
+
+SC-09: Admin administra grupo ajeno
+  → /admin-grupos → ⚙️ → Gestionar miembros
+  → puede eliminar cualquier miembro del grupo
+  → puede renombrar y cambiar avatar
+
+SC-10: Grupo GLOBAL nunca puede eliminarse
+  → cualquier intento de eliminar GROUP#GLOBAL
+  → error: "El grupo GLOBAL no puede eliminarse"
+  → sin modificación en DynamoDB
+```
+
+---
+
+## Constraints
+
+- El grupo GLOBAL nunca puede suspenderse ni eliminarse — hardguard en group_service
+- `member_count` siempre se actualiza con `UpdateItem ADD` — nunca leer-modificar-escribir
+- Un grupo eliminado (status=DELETED) no aparece en `/grupos` pero se conserva en DynamoDB para historial
+- El owner eliminado de un grupo (si el admin lo elimina del grupo) mantiene el status de owner — el admin solo puede transferir ownership o eliminar el grupo
+- Al eliminar un miembro el slot se libera inmediatamente — se puede re-invitar
+- Las predicciones históricas del grupo se conservan aunque el miembro sea eliminado
+- El avatar solo acepta emojis del set predefinido + emoji personalizado (texto libre de 1-2 chars)
+- El nombre del grupo: 2-50 chars, sin caracteres especiales excepto espacios y guiones

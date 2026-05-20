@@ -8,8 +8,10 @@ logger = logging.getLogger(__name__)
 BOT_COMMANDS: list[dict[str, str]] = [
     {"command": "start", "description": "Registrarte o volver al inicio"},
     {"command": "help", "description": "Ver comandos disponibles"},
+    {"command": "grupos", "description": "Ver tus grupos"},
+    {"command": "crear_grupo", "description": "Crear tu grupo (Free: 1 máx.)"},
     {"command": "trivia", "description": "Jugar una trivia (máx. 5 por día)"},
-    {"command": "invitar", "description": "Crear invitación (admin): /invitar 5"},
+    {"command": "invitar", "description": "Crear invitación: /invitar 5"},
     {"command": "mis_invitaciones", "description": "Ver tus invitaciones activas"},
 ]
 
@@ -22,18 +24,22 @@ HELP_USER = """📖 Comandos del Prode Mundial 2026
 
 /start — Registro o bienvenida
 /help — Esta ayuda
+/grupos — Ver tus grupos
+/crear-grupo — Crear tu grupo (plan Free: 1 máximo)
+/editar-grupo — Administrar tu grupo (dueño)
+/miembros — Ver miembros de tu grupo
 /trivia — Una ronda de trivia con botones A B C D (máx. 5/día)
 
 Invitaciones:
-/invitar <cupos> — Solo admin: genera link de invitación
-/mis-invitaciones — Tus invitaciones activas
+/invitar <cupos> — Genera link de invitación a tu grupo
+/mis_invitaciones — Tus invitaciones activas
 
 También podés hablar con el agente en lenguaje natural sobre partidos, fixture y reglas."""
 
 HELP_ADMIN_EXTRA = """
 Solo admin:
-/trivia-admin [tema] — Publica trivia Experto a todos (ej. records, jugadores)
-  Temas: mundiales, records, jugadores, selecciones, reglas
+/trivia-admin [tema] — Publica trivia Experto a todos
+/admin-grupos — Panel de administración de grupos
 
 Dueño de grupo:
 /trivia-grupo [tema] — Trivia Intermedia a miembros del grupo"""
