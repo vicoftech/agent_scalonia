@@ -365,19 +365,36 @@ def handler(event: dict, context) -> dict:
         users_dao.set_telegram_chat_id(user_id, int(chat_id))
         profile = users_dao.get_profile(user_id) if user_id else None
 
-        low_text = text.strip().lower()
-        if low_text in ("/help", "help", "/ayuda", "ayuda"):
-            from bot_commands import handle_help_command, help_message, register_bot_commands
+        if user_id and profile and text.startswith("/"):
+            from shortcut_commands import should_refresh_bot_menu
 
-            if user_id and profile:
-                register_bot_commands(
+            if should_refresh_bot_menu(text):
+                from bot_commands import refresh_commands_for_chat
+
+                refresh_commands_for_chat(
                     token,
-                    chat_id=chat_id,
+                    chat_id,
                     is_admin=bool(profile.get("is_admin")),
                 )
+
+        low_text = text.strip().lower()
+        if low_text in ("/help", "help", "/ayuda", "ayuda"):
+            from bot_commands import handle_help_command, help_message
+
             help_text = handle_help_command(user_id) if user_id else help_message()
             _send_message(chat_id, help_text, token)
             return ok
+
+        try:
+            from shortcut_commands import handle_shortcut_command
+
+            shortcut_reply = handle_shortcut_command(user_id, text)
+            if shortcut_reply:
+                stext, smarkup = shortcut_reply
+                _send_message(chat_id, stext, token, reply_markup=smarkup)
+                return ok
+        except Exception:
+            logger.exception("shortcut_commands failed")
 
         onboarding_stage = (profile or {}).get("onboarding_stage", "?")
         first_post_start = (

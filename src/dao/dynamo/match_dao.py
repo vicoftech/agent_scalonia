@@ -52,6 +52,12 @@ class MatchDAO:
         )
         return resp.get("Item")
 
+    def get_result(self, match_id: str) -> dict[str, Any] | None:
+        resp = self._table.get_item(
+            Key={"partition_key": f"MATCH#{match_id}", "sort_key": "RESULT"},
+        )
+        return resp.get("Item")
+
     def get_by_match_number(self, match_number: int) -> dict[str, Any] | None:
         for m in self.list_matches():
             if int(m.get("match_number", -1)) == match_number:
