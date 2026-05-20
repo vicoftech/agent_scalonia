@@ -7,12 +7,16 @@ from infrastructure.lambdas.telegram_webhook.invitation_commands import handle_i
 def test_invitar_command_shows_destination_keyboard():
     with (
         patch(
+            "infrastructure.lambdas.telegram_webhook.invitation_commands.UserDAO"
+        ) as mock_users,
+        patch(
             "infrastructure.lambdas.telegram_webhook.invitation_commands.AuthService"
         ) as mock_auth,
         patch(
             "infrastructure.lambdas.telegram_webhook.invitation_commands.GroupDAO"
         ) as mock_groups,
     ):
+        mock_users.return_value.get_profile.return_value = {}
         mock_auth.return_value.is_admin_global.return_value = True
         mock_groups.return_value.get_owner_group_id.return_value = None
         reply = handle_invitation_command("user-1", "/invitar 2")

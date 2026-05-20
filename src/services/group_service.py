@@ -192,7 +192,11 @@ class GroupService:
             group_add_member_alias=None,
             group_add_member_target_id=None,
             group_add_member_group_id=None,
+            group_context_group_id=None,
         )
+
+    def _set_group_context(self, user_id: str, group_id: str) -> None:
+        self._users.update_profile(user_id, group_context_group_id=group_id)
 
     def resolve_alias_user(self, alias: str) -> dict:
         """Perfil ACTIVE único por alias (SPEC-029)."""
@@ -411,6 +415,7 @@ class GroupService:
             return "Este grupo está suspendido.", {}
         from src.services.group_telegram_ui import group_edit_menu_keyboard
 
+        self._set_group_context(user_id, gid)
         name = g.get("name", gid)
         return f'Editando "{name}"', group_edit_menu_keyboard(gid)
 
@@ -548,6 +553,24 @@ class GroupService:
         lines.append("\nTocá ⚙️ en Telegram (próximo paso) o usá callbacks del menú admin.")
         return "\n".join(lines)
 
+    def _handle_add_member_text(
+        self, user_id: str, text: str
+    ) -> tuple[str, dict | None] | None:
+        """Alias suelto tras «Agregar por alias» en menú del grupo (SPEC-029)."""
+        profile = self._users.get_profile(user_id) or {}
+        gid = profile.get("group_add_member_group_id")
+        if not gid:
+            return None
+        raw = (text or "").strip()
+        if not raw or raw.startswith("/"):
+            return None
+        try:
+            _, msg = self.add_member_by_alias(user_id, raw, group_id=gid)
+            menu_text, menu_kb = self.format_edit_menu(user_id, gid)
+            return f"{menu_text}\n\n{msg}", menu_kb
+        except ValueError as exc:
+            return str(exc), None
+
     def handle_pending_message(self, user_id: str, text: str) -> str | None:
         """Flujo crear-grupo o renombrar si hay estado pendiente."""
         profile = self._users.get_profile(user_id) or {}
@@ -573,7 +596,20 @@ class GroupService:
             if step or pending:
                 self._clear_create_state(user_id)
                 return "Creación/edición cancelada.", None
+            profile = self._users.get_profile(user_id) or {}
+            if profile.get("group_add_member_group_id"):
+                gid = profile.get("group_context_group_id") or profile.get(
+                    "group_add_member_group_id"
+                )
+                self._users.update_profile(user_id, group_add_member_group_id=None)
+                if gid:
+                    return self.format_edit_menu(user_id, gid)
+                return "Cancelado.", None
             return None
+
+        ctx_reply = self._handle_add_member_text(user_id, text)
+        if ctx_reply is not None:
+            return ctx_reply
 
         if step == "awaiting_name":
             return self.submit_create_name(user_id, text)

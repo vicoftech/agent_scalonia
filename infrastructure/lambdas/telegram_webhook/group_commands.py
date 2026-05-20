@@ -114,10 +114,12 @@ def handle_group_callback(user_id: str, data: str) -> tuple[str, dict | None] | 
 
     if len(parts) >= 3 and parts[1] == "addalias":
         gid = parts[2]
+        svc._set_group_context(user_id, gid)
         svc._users.update_profile(user_id, group_add_member_group_id=gid)
+        g = svc._groups.get_group(gid) or {}
         return (
-            "Enviá /agregar-miembro <alias> para sumar a este grupo.\n"
-            "Ejemplo: /agregar-miembro vic",
+            f'➕ Sumar usuario existente a "{g.get("name", gid)}"\n\n'
+            "Escribí el alias (ej: vic) o /cancel para volver al menú.",
             None,
         )
 
@@ -138,15 +140,13 @@ def handle_group_callback(user_id: str, data: str) -> tuple[str, dict | None] | 
         from src.services.invitation_service import InvitationService
 
         gid = parts[2]
+        svc._set_group_context(user_id, gid)
         try:
             inv = InvitationService().create_invitation(
                 user_id, max_uses=5, group_id=gid
             )
-            return (
-                f"🔗 Invitación creada ({inv['max_uses']} cupos):\n"
-                f"{inv.get('link', inv.get('invite_url', ''))}",
-                None,
-            )
+            _, kb = svc.format_edit_menu(user_id, gid)
+            return inv.get("message", inv.get("link", "")), kb
         except ValueError as exc:
             return str(exc), None
 

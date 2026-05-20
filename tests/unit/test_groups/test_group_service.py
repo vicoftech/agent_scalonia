@@ -75,6 +75,42 @@ def test_pending_cancel_clears_state(mock_user):
 
 
 @patch("src.services.group_service.GroupDAO")
+@patch("src.services.group_service.UserDAO")
+def test_add_member_plain_alias_after_menu(mock_user, mock_group):
+    mock_user.return_value.get_profile.return_value = {
+        "group_add_member_group_id": "g1",
+        "group_context_group_id": "g1",
+    }
+    mock_group.return_value.get_group.return_value = {
+        "group_id": "g1",
+        "name": "Los Pibes",
+        "owner_id": "u1",
+        "max_members": 10,
+        "is_global": False,
+        "status": "ACTIVE",
+    }
+    mock_group.return_value.is_member.return_value = False
+    mock_group.return_value.count_members.return_value = 2
+    target = {"user_id": "u2", "alias": "vic", "status": "ACTIVE"}
+    with patch.object(GroupService, "resolve_alias_user", return_value=target):
+        with patch.object(GroupService, "add_member_by_alias", return_value=(True, "✅ vic sumado")):
+            with patch.object(
+                GroupService,
+                "format_edit_menu",
+                return_value=('Editando "Los Pibes"', {"inline_keyboard": []}),
+            ):
+                svc = GroupService(
+                    group_dao=mock_group.return_value,
+                    user_dao=mock_user.return_value,
+                )
+                svc._auth = MagicMock()
+                svc._auth.is_admin_global.return_value = True
+                text, markup = svc._handle_add_member_text("u1", "vic")
+    assert "vic sumado" in text
+    assert markup is not None
+
+
+@patch("src.services.group_service.GroupDAO")
 def test_delete_global_forbidden(mock_group):
     mock_group.return_value.get_group.return_value = {
         "group_id": "GLOBAL",

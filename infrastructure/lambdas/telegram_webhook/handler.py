@@ -416,7 +416,9 @@ def handler(event: dict, context) -> dict:
             return ok
 
         if profile and (
-            profile.get("group_create_step") or profile.get("group_edit_pending")
+            profile.get("group_create_step")
+            or profile.get("group_edit_pending")
+            or profile.get("group_add_member_group_id")
         ):
             from group_commands import handle_group_pending_message
 

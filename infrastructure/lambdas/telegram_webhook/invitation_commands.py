@@ -4,6 +4,7 @@ from __future__ import annotations
 import re
 
 from src.dao.dynamo.group_dao import GroupDAO
+from src.dao.dynamo.user_dao import UserDAO
 from src.services.auth_service import AuthService
 from src.services.invitation_service import InvitationService
 from src.services.invitation_telegram_ui import invite_destination_keyboard
@@ -31,6 +32,18 @@ def handle_invitation_command(user_id: str, text: str) -> tuple[str, dict | None
                 "Creá un grupo antes de invitar (usá /crear-grupo).",
                 None,
             )
+        profile = UserDAO().get_profile(user_id) or {}
+        ctx_gid = profile.get("group_context_group_id")
+        if ctx_gid:
+            can_invite, _reason = auth.check_can_invite(user_id, ctx_gid)
+            if can_invite:
+                try:
+                    result = svc.create_invitation(
+                        user_id, max_uses=max_uses, group_id=ctx_gid
+                    )
+                    return result["message"], None
+                except ValueError as exc:
+                    return str(exc), None
         owner_group = groups.get_group(owner_gid) if owner_gid else None
         intro = (
             f"🔗 Invitaciones — {max_uses} cupo{'s' if max_uses != 1 else ''}\n\n"
