@@ -583,6 +583,8 @@ class PredictionService:
             if profile.get("prediction_wizard"):
                 return pw.wizard_cancel(self, user_id)
             return None
+        if (text or "").strip().startswith("/"):
+            return None
 
         result = pw.wizard_handle_text(self, user_id, text)
         if result is not None:

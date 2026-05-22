@@ -53,6 +53,17 @@ def _clear_wizard(svc: PredictionService, user_id: str) -> None:
     _set_wizard(svc, user_id, None)
 
 
+def abort_wizard_for_slash_command(svc: PredictionService, user_id: str, text: str) -> bool:
+    """Otros comandos (/partidos, etc.) cancelan el wizard sin mensaje."""
+    low = (text or "").strip().lower()
+    if not low.startswith("/") or low in ("/cancel", "/cancelar"):
+        return False
+    if not _wizard(svc._users.get_profile(user_id) or {}):
+        return False
+    _clear_wizard(svc, user_id)
+    return True
+
+
 def _players_for_match(match: dict, profile: dict) -> list[str]:
     home = (match.get("home_team") or "").upper()
     away = (match.get("away_team") or "").upper()
@@ -327,6 +338,8 @@ def wizard_begin_custom_score(
 def wizard_handle_text(
     svc: PredictionService, user_id: str, text: str
 ) -> tuple[str, dict | None] | None:
+    if (text or "").strip().startswith("/"):
+        return None
     profile = svc._users.get_profile(user_id) or {}
     w = _wizard(profile)
     if not w:

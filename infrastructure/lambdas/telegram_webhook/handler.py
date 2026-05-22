@@ -450,29 +450,32 @@ def handler(event: dict, context) -> dict:
             return ok
 
         if profile and profile.get("prediction_wizard"):
-            try:
-                from src.services.prediction_service import PredictionService
+            from src.services.prediction_service import PredictionService
+            from src.services.prediction_wizard import abort_wizard_for_slash_command
 
-                pred_pending = PredictionService().handle_pending_message(user_id, text)
-                if pred_pending:
-                    ptext, pmarkup = pred_pending
-                    _send_message(chat_id, ptext, token, reply_markup=pmarkup)
-                else:
+            pred_svc = PredictionService()
+            if not abort_wizard_for_slash_command(pred_svc, user_id, text):
+                try:
+                    pred_pending = pred_svc.handle_pending_message(user_id, text)
+                    if pred_pending:
+                        ptext, pmarkup = pred_pending
+                        _send_message(chat_id, ptext, token, reply_markup=pmarkup)
+                    else:
+                        _send_message(
+                            chat_id,
+                            "Seguís en una predicción. Escribí el marcador (ej: 0-1, 0:1) "
+                            "o enviá /cancel para salir.",
+                            token,
+                        )
+                    return ok
+                except Exception:
+                    logger.exception("prediction_pending_message failed")
                     _send_message(
                         chat_id,
-                        "Seguís en una predicción. Escribí el marcador (ej: 0-1, 0:1) "
-                        "o enviá /cancel para salir.",
+                        "No pude guardar la predicción. Probá de nuevo o /cancel.",
                         token,
                     )
-                return ok
-            except Exception:
-                logger.exception("prediction_pending_message failed")
-                _send_message(
-                    chat_id,
-                    "No pude guardar la predicción. Probá de nuevo o /cancel.",
-                    token,
-                )
-                return ok
+                    return ok
 
         if profile and (
             profile.get("group_create_step")

@@ -15,6 +15,9 @@ def handle_prediction_command(user_id: str, text: str) -> tuple[str, dict | None
     svc = PredictionService()
 
     if _PARTIDOS.match(text) or _NEXT.match(text):
+        from src.services.prediction_wizard import _clear_wizard
+
+        _clear_wizard(svc, user_id)
         return svc.list_partidos_view(user_id)
 
     if _COMPLETO.match(text):

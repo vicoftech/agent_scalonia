@@ -103,6 +103,14 @@ def test_ko_draw_requires_playoff_step():
     svc._preds.save_prediction.assert_not_called()
 
 
+def test_slash_command_does_not_parse_as_score():
+    svc = _svc()
+    pw.start_wizard(svc, "u1", 10, "grp-private")
+    assert pw.wizard_handle_text(svc, "u1", "/partidos") is None
+    assert pw.abort_wizard_for_slash_command(svc, "u1", "/partidos") is True
+    assert pw._wizard(svc._users.get_profile("u1") or {}) is None
+
+
 def test_skip_red_advances_to_scorer():
     svc = _svc()
     pw.start_wizard(svc, "u1", 10, "grp-private")
