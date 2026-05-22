@@ -74,7 +74,7 @@ class TestTrivia:
     (2, 0, 2, 0, "GROUP", 5, "EXACT_SCORE"),
     (0, 1, 0, 1, "GROUP", 5, "EXACT_SCORE"),
     (2, 0, 3, 1, "GROUP", 3, "CORRECT_WINNER_AND_DIFF"),
-    (0, 2, 0, 4, "GROUP", 3, "CORRECT_WINNER_AND_DIFF"),
+    (0, 2, 0, 4, "GROUP", 1, "CORRECT_WINNER_ONLY"),
     (2, 0, 1, 0, "GROUP", 1, "CORRECT_WINNER_ONLY"),
     (0, 1, 0, 3, "GROUP", 1, "CORRECT_WINNER_ONLY"),
     (1, 1, 2, 2, "GROUP", 1, "CORRECT_WINNER_ONLY"),

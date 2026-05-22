@@ -137,6 +137,13 @@ class PredictionService:
             return kick_local.strftime("%H:%M")
         return kick_local.strftime("%d/%m %H:%M")
 
+    def _format_button_date(self, match: dict) -> str:
+        """Fecha corta para botones inline (ej. 16/06)."""
+        ko_dt = self._kickoff_or_none(match)
+        if ko_dt is None:
+            return "—"
+        return ko_dt.astimezone(DISPLAY_TZ).strftime("%d/%m")
+
     def _match_list_status(self, match: dict, pred: dict | None) -> str:
         if (match.get("status") or "").upper() == "FINISHED":
             if pred:
@@ -295,25 +302,34 @@ class PredictionService:
             f"👥 Grupo activo: {g.get('name', gid)}",
             f"📄 Página {page + 1}/{total_pages} · {total} partidos",
             "",
+            "Elegí un partido:",
+            "⏳ sin predicción · ✅ ya predijiste · 🔒 veda o finalizado",
         ]
         buttons: list[list[dict[str, str]]] = []
         g8 = gid.replace("-", "")[:8]
 
-        for idx, (_ko, m) in enumerate(slice_rows, start=1):
-            pred = self._preds.get_active(user_id, m["match_id"], gid)
-            gl = m.get("group_letter") or "—"
-            time_s = self._format_list_kickoff(m)
-            status = self._match_list_status(m, pred)
-            num = int(m.get("match_number", 0))
-            lines.append(
-                f"{idx}️⃣  {self.format_match_title(m)}  │ Grupo {gl} │ {time_s}  {status}"
-            )
-            if not self._veda_closed(m) and (m.get("status") or "").upper() != "FINISHED":
-                buttons.append(
-                    [{"text": str(idx), "callback_data": f"prd:o:{num}:{g8}"}]
-                )
+        from src.services.prediction_telegram_ui import (
+            merge_button_rows,
+            partido_list_button_label,
+            partidos_nav_keyboard,
+        )
 
-        from src.services.prediction_telegram_ui import merge_button_rows, partidos_nav_keyboard
+        for _idx, (_ko, m) in enumerate(slice_rows, start=1):
+            pred = self._preds.get_active(user_id, m["match_id"], gid)
+            num = int(m.get("match_number", 0))
+            finished = (m.get("status") or "").upper() == "FINISHED"
+            is_predictable = not self._veda_closed(m) and not finished
+            label = partido_list_button_label(
+                m,
+                match_number=num,
+                group_letter=str(m.get("group_letter") or "—"),
+                date_label=self._format_button_date(m),
+                has_prediction=pred is not None,
+                is_predictable=is_predictable,
+            )
+            buttons.append(
+                [{"text": label, "callback_data": f"prd:o:{num}:{g8}"}]
+            )
 
         nav = partidos_nav_keyboard(page, total_pages, g8)
         if nav:
@@ -333,20 +349,55 @@ class PredictionService:
             parts.append("⭐")
         return " " + "".join(parts) if parts else ""
 
+    def _match_has_final_result(self, match: dict) -> bool:
+        if (match.get("status") or "").upper() == "FINISHED":
+            return True
+        res = self._matches.get_result(match["match_id"])
+        if not res:
+            return False
+        return (
+            res.get("result_90min_home") is not None
+            or res.get("result_final_home") is not None
+        )
+
+    def format_finished_match_view(
+        self, user_id: str, match: dict, group_id: str
+    ) -> tuple[str, dict | None]:
+        gid = group_id or self.get_active_group_id(user_id)
+        if not gid:
+            return self.no_group_message()
+        gname = (self._groups.get_group(gid) or {}).get("name", gid)
+        pred = self._preds.get_for_group(user_id, match["match_id"], gid)
+        result = self._matches.get_result(match["match_id"])
+        from src.services.prediction_result_report import format_finished_match_report
+
+        text = format_finished_match_report(
+            match,
+            group_name=gname,
+            result=result,
+            prediction=pred,
+        )
+        return text, None
+
     def open_match_picker(
         self, user_id: str, match_number: int, group_id: str
     ) -> tuple[str, dict | None]:
         match = self._matches.get_by_match_number(match_number)
         if not match:
             return "Partido no encontrado.", None
+
+        gid = group_id or self.get_active_group_id(user_id)
+        if not gid:
+            return self.no_group_message()
+
+        if self._match_has_final_result(match):
+            return self.format_finished_match_view(user_id, match, gid)
+
         if self._veda_closed(match):
             return (
                 f"⛔ La veda para {self.format_match_title(match)} está activa.",
                 None,
             )
-        gid = group_id or self.get_active_group_id(user_id)
-        if not gid:
-            return self.no_group_message()
 
         existing = self._preds.get_active(user_id, match["match_id"], gid)
         gname = (self._groups.get_group(gid) or {}).get("name", gid)

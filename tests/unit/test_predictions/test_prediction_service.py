@@ -111,15 +111,23 @@ def test_parse_predecir_command():
     assert parsed == ("ARG", 2, 0, "ALG")
 
 
+def _first_match_button_text(markup: dict) -> str:
+    return markup["inline_keyboard"][0][0]["text"]
+
+
 def test_list_partidos_includes_far_future_group_match():
     far = (_NOW + timedelta(days=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
     matches = MagicMock()
     matches.list_matches.return_value = [_match(kickoff_utc=far, match_number=1)]
     svc = _svc(match_dao=matches)
     text, markup = svc.list_partidos_view("u1")
-    assert "ARG" in text
     assert "Fase de grupos" in text
+    assert "Elegí un partido" in text
     assert markup is not None
+    btn = _first_match_button_text(markup)
+    assert "Match #1" in btn
+    assert "ARG" in btn and "ALG" in btn
+    assert "⏳" in btn
 
 
 def test_list_partidos_excludes_knockout():
@@ -152,10 +160,13 @@ def test_list_partidos_pagination():
     text0, kb0 = svc.list_partidos_view("u1", page=0)
     text1, kb1 = svc.list_partidos_view("u1", page=1)
     assert "Página 1/2" in text0
-    assert "T1" in text0
-    assert "T9" not in text0
+    assert "T1" not in text0
     assert "Página 2/2" in text1
-    assert "T9" in text1
+    page0_btns = [b["text"] for row in kb0["inline_keyboard"] for b in row if "prd:o:" in b.get("callback_data", "")]
+    page1_btns = [b["text"] for row in kb1["inline_keyboard"] for b in row if "prd:o:" in b.get("callback_data", "")]
+    assert any("T1" in t for t in page0_btns)
+    assert not any("T9" in t for t in page0_btns)
+    assert any("T9" in t for t in page1_btns)
     def _nav_row(kb: dict) -> list[dict]:
         for row in kb["inline_keyboard"]:
             if any("prd:pg:" in b.get("callback_data", "") for b in row):

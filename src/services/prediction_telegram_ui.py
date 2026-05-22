@@ -3,6 +3,10 @@ from __future__ import annotations
 
 from typing import Any
 
+from src.services.team_flags import flag_emoji
+
+TELEGRAM_INLINE_BUTTON_TEXT_MAX = 64
+
 KO_PHASES = frozenset(
     {"R16", "ROUND_OF_32", "ROUND_OF_16", "QF", "QUARTER_FINAL", "SF", "SEMI_FINAL", "FINAL", "THIRD_PLACE"}
 )
@@ -10,6 +14,49 @@ KO_PHASES = frozenset(
 
 def merge_button_rows(rows: list[list[dict[str, str]]]) -> dict:
     return {"inline_keyboard": rows}
+
+
+def _fit_button_label(text: str, *, max_len: int = TELEGRAM_INLINE_BUTTON_TEXT_MAX) -> str:
+    if len(text) <= max_len:
+        return text
+    return text[: max_len - 1] + "…"
+
+
+def partido_list_button_label(
+    match: dict,
+    *,
+    match_number: int,
+    group_letter: str,
+    date_label: str,
+    has_prediction: bool,
+    is_predictable: bool,
+) -> str:
+    """
+    Etiqueta de un partido en /partidos (máx. 64 caracteres Telegram).
+    Ej.: Match #1 🇦🇷 ARG vs 🇩🇿 ALG | Grupo J | 16/06 | ⏳
+    """
+    home = (match.get("home_team") or "???").upper()[:3]
+    away = (match.get("away_team") or "???").upper()[:3]
+    gl = (group_letter or "—").strip().upper()[:1]
+    if has_prediction:
+        status_icon = "✅"
+    elif is_predictable:
+        status_icon = "⏳"
+    else:
+        status_icon = "🔒"
+
+    label = (
+        f"Match #{match_number} {flag_emoji(home)} {home} vs "
+        f"{flag_emoji(away)} {away} | Grupo {gl} | {date_label} | {status_icon}"
+    )
+    if len(label) <= TELEGRAM_INLINE_BUTTON_TEXT_MAX:
+        return label
+
+    compact = (
+        f"#{match_number} {flag_emoji(home)}{home} v {flag_emoji(away)}{away} "
+        f"| G{gl} | {date_label} | {status_icon}"
+    )
+    return _fit_button_label(compact)
 
 
 def partidos_nav_keyboard(page: int, total_pages: int, grp8: str) -> list[dict[str, str]] | None:

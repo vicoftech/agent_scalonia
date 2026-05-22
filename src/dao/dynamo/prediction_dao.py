@@ -36,16 +36,30 @@ class PredictionDAO:
     def get_active(
         self, user_id: str, match_id: str, group_id: str
     ) -> dict[str, Any] | None:
+        item = self._get_item(user_id, match_id, group_id)
+        if item and item.get("status") == STATUS_ACTIVE:
+            return item
+        return None
+
+    def get_for_group(
+        self, user_id: str, match_id: str, group_id: str
+    ) -> dict[str, Any] | None:
+        """Predicción vigente (ACTIVE o SCORED), no SUPERSEDED."""
+        item = self._get_item(user_id, match_id, group_id)
+        if item and item.get("status") != STATUS_SUPERSEDED:
+            return item
+        return None
+
+    def _get_item(
+        self, user_id: str, match_id: str, group_id: str
+    ) -> dict[str, Any] | None:
         resp = self._table.get_item(
             Key={
                 "partition_key": f"USER#{user_id}",
                 "sort_key": prediction_sk(match_id, group_id),
             },
         )
-        item = resp.get("Item")
-        if item and item.get("status") == STATUS_ACTIVE:
-            return item
-        return None
+        return resp.get("Item")
 
     def list_user_predictions(
         self, user_id: str, *, group_id: str | None = None, status: str | None = None

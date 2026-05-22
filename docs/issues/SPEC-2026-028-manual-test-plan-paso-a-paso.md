@@ -137,6 +137,7 @@
 | 5.3 | Tocá **◀️ Anterior** (si apareció) | Vuelve a página 1 |
 | 5.4 | Tocá el **número** de un partido con veda abierta (no "Finalizado") | Pantalla del partido + botones de marcador (0-0, 1-0, 2-0, etc.) |
 | 5.5 | Tocá **2-0** (o otro marcador) | "Predicción rápida guardada" + banderas; botones "Listo" y "Predicción completa" |
+| 5.5b | Tocá un partido **finalizado** (🔒 en el botón) | Desglose: tu predicción vs resultado + puntos (5/3/1/0) y motivo si no sumaste |
 | 5.6 | Tocá **⚡ Listo (solo resultado)** | Confirmación; no obliga wizard |
 | 5.7 | Anotá número de partido y equipos del paso 5.4 | Para verificar después |
 | 5.8 | (Opcional) Repetí 5.4–5.5 en otro partido: tocá **✏️ Otro marcador** → escribí `3-1` | Guarda 3-1; **no** pide `/predecir`; **no** guardrail del agente |

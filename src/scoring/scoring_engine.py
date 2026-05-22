@@ -51,8 +51,64 @@ def calculate_points(
         calculate_points(2, 0, 0, 1, "GROUP") → (0, "INCORRECT")
         calculate_points(0, 0, 0, 0, "QF")   → (5, "EXACT_SCORE")  # 90' empate
     """
-    # TODO: implementar — TASK-010
-    raise NotImplementedError("Implementar en TASK-010 — Sprint 2")
+    if pred_home == actual_home and pred_away == actual_away:
+        return PointsResult(
+            points=5,
+            reason="EXACT_SCORE",
+            predicted_home=pred_home,
+            predicted_away=pred_away,
+            actual_home=actual_home,
+            actual_away=actual_away,
+            phase=phase,
+        )
+
+    pred_w = _winner(pred_home, pred_away)
+    act_w = _winner(actual_home, actual_away)
+    if pred_w != act_w:
+        return PointsResult(
+            points=0,
+            reason="INCORRECT",
+            predicted_home=pred_home,
+            predicted_away=pred_away,
+            actual_home=actual_home,
+            actual_away=actual_away,
+            phase=phase,
+        )
+
+    # Empate acertado sin marcador exacto → solo 1 pt (SPEC-013)
+    if pred_w == "DRAW":
+        return PointsResult(
+            points=1,
+            reason="CORRECT_WINNER_ONLY",
+            predicted_home=pred_home,
+            predicted_away=pred_away,
+            actual_home=actual_home,
+            actual_away=actual_away,
+            phase=phase,
+        )
+
+    pred_margin = pred_home - pred_away
+    act_margin = actual_home - actual_away
+    if pred_margin == act_margin:
+        return PointsResult(
+            points=3,
+            reason="CORRECT_WINNER_AND_DIFF",
+            predicted_home=pred_home,
+            predicted_away=pred_away,
+            actual_home=actual_home,
+            actual_away=actual_away,
+            phase=phase,
+        )
+
+    return PointsResult(
+        points=1,
+        reason="CORRECT_WINNER_ONLY",
+        predicted_home=pred_home,
+        predicted_away=pred_away,
+        actual_home=actual_home,
+        actual_away=actual_away,
+        phase=phase,
+    )
 
 
 def calculate_trivia_points(difficulty: TrivaDifficulty) -> int:
