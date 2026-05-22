@@ -449,10 +449,7 @@ def handler(event: dict, context) -> dict:
             )
             return ok
 
-        if profile and (
-            profile.get("prediction_awaiting_score")
-            or profile.get("prediction_completo_pending")
-        ):
+        if profile and profile.get("prediction_wizard"):
             try:
                 from prediction_service import PredictionService
 

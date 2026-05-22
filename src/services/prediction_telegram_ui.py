@@ -97,7 +97,7 @@ def change_existing_keyboard(match_number: int, grp8: str) -> dict:
     return {
         "inline_keyboard": [
             [
-                {"text": "Sí, cambiar", "callback_data": f"prd:o:{match_number}:{grp8}"},
+                {"text": "Sí, cambiar", "callback_data": f"prd:ch:{match_number}:{grp8}"},
                 {"text": "No, mantener", "callback_data": "prd:noop"},
             ],
         ],

@@ -177,8 +177,8 @@ def reset_admin_profile(table, admin_id: str, *, execute: bool) -> None:
             "trivia_rounds_today = :z, updated_at = :now "
             "REMOVE trivia_answered_fps, daily_trivia_prompted_id, "
             "trivia_rounds_reset_date, group_context_group_id, group_edit_pending, "
-            "group_create_step, group_add_member_group_id, prediction_awaiting_score, "
-            "prediction_completo_pending, prediction_completo_match_id"
+            "group_create_step, group_add_member_group_id, prediction_wizard, "
+            "prediction_awaiting_score, prediction_completo_pending, prediction_completo_match_id"
         ),
         ExpressionAttributeValues={":z": 0, ":now": datetime.now(timezone.utc).isoformat()},
     )
