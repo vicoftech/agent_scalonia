@@ -242,8 +242,7 @@ class PredictionService:
         prefix = "✅" if not had else "🔄"
         extra = " (actualizada)" if had else ""
         mins = self._minutes_to_veda(match)
-        ko_tie = home_goals == away_goals and (match.get("phase") or "").upper() in KO_PHASES
-        max_pts = self._max_possible_points(ko_tie)
+        max_pts = self._max_possible_points(match, home_goals, away_goals, group_id, user_id)
         return (
             f"{prefix} Marcador guardado{extra}\n"
             f"{score_txt}\n"
@@ -293,8 +292,23 @@ class PredictionService:
             return f"{h}h {m}min"
         return f"{m}min"
 
-    def _max_possible_points(self, ko_tie: bool) -> int:
-        return 22 if ko_tie else 10
+    def _max_possible_points(
+        self,
+        match: dict,
+        home_goals: int,
+        away_goals: int,
+        group_id: str,
+        user_id: str,
+    ) -> int:
+        from src.services.prediction_rules import max_possible_points
+
+        pred = self._preds.get_active(user_id, match["match_id"], group_id) or {
+            "home_goals": home_goals,
+            "away_goals": away_goals,
+        }
+        if home_goals == away_goals and (match.get("phase") or "").upper() in KO_PHASES:
+            pred = {**pred, "playoff_via": "ET", "playoff_winner": match.get("home_team")}
+        return max_possible_points(pred)
 
     def list_partidos_view(self, user_id: str, *, page: int = 0) -> tuple[str, dict | None]:
         ok, code = self.check_can_predict(user_id)
@@ -366,12 +380,18 @@ class PredictionService:
 
     def _pred_icons(self, pred: dict) -> str:
         parts = []
-        if pred.get("scorer_name"):
-            parts.append("⚽")
         if pred.get("has_red_card") is not None:
             parts.append("🟥")
-        if pred.get("mvp_name"):
-            parts.append("⭐")
+        if pred.get("pred_goal_before_5min") is not None:
+            parts.append("⚡")
+        if pred.get("pred_var_used") is not None:
+            parts.append("📺")
+        if pred.get("pred_free_kick_goal") is not None:
+            parts.append("🎯")
+        if pred.get("pred_penalty_saved") is not None:
+            parts.append("🧤")
+        if pred.get("pred_penalty_scored") is not None:
+            parts.append("⚽")
         return " " + "".join(parts) if parts else ""
 
     def _match_has_final_result(self, match: dict) -> bool:
@@ -532,22 +552,6 @@ class PredictionService:
             )
         return "\n".join(lines), merge_button_rows(buttons)
 
-    def apply_completo_red_card(
-        self, user_id: str, match_number: int, group_id: str, has_red: bool
-    ) -> str:
-        match = self._matches.get_by_match_number(match_number)
-        if not match:
-            return "Partido no encontrado."
-        if self._veda_closed(match):
-            return "Veda activa."
-        updated = self._preds.update_optional_fields(
-            user_id, match["match_id"], group_id, has_red_card=has_red
-        )
-        if not updated:
-            return "No tenés predicción guardada para ese partido. Usá /partidos primero."
-        label = "Sí, habrá roja" if has_red else "No habrá roja"
-        return f"✅ Expulsión: {label} guardado."
-
     def group_picker_keyboard(self, user_id: str) -> tuple[str, dict]:
         from src.services.prediction_telegram_ui import group_picker_keyboard
 
@@ -604,5 +608,7 @@ class PredictionService:
         from src.services import prediction_wizard as pw
 
         if has_red is not None:
-            return pw.wizard_set_red(self, user_id, match_number, group_id, has_red)
+            return pw.wizard_set_extended(
+                self, user_id, match_number, group_id, "red", has_red
+            )
         return pw.wizard_advance_skip(self, user_id)

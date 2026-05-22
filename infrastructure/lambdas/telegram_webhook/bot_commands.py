@@ -71,7 +71,7 @@ Más comandos:
 /start — Registro o bienvenida
 /help — Esta ayuda
 /predecir ARG 2-0 ALG — Marcador rápido
-/completo — Variables opcionales (expulsión, etc.)
+/completo — Variables extendidas Sí/No (tarjeta roja, VAR, etc.)
 /crear-grupo · /editar-grupo · /miembros
 /trivia — Trivia con botones (máx. 5/día)
 /trivia-grupo [tema] — Trivia a tu grupo (dueño)
@@ -163,7 +163,9 @@ def refresh_commands_for_chat(
 
 
 def help_message(*, is_admin: bool = False, is_group_owner: bool = False) -> str:
-    text = HELP_USER
+    from src.services.prediction_rules import help_scoring_text
+
+    text = HELP_USER + "\n\n" + help_scoring_text()
     if is_admin or is_group_owner:
         text += HELP_ADMIN_EXTRA
     return text.strip()

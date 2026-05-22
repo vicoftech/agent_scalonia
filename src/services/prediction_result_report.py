@@ -4,6 +4,10 @@ from __future__ import annotations
 from typing import Any
 
 from src.scoring.scoring_engine import PointsResult, ScoringReason, calculate_points
+from src.services.prediction_rules import (
+    PTS_EXTENDED_BOOL,
+    extended_lines_from_prediction,
+)
 from src.services.team_flags import format_team
 
 _SCORING_REASON_ES: dict[ScoringReason, str] = {
@@ -162,10 +166,14 @@ def format_finished_match_report(
     else:
         lines.append("\nSin puntos en este partido.")
 
-    if prediction.get("scorer_name") or prediction.get("mvp_name"):
+    extras = extended_lines_from_prediction(prediction)
+    if extras:
+        lines.append("")
+        lines.append("── Extendida (predicción) ──")
+        lines.extend(extras)
         lines.append(
-            "\n(Goleador, expulsión y MVP se puntúan cuando el scoring "
-            "completo esté activo.)"
+            f"\nCada variable Sí/No acertada suma +{PTS_EXTENDED_BOOL} pt "
+            "(cuando el resultado oficial incluya esos datos)."
         )
 
     return "\n".join(lines)

@@ -12,6 +12,24 @@ alwaysApply: false
 
 ---
 
+## Modelo v3 (Telegram MVP — sin jugadores)
+
+**Fuente de verdad código**: `src/services/prediction_rules.py` · **Ayuda usuario**: `/help` → `help_scoring_text()`
+
+| Tipo | Campos | Puntos |
+|------|--------|--------|
+| **Básica (obligatoria)** | Marcador 90' (`home_goals`/`away_goals`) | Exacto 5 · Ganador+dif. 3 · Solo ganador 1 · Mal 0 |
+| **Extendida (opcional, Sí/No)** | `has_red_card`, `pred_goal_before_5min`, `pred_var_used`, `pred_free_kick_goal`, `pred_penalty_saved`, `pred_penalty_scored` | +1 c/u acertada (solo si respondió Sí o No) |
+| **Playoff (KO, si empate 90')** | `playoff_via` (ET/PEN) + `playoff_winner` | +2 si acertás vía y ganador |
+
+Wizard: marcador por texto → 6 pasos Sí/No (saltar/terminar) → callbacks `prd:w:yn:{step}:{0|1}:{n}:{g}`.
+
+**Deprecado en UX**: goleador, goles de jugador, MVP (`scorer_*`, `mvp_name` se ignoran en flujo nuevo).
+
+Máx. teórico: 5 + 6 extendidas + 2 KO = **13 pts**.
+
+---
+
 ## Precondición crítica — quién puede predecir
 
 ```python

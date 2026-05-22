@@ -128,7 +128,9 @@ def handle_prediction_callback(user_id: str, data: str) -> tuple[str, dict | Non
                 gid = svc.resolve_group_short(user_id, grp8) or svc.get_active_group_id(user_id)
                 if not gid:
                     return svc.no_group_message()
-                return pw.wizard_set_red(svc, user_id, num, gid, has_red)
+                return pw.wizard_set_extended(
+                    svc, user_id, num, gid, "red", has_red
+                )
             if sub in ("skip", "done") and len(parts) >= 5:
                 num = int(parts[3])
                 grp8 = parts[4]
@@ -148,7 +150,7 @@ def handle_prediction_callback(user_id: str, data: str) -> tuple[str, dict | Non
         gid = svc.resolve_group_short(user_id, grp8) or svc.get_active_group_id(user_id)
         if not gid:
             return svc.no_group_message()
-        return pw.wizard_set_red(svc, user_id, num, gid, has_red)
+        return pw.wizard_set_extended(svc, user_id, num, gid, "red", has_red)
 
     if parts[1] == "done" and len(parts) >= 4:
         num = int(parts[2])
