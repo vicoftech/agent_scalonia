@@ -46,6 +46,10 @@ def try_direct_knowledge_reply(user_prompt: str) -> str | None:
     if not os.environ.get("KB_QUERY_LAMBDA_NAME", "").strip():
         return None
     try:
+        from src.services.prediction_score_parse import looks_like_simple_score
+
+        if looks_like_simple_score(user_prompt):
+            return None
         from src.kb.domain import is_football_domain_query
         from src.kb.query_intent import is_analytical_query
         from src.kb.resolve import (
@@ -108,6 +112,13 @@ def enrich_prompt_with_kb(user_prompt: str) -> tuple[str, int]:
     Retorna (prompt_enriquecido, cantidad_chunks_kb).
     """
     user_prompt = _prompt_with_football_scope(user_prompt)
+    try:
+        from src.services.prediction_score_parse import looks_like_simple_score
+
+        if looks_like_simple_score(user_prompt):
+            return user_prompt, 0
+    except Exception:
+        pass
     try:
         from src.services.match_query_intent import is_match_fixture_query
 

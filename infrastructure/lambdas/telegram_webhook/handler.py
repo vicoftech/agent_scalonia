@@ -451,15 +451,28 @@ def handler(event: dict, context) -> dict:
 
         if profile and profile.get("prediction_wizard"):
             try:
-                from prediction_service import PredictionService
+                from src.services.prediction_service import PredictionService
 
                 pred_pending = PredictionService().handle_pending_message(user_id, text)
                 if pred_pending:
                     ptext, pmarkup = pred_pending
                     _send_message(chat_id, ptext, token, reply_markup=pmarkup)
-                    return ok
+                else:
+                    _send_message(
+                        chat_id,
+                        "Seguís en una predicción. Escribí el marcador (ej: 0-1, 0:1) "
+                        "o enviá /cancel para salir.",
+                        token,
+                    )
+                return ok
             except Exception:
                 logger.exception("prediction_pending_message failed")
+                _send_message(
+                    chat_id,
+                    "No pude guardar la predicción. Probá de nuevo o /cancel.",
+                    token,
+                )
+                return ok
 
         if profile and (
             profile.get("group_create_step")
@@ -538,6 +551,21 @@ def handler(event: dict, context) -> dict:
                 token,
             )
             return ok
+
+        # Marcador suelto (2-1) sin wizard activo: no invocar agente ni KB.
+        try:
+            from src.services.prediction_score_parse import looks_like_simple_score
+
+            if looks_like_simple_score(text):
+                _send_message(
+                    chat_id,
+                    "Para predecir un resultado, elegí un partido con /partidos "
+                    "y seguí los pasos del asistente.",
+                    token,
+                )
+                return ok
+        except Exception:
+            logger.exception("prediction_score_guard failed")
 
         # AgentCore exige runtimeSessionId ≥33 chars. Versión bustea sesión post-deploy.
         session_suffix = "-poststart" if first_post_start else ""

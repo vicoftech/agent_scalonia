@@ -14,3 +14,8 @@ def parse_simple_score(text: str) -> tuple[int, int] | None:
     if h > 15 or a > 15:
         return None
     return h, a
+
+
+def looks_like_simple_score(text: str) -> bool:
+    """True si el mensaje parece un marcador (0-1, 2:1), no una pregunta al agente."""
+    return parse_simple_score(text) is not None

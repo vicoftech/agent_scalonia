@@ -62,6 +62,10 @@ def try_direct_fixture_reply(user_prompt: str) -> str | None:
     Usar cuando hay fechas/equipo/grupo parseables y datos en tabla.
     """
     try:
+        from src.services.prediction_score_parse import looks_like_simple_score
+
+        if looks_like_simple_score(user_prompt):
+            return None
         from src.services.match_date_parse import parse_dates_from_query, parse_month_range
         from src.services.match_query_intent import (
             is_fixture_bracket_query,
