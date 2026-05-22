@@ -243,13 +243,15 @@ class GroupService:
             return False, "Sin permiso para agregar miembros a este grupo."
 
         g = self._groups.get_group(gid)
-        if not g or g.get("is_global"):
-            return False, "No podés agregar miembros al grupo GLOBAL así."
+        if not g:
+            return False, "Grupo no encontrado."
+        if g.get("is_global") and not self._auth.is_admin_global(actor_id):
+            return False, "Solo el admin puede agregar miembros al torneo General (GLOBAL)."
 
         if self._groups.is_member(gid, target_id):
             return True, f'ℹ️ {target_alias} ya está en "{g.get("name", gid)}".'
 
-        slots = self._auth.slots_available(gid)
+        slots = self._auth.slots_available(gid, actor_user_id=actor_id)
         if slots is not None and slots <= 0:
             return False, "El grupo ya no tiene cupo disponible."
 
@@ -443,7 +445,7 @@ class GroupService:
                 lines.append(f"👤 {alias} (vos)")
             else:
                 lines.append(f"👤 {alias}            /miembros → eliminar vía botón en Telegram")
-        slots = self._auth.slots_available(group_id)
+        slots = self._auth.slots_available(group_id, actor_user_id=user_id)
         if slots is not None and slots > 0:
             lines.append(f"\nPodés agregar {slots} miembro{'s' if slots != 1 else ''} más.")
             lines.append("Usá /invitar para generar link.")
@@ -503,7 +505,7 @@ class GroupService:
         self._groups.remove_member(group_id, member_user_id)
         prof = self._users.get_profile(member_user_id) or {}
         alias = prof.get("alias", "el miembro")
-        slots = self._auth.slots_available(group_id)
+        slots = self._auth.slots_available(group_id, actor_user_id=actor_id)
         extra = ""
         if slots is not None:
             extra = f"\nAhora tenés {self._groups.count_members(group_id)}/{g.get('max_members')} miembros."

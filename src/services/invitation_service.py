@@ -74,7 +74,9 @@ class InvitationService:
                 raise ValueError("Solo el dueño del grupo puede crear invitaciones")
             raise ValueError(f"No podés invitar: {reason}")
 
-        slots = self._auth.slots_available(target_group_id)
+        slots = self._auth.slots_available(
+            target_group_id, actor_user_id=creator_user_id
+        )
         if slots is not None and max_uses > slots:
             raise ValueError(
                 f"Solo tenés {slots} slot{'s' if slots != 1 else ''} disponible{'s' if slots != 1 else ''} en tu grupo"
@@ -142,7 +144,8 @@ class InvitationService:
                 "joined_new": False,
             }
 
-        slots = self._auth.slots_available(group_id)
+        inviter_id = invite.get("created_by", "")
+        slots = self._auth.slots_available(group_id, actor_user_id=inviter_id)
         if slots is not None and slots <= 0:
             raise ValueError("LIMIT_REACHED_INVITES")
 

@@ -35,15 +35,36 @@ def handle_invitation_command(user_id: str, text: str) -> tuple[str, dict | None
         profile = UserDAO().get_profile(user_id) or {}
         ctx_gid = profile.get("group_context_group_id")
         if ctx_gid:
-            can_invite, _reason = auth.check_can_invite(user_id, ctx_gid)
-            if can_invite:
-                try:
-                    result = svc.create_invitation(
-                        user_id, max_uses=max_uses, group_id=ctx_gid
+            grp = groups.get_group(ctx_gid)
+            if not grp:
+                # Grupo borrado (ej. tras purge) — no bloquear /invitar
+                UserDAO().update_profile(user_id, group_context_group_id=None)
+            else:
+                slots = auth.slots_available(ctx_gid, actor_user_id=user_id)
+                can_invite, _reason = auth.check_can_invite(user_id, ctx_gid)
+                use_context = can_invite and (
+                    is_admin or slots is None or max_uses <= slots
+                )
+                if use_context:
+                    try:
+                        result = svc.create_invitation(
+                            user_id, max_uses=max_uses, group_id=ctx_gid
+                        )
+                        return result["message"], None
+                    except ValueError as exc:
+                        return str(exc), None
+                if not is_admin:
+                    if slots is not None and max_uses > slots:
+                        s = "slot" if slots == 1 else "slots"
+                        d = "disponible" if slots == 1 else "disponibles"
+                        return (
+                            f"Solo tenés {slots} {s} {d} en tu grupo",
+                            None,
+                        )
+                    return (
+                        f"No podés invitar a este grupo ({_reason}).",
+                        None,
                     )
-                    return result["message"], None
-                except ValueError as exc:
-                    return str(exc), None
         owner_group = groups.get_group(owner_gid) if owner_gid else None
         intro = (
             f"🔗 Invitaciones — {max_uses} cupo{'s' if max_uses != 1 else ''}\n\n"

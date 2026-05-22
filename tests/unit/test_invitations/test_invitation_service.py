@@ -74,6 +74,41 @@ def test_create_invitation_admin_global():
     assert call_kw["max_uses"] == 3
 
 
+def test_create_invitation_admin_ignores_full_group():
+    inv_dao = MagicMock()
+    inv_dao.exists.return_value = False
+    user_dao = MagicMock()
+    user_dao.get_profile.return_value = {
+        "user_id": "admin-1",
+        "alias": "Admin",
+        "is_admin": True,
+        "status": "ACTIVE",
+    }
+    group_dao = MagicMock()
+    group_dao.get_group.return_value = {
+        "group_id": "grp-full",
+        "name": "Lleno",
+        "max_members": 5,
+    }
+    group_dao.count_members.return_value = 5
+
+    svc = InvitationService(
+        invitation_dao=inv_dao,
+        user_dao=user_dao,
+        group_dao=group_dao,
+    )
+    inv_dao.create.return_value = {
+        "invite_id": "abc12345",
+        "expires_at": (datetime.now(timezone.utc) + timedelta(hours=24)).isoformat(),
+        "group_name": "Lleno",
+    }
+    with patch("src.services.invitation_service.generate_invite_id", return_value="abc12345"):
+        result = svc.create_invitation("admin-1", max_uses=10, group_id="grp-full")
+
+    assert result["invite_id"] == "abc12345"
+    inv_dao.create.assert_called_once()
+
+
 def test_create_invitation_rejects_over_slots():
     user_dao = MagicMock()
     user_dao.get_profile.return_value = {

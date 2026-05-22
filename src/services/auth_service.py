@@ -1,7 +1,7 @@
 """Verificación de permisos — SPEC-018 / SPEC-020."""
 from __future__ import annotations
 
-from src.dao.dynamo.group_dao import GroupDAO
+from src.dao.dynamo.group_dao import GLOBAL_GROUP_ID, GroupDAO
 from src.dao.dynamo.user_dao import UserDAO
 
 USER_STATUS_ACTIVE = "ACTIVE"
@@ -61,6 +61,10 @@ class AuthService:
         group = self._groups.get_group(group_id)
         return bool(group and group.get("owner_id") == user_id)
 
+    def bypasses_member_cap(self, user_id: str) -> bool:
+        """Admin global: puede invitar/agregar sin límite de cupos del grupo."""
+        return self.is_admin_global(user_id)
+
     def check_can_invite(self, user_id: str, group_id: str) -> tuple[bool, str]:
         user = self._users.get_profile(user_id)
         if not user:
@@ -79,11 +83,15 @@ class AuthService:
                 return False, "LIMIT_REACHED_INVITES"
         return True, "ok"
 
-    def slots_available(self, group_id: str) -> int | None:
-        """Slots libres del grupo; None = ilimitado (GLOBAL / admin)."""
+    def slots_available(self, group_id: str, *, actor_user_id: str | None = None) -> int | None:
+        """Slots libres para owners; None = sin tope (GLOBAL o admin actuando)."""
+        if actor_user_id and self.bypasses_member_cap(actor_user_id):
+            return None
         group = self._groups.get_group(group_id)
         if not group:
-            return 0
+            return None
+        if group_id == GLOBAL_GROUP_ID or group.get("is_global"):
+            return None
         max_members = group.get("max_members")
         if max_members is None:
             return None

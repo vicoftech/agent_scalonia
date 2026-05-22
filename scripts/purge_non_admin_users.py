@@ -101,9 +101,8 @@ def should_delete(item: dict[str, Any], admin_id: str, admin_hash: str | None) -
     if pk.startswith("JOB_CTRL#"):
         return False
 
-    if pk == f"GROUP#{GLOBAL_GROUP_ID}" and sk == "DETAILS":
-        return False
-    if pk == f"GROUP#{GLOBAL_GROUP_ID}" and sk == f"MEMBER#{admin_id}":
+    # GLOBAL nunca se borra en purge (DETAILS + todas las membresías)
+    if pk.startswith(f"GROUP#{GLOBAL_GROUP_ID}"):
         return False
 
     if pk.startswith("USER#"):
@@ -177,11 +176,39 @@ def reset_admin_profile(table, admin_id: str, *, execute: bool) -> None:
             "SET total_points = :z, match_points = :z, trivia_points = :z, "
             "trivia_rounds_today = :z, updated_at = :now "
             "REMOVE trivia_answered_fps, daily_trivia_prompted_id, "
-            "trivia_rounds_reset_date"
+            "trivia_rounds_reset_date, group_context_group_id, group_edit_pending, "
+            "group_create_step, group_add_member_group_id, prediction_awaiting_score, "
+            "prediction_completo_pending, prediction_completo_match_id"
         ),
         ExpressionAttributeValues={":z": 0, ":now": datetime.now(timezone.utc).isoformat()},
     )
     logger.info("Admin PROFILE: puntajes y trivias reseteados")
+
+
+def ensure_global_group_details(table, admin_id: str, *, execute: bool) -> None:
+    """GROUP#GLOBAL/DETAILS debe existir siempre."""
+    key = {"partition_key": f"GROUP#{GLOBAL_GROUP_ID}", "sort_key": "DETAILS"}
+    if table.get_item(Key=key).get("Item"):
+        return
+    if not execute:
+        logger.info("would seed GROUP#GLOBAL/DETAILS")
+        return
+    now = datetime.now(timezone.utc).isoformat()
+    table.put_item(
+        Item={
+            **key,
+            "group_id": GLOBAL_GROUP_ID,
+            "name": "Mundial 2026 — General",
+            "owner_id": admin_id,
+            "max_members": None,
+            "is_global": True,
+            "status": "ACTIVE",
+            "member_count": 0,
+            "created_at": now,
+            "updated_at": now,
+        }
+    )
+    logger.info("Creado GROUP#GLOBAL/DETAILS")
 
 
 def ensure_admin_global_member(table, admin_id: str, *, execute: bool) -> None:
@@ -223,6 +250,7 @@ def main() -> None:
 
     n = purge(table, admin_id, admin_hash, execute=args.execute)
     reset_admin_profile(table, admin_id, execute=args.execute)
+    ensure_global_group_details(table, admin_id, execute=args.execute)
     ensure_admin_global_member(table, admin_id, execute=args.execute)
 
     if not args.execute:
