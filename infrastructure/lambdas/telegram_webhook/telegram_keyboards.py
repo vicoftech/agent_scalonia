@@ -1,14 +1,14 @@
 """Teclado fijo (ReplyKeyboard) + mapeo a comandos."""
 from __future__ import annotations
 
-# Texto del botón → comando interno
+# Texto del botón → comando interno (clave en minúsculas)
 REPLY_BUTTON_TO_COMMAND: dict[str, str] = {
+    "⏭️ próximo": "/proximo",
     "⚽ partidos": "/partidos",
+    "🏁 resultados": "/resultados",
     "📊 mi puntaje": "/mi_puntuacion",
     "👥 grupos": "/grupos",
-    "🏁 resultados": "/resultados",
-    "📋 menú": "/menu",
-    "❓ ayuda": "/help",
+    "📖 reglas": "/reglas",
 }
 
 
@@ -17,14 +17,17 @@ def main_reply_keyboard() -> dict:
     return {
         "keyboard": [
             [
+                {"text": "⏭️ Próximo"},
                 {"text": "⚽ Partidos"},
+            ],
+            [
+                {"text": "🏁 Resultados"},
                 {"text": "📊 Mi puntaje"},
             ],
             [
                 {"text": "👥 Grupos"},
-                {"text": "🏁 Resultados"},
+                {"text": "📖 Reglas"},
             ],
-            [{"text": "📋 Menú"}, {"text": "❓ Ayuda"}],
         ],
         "resize_keyboard": True,
         "is_persistent": True,

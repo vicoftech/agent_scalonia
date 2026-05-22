@@ -10,12 +10,14 @@ import os
 
 logger = logging.getLogger(__name__)
 
-# Atajos primero en el menú «/» de Telegram
+# Atajos primero en el menú «/» de Telegram (sin /menu: botón azul nativo)
 SHORTCUT_COMMANDS: list[dict[str, str]] = [
+    {"command": "proximo", "description": "Próximos partidos del fixture"},
     {"command": "partidos", "description": "Partidos del Mundial y predecir"},
+    {"command": "resultados", "description": "Últimos partidos con resultado"},
     {"command": "mi_puntuacion", "description": "Tu puntaje y predicciones"},
     {"command": "grupos", "description": "Ver y administrar tus grupos"},
-    {"command": "resultados", "description": "Últimos partidos con resultado"},
+    {"command": "reglas", "description": "Cómo predecir y puntuar"},
 ]
 
 BOT_COMMANDS: list[dict[str, str]] = [
@@ -44,7 +46,7 @@ ADMIN_COMMANDS: list[dict[str, str]] = [
     },
 ]
 
-_COMMANDS_VERSION = os.environ.get("BOT_COMMANDS_VERSION", "3")
+_COMMANDS_VERSION = os.environ.get("BOT_COMMANDS_VERSION", "4")
 
 
 def commands_for_user(*, is_admin: bool = False) -> list[dict[str, str]]:
@@ -61,15 +63,17 @@ def commands_for_user(*, is_admin: bool = False) -> list[dict[str, str]]:
 HELP_USER = """📖 Comandos del Prode Mundial 2026
 
 Atajos:
-/partidos — Fixture fase de grupos y predecir
+/proximo — Próximos partidos del fixture
+/partidos — Fixture y predecir
+/resultados — Partidos finalizados
 /mi_puntuacion — Tu puntaje y predicciones puntuadas
 /grupos — Ver tus grupos
-/resultados — Partidos finalizados
-/menu — Refrescar el menú del botón «/»
+/reglas — Cómo predecir y puntuar (sin lista de comandos)
 
 Más comandos:
 /start — Registro o bienvenida
-/help — Esta ayuda
+/help — Lista de comandos (esta ayuda)
+/menu — Actualizar menú del botón «/» y teclado de abajo
 /predecir ARG 2-0 ALG — Marcador rápido
 /completo — Variables extendidas Sí/No (tarjeta roja, VAR, etc.)
 /crear-grupo · /editar-grupo · /miembros
@@ -162,13 +166,21 @@ def refresh_commands_for_chat(
     send_main_reply_keyboard(chat_id, token)
 
 
-def help_message(*, is_admin: bool = False, is_group_owner: bool = False) -> str:
+def rules_message() -> str:
     from src.services.prediction_rules import help_scoring_text
 
-    text = HELP_USER + "\n\n" + help_scoring_text()
+    return help_scoring_text()
+
+
+def help_message(*, is_admin: bool = False, is_group_owner: bool = False) -> str:
+    text = HELP_USER
     if is_admin or is_group_owner:
         text += HELP_ADMIN_EXTRA
     return text.strip()
+
+
+def handle_reglas_command(_user_id: str) -> str:
+    return rules_message()
 
 
 def handle_help_command(user_id: str) -> str | None:

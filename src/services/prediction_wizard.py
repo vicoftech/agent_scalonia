@@ -348,7 +348,7 @@ def finish_wizard(
     else:
         lines.append("Extendida: sin variables extra (solo marcador)")
     lines.append(f"\nMáx. posible: {max_pts} pts · Veda en {svc._minutes_to_veda(match)}")
-    lines.append("\n📖 Reglas: /help → sección «Cómo predecir y puntuar»")
+    lines.append("\n📖 Reglas: /reglas")
     return "\n".join(lines), None
 
 

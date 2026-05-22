@@ -1,4 +1,4 @@
-"""Atajos /partidos /grupos /mi_puntuacion /resultados — menú Telegram."""
+"""Atajos /proximo /partidos /reglas /grupos — menú Telegram."""
 from __future__ import annotations
 
 import re
@@ -10,6 +10,8 @@ from src.services.match_service import MatchService
 
 _MI_PUNTUACION = re.compile(r"^/mi[_-]puntuacion(?:@[\w_]+)?\s*$", re.IGNORECASE)
 _RESULTADOS = re.compile(r"^/resultados(?:@[\w_]+)?\s*$", re.IGNORECASE)
+_PROXIMO = re.compile(r"^/proximo(?:@[\w_]+)?\s*$", re.IGNORECASE)
+_REGLAS = re.compile(r"^/reglas(?:@[\w_]+)?\s*$", re.IGNORECASE)
 _MENU = re.compile(r"^/menu(?:@[\w_]+)?\s*$", re.IGNORECASE)
 
 
@@ -52,6 +54,14 @@ def format_mi_puntuacion(user_id: str) -> str:
     return "\n".join(lines)
 
 
+def format_proximo(*, limit: int = 10) -> str:
+    svc = MatchService()
+    rows = svc.next_matches(limit=limit)
+    if not rows:
+        return "⏭️ Próximos partidos\n\nNo hay partidos programados a futuro."
+    return svc.format_list(rows, header="⏭️ Próximos partidos")
+
+
 def format_resultados(*, limit: int = 12) -> str:
     dao = MatchDAO()
     svc = MatchService(dao=dao)
@@ -90,12 +100,19 @@ def handle_shortcut_command(
         return (
             "✅ Menú actualizado (botón / y teclado de abajo).\n\n"
             "Atajos:\n"
-            "⚽ Partidos — fixture y predecir\n"
-            "📊 Mi puntaje\n"
-            "👥 Grupos\n"
-            "🏁 Resultados",
+            "⏭️ Próximo · ⚽ Partidos\n"
+            "🏁 Resultados · 📊 Mi puntaje\n"
+            "👥 Grupos · 📖 Reglas",
             None,
         )
+
+    if _REGLAS.match(text):
+        from bot_commands import handle_reglas_command
+
+        return handle_reglas_command(user_id), None
+
+    if _PROXIMO.match(text):
+        return format_proximo(), None
 
     if _MI_PUNTUACION.match(text):
         return format_mi_puntuacion(user_id), None
@@ -114,10 +131,12 @@ def should_refresh_bot_menu(text: str) -> bool:
         "/start",
         "/help",
         "/ayuda",
+        "/proximo",
         "/partidos",
         "/grupos",
         "/mi_puntuacion",
         "/mi-puntuacion",
         "/resultados",
+        "/reglas",
         "/completo",
     }
