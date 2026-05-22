@@ -188,3 +188,49 @@ def test_list_partidos_empty_when_no_matches_in_db():
     svc = _svc(match_dao=matches)
     text, _ = svc.list_partidos_view("u1")
     assert "ingest" in text.lower()
+
+
+def test_list_proximo_same_buttons_as_partidos():
+    past = (_NOW - timedelta(days=2)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    soon = (_NOW + timedelta(hours=6)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    later = (_NOW + timedelta(days=3)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    group_matches = [
+        _match(match_id="past", match_number=1, kickoff_utc=past, home_team="OLD", away_team="PST"),
+        _match(match_id="n1", match_number=2, kickoff_utc=soon, home_team="ARG", away_team="ALG"),
+        _match(match_id="n2", match_number=3, kickoff_utc=later, home_team="BRA", away_team="FRA"),
+    ]
+    matches = MagicMock()
+    matches.list_matches.return_value = group_matches
+    svc = _svc(match_dao=matches)
+    text, kb = svc.list_proximo_view("u1")
+    assert "Próximos partidos" in text
+    assert "Próximos 2" in text
+    assert kb is not None
+    btns = [b["text"] for row in kb["inline_keyboard"] for b in row if "prd:o:" in b.get("callback_data", "")]
+    assert len(btns) == 2
+    assert any("ARG" in t and "Match #2" in t for t in btns)
+    assert not any("OLD" in t for t in btns)
+    assert not any("prd:pg:" in b.get("callback_data", "") for row in kb["inline_keyboard"] for b in row)
+
+
+def test_list_proximo_caps_at_five():
+    base = _NOW + timedelta(hours=1)
+    group_matches = [
+        _match(
+            match_id=f"m{i}",
+            match_number=i,
+            kickoff_utc=(base + timedelta(hours=i)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            home_team=f"T{i}",
+            away_team=f"U{i}",
+        )
+        for i in range(1, 9)
+    ]
+    matches = MagicMock()
+    matches.list_matches.return_value = group_matches
+    svc = _svc(match_dao=matches)
+    text, kb = svc.list_proximo_view("u1")
+    assert "Próximos 5" in text
+    btns = [b for row in kb["inline_keyboard"] for b in row if "prd:o:" in b.get("callback_data", "")]
+    assert len(btns) == 5
+    assert any("T1" in b["text"] for b in btns)
+    assert not any("T6" in b["text"] for b in btns)

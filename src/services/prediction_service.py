@@ -16,6 +16,7 @@ from src.services.team_flags import format_team
 DISPLAY_TZ = timezone(timedelta(hours=-3))
 GROUP_PHASE = frozenset({"GROUP"})
 PARTIDOS_PAGE_SIZE = 8
+PROXIMO_LIMIT = 5
 KO_PHASES = frozenset(
     {"R16", "ROUND_OF_32", "ROUND_OF_16", "QF", "QUARTER_FINAL", "SF", "SEMI_FINAL", "FINAL", "THIRD_PLACE"}
 )
@@ -125,6 +126,21 @@ class PredictionService:
             rows.append((sort_key, m))
         rows.sort(key=lambda x: (x[0], int(x[1].get("match_number", 0))))
         return rows
+
+    def _upcoming_group_stage_matches(self, *, limit: int = PROXIMO_LIMIT) -> list[tuple[datetime, dict]]:
+        """Próximos partidos de grupos con kickoff >= ahora (mismo universo que /partidos)."""
+        now = datetime.now(timezone.utc)
+        upcoming: list[tuple[datetime, dict]] = []
+        for _ko, m in self._group_stage_matches():
+            if (m.get("status") or "").upper() == "FINISHED":
+                continue
+            kick = self._kickoff_or_none(m)
+            if kick is None or kick < now:
+                continue
+            upcoming.append((_ko, m))
+            if len(upcoming) >= limit:
+                break
+        return upcoming
 
     def _format_list_kickoff(self, match: dict) -> str:
         ko_dt = self._kickoff_or_none(match)
@@ -310,40 +326,29 @@ class PredictionService:
             pred = {**pred, "playoff_via": "ET", "playoff_winner": match.get("home_team")}
         return max_possible_points(pred)
 
-    def list_partidos_view(self, user_id: str, *, page: int = 0) -> tuple[str, dict | None]:
-        ok, code = self.check_can_predict(user_id)
-        if not ok:
-            if code == "NO_GROUP_MEMBERSHIP":
-                return self.no_group_message()
-            return "No podés predecir con esta cuenta.", None
+    def _partidos_empty_fixture_message(self) -> tuple[str, None]:
+        return (
+            "No hay partidos de fase de grupos cargados.\n"
+            "Un admin debe ejecutar el ingest del fixture (scripts/ingest_matches.py).",
+            None,
+        )
 
-        gid = self.get_active_group_id(user_id)
-        if not gid:
-            return self.no_group_message()
+    def _render_partidos_list(
+        self,
+        user_id: str,
+        gid: str,
+        g: dict,
+        slice_rows: list[tuple[datetime, dict]],
+        *,
+        header_lines: list[str],
+        page: int = 0,
+        total_pages: int = 1,
+        show_pagination: bool = True,
+    ) -> tuple[str, dict | None]:
+        """Lista con botones inline (compartida por /partidos y /proximo)."""
+        if not slice_rows:
+            return "\n".join(header_lines), None
 
-        g = self._groups.get_group(gid) or {}
-        all_rows = self._group_stage_matches()
-        if not all_rows:
-            return (
-                "No hay partidos de fase de grupos cargados.\n"
-                "Un admin debe ejecutar el ingest del fixture (scripts/ingest_matches.py).",
-                None,
-            )
-
-        total = len(all_rows)
-        page_size = PARTIDOS_PAGE_SIZE
-        total_pages = max(1, (total + page_size - 1) // page_size)
-        page = max(0, min(page, total_pages - 1))
-        slice_rows = all_rows[page * page_size : (page + 1) * page_size]
-
-        lines = [
-            "⚽ Fase de grupos",
-            f"👥 Grupo activo: {g.get('name', gid)}",
-            f"📄 Página {page + 1}/{total_pages} · {total} partidos",
-            "",
-            "Elegí un partido:",
-            "⏳ sin predicción · ✅ ya predijiste · 🔒 veda o finalizado",
-        ]
         buttons: list[list[dict[str, str]]] = []
         g8 = gid.replace("-", "")[:8]
 
@@ -353,7 +358,7 @@ class PredictionService:
             partidos_nav_keyboard,
         )
 
-        for _idx, (_ko, m) in enumerate(slice_rows, start=1):
+        for _ko, m in slice_rows:
             pred = self._preds.get_active(user_id, m["match_id"], gid)
             num = int(m.get("match_number", 0))
             finished = (m.get("status") or "").upper() == "FINISHED"
@@ -370,13 +375,100 @@ class PredictionService:
                 [{"text": label, "callback_data": f"prd:o:{num}:{g8}"}]
             )
 
-        nav = partidos_nav_keyboard(page, total_pages, g8)
-        if nav:
-            buttons.append(nav)
+        if show_pagination:
+            nav = partidos_nav_keyboard(page, total_pages, g8)
+            if nav:
+                buttons.append(nav)
         if len(self._predictable_groups(user_id)) > 1:
             buttons.append([{"text": "🔄 Cambiar grupo", "callback_data": f"prd:cg:{g8}"}])
 
-        return "\n".join(lines), merge_button_rows(buttons)
+        return "\n".join(header_lines), merge_button_rows(buttons)
+
+    def _partidos_list_context(
+        self, user_id: str
+    ) -> tuple[str, dict, list[tuple[datetime, dict]]] | tuple[str, dict | None]:
+        """(gid, group, all_rows) o mensaje de error."""
+        ok, code = self.check_can_predict(user_id)
+        if not ok:
+            if code == "NO_GROUP_MEMBERSHIP":
+                return self.no_group_message()
+            return ("No podés predecir con esta cuenta.", None)
+
+        gid = self.get_active_group_id(user_id)
+        if not gid:
+            return self.no_group_message()
+
+        g = self._groups.get_group(gid) or {}
+        all_rows = self._group_stage_matches()
+        if not all_rows:
+            return self._partidos_empty_fixture_message()
+        return gid, g, all_rows
+
+    def list_partidos_view(self, user_id: str, *, page: int = 0) -> tuple[str, dict | None]:
+        ctx = self._partidos_list_context(user_id)
+        if len(ctx) == 2:
+            return ctx  # type: ignore[return-value]
+
+        gid, g, all_rows = ctx
+        total = len(all_rows)
+        page_size = PARTIDOS_PAGE_SIZE
+        total_pages = max(1, (total + page_size - 1) // page_size)
+        page = max(0, min(page, total_pages - 1))
+        slice_rows = all_rows[page * page_size : (page + 1) * page_size]
+
+        header = [
+            "⚽ Fase de grupos",
+            f"👥 Grupo activo: {g.get('name', gid)}",
+            f"📄 Página {page + 1}/{total_pages} · {total} partidos",
+            "",
+            "Elegí un partido:",
+            "⏳ sin predicción · ✅ ya predijiste · 🔒 veda o finalizado",
+        ]
+        return self._render_partidos_list(
+            user_id,
+            gid,
+            g,
+            slice_rows,
+            header_lines=header,
+            page=page,
+            total_pages=total_pages,
+            show_pagination=True,
+        )
+
+    def list_proximo_view(self, user_id: str) -> tuple[str, dict | None]:
+        """Mismo formato que /partidos; solo los próximos PROXIMO_LIMIT desde ahora."""
+        ctx = self._partidos_list_context(user_id)
+        if len(ctx) == 2:
+            return ctx  # type: ignore[return-value]
+
+        gid, g, _all_rows = ctx
+        slice_rows = self._upcoming_group_stage_matches(limit=PROXIMO_LIMIT)
+        if not slice_rows:
+            return (
+                "⏭️ Próximos partidos (fase de grupos)\n"
+                f"👥 Grupo activo: {g.get('name', gid)}\n\n"
+                "No hay partidos próximos con horario desde ahora.\n"
+                "Usá /partidos para ver el fixture completo.",
+                None,
+            )
+
+        n = len(slice_rows)
+        header = [
+            "⏭️ Próximos partidos (fase de grupos)",
+            f"👥 Grupo activo: {g.get('name', gid)}",
+            f"📋 Próximos {n} desde ahora · /partidos para ver todos",
+            "",
+            "Elegí un partido:",
+            "⏳ sin predicción · ✅ ya predijiste · 🔒 veda o finalizado",
+        ]
+        return self._render_partidos_list(
+            user_id,
+            gid,
+            g,
+            slice_rows,
+            header_lines=header,
+            show_pagination=False,
+        )
 
     def _pred_icons(self, pred: dict) -> str:
         parts = []

@@ -54,14 +54,6 @@ def format_mi_puntuacion(user_id: str) -> str:
     return "\n".join(lines)
 
 
-def format_proximo(*, limit: int = 10) -> str:
-    svc = MatchService()
-    rows = svc.next_matches(limit=limit)
-    if not rows:
-        return "⏭️ Próximos partidos\n\nNo hay partidos programados a futuro."
-    return svc.format_list(rows, header="⏭️ Próximos partidos")
-
-
 def format_resultados(*, limit: int = 12) -> str:
     dao = MatchDAO()
     svc = MatchService(dao=dao)
@@ -112,7 +104,12 @@ def handle_shortcut_command(
         return handle_reglas_command(user_id), None
 
     if _PROXIMO.match(text):
-        return format_proximo(), None
+        from src.services.prediction_service import PredictionService
+        from src.services.prediction_wizard import _clear_wizard
+
+        svc = PredictionService()
+        _clear_wizard(svc, user_id)
+        return svc.list_proximo_view(user_id)
 
     if _MI_PUNTUACION.match(text):
         return format_mi_puntuacion(user_id), None
