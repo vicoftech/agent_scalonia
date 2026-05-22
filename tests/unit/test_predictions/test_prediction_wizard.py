@@ -71,21 +71,19 @@ def _svc(**kwargs) -> PredictionService:
     )
 
 
-def test_start_wizard_shows_step1():
+def test_start_wizard_asks_text_score_no_buttons():
     svc = _svc()
     text, kb = pw.start_wizard(svc, "u1", 10, "grp-private")
     assert "paso 1" in text.lower()
-    assert "Marcador" in text
-    assert kb is not None
-    assert any("prd:s:" in b.get("callback_data", "") for row in kb["inline_keyboard"] for b in row)
+    assert "Escribí el resultado" in text
+    assert "0:1" in text or "0-1" in text
+    assert kb is None
 
 
-def test_custom_score_keeps_wizard_session():
+def test_text_score_keeps_wizard_and_advances():
     svc = _svc()
     pw.start_wizard(svc, "u1", 10, "grp-private")
-    text, _ = pw.wizard_begin_custom_score(svc, "u1", 10, "grp-private")
-    assert "Escribí el marcador" in text
-    result = pw.wizard_handle_text(svc, "u1", "3-2")
+    result = pw.wizard_handle_text(svc, "u1", "0:1")
     assert result is not None
     rtext, rkb = result
     assert "Marcador guardado" in rtext

@@ -3,11 +3,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from src.services.prediction_telegram_ui import (
-    KO_PHASES,
-    merge_button_rows,
-    score_picker_keyboard,
-)
+from src.services.prediction_telegram_ui import KO_PHASES, merge_button_rows
 
 
 def wizard_skip_row(match_number: int, grp8: str) -> list[dict[str, str]]:
@@ -16,15 +12,6 @@ def wizard_skip_row(match_number: int, grp8: str) -> list[dict[str, str]]:
 
 def wizard_finish_row(match_number: int, grp8: str) -> list[dict[str, str]]:
     return [{"text": "✅ Terminar ahora", "callback_data": f"prd:w:done:{match_number}:{grp8}"}]
-
-
-def wizard_score_keyboard(match: dict, match_number: int, grp8: str) -> dict:
-    kb = score_picker_keyboard(match, match_number, grp8)
-    for row in kb["inline_keyboard"]:
-        for btn in row:
-            if btn.get("callback_data", "").startswith("prd:x:"):
-                btn["callback_data"] = f"prd:w:custom:{match_number}:{grp8}"
-    return kb
 
 
 def wizard_ko_keyboard(match: dict, match_number: int, score: str, grp8: str) -> dict:

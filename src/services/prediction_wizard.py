@@ -12,7 +12,6 @@ from src.services.prediction_wizard_ui import (
     wizard_red_keyboard,
     wizard_scorer_goals_keyboard,
     wizard_scorer_keyboard,
-    wizard_score_keyboard,
 )
 
 if TYPE_CHECKING:
@@ -113,7 +112,7 @@ def start_wizard(
     match_number: int,
     group_id: str,
     *,
-    initial_step: str = STEP_SCORE,
+    initial_step: str = STEP_SCORE_CUSTOM,
 ) -> tuple[str, dict | None]:
     match = svc._matches.get_by_match_number(match_number)
     if not match:
@@ -146,7 +145,7 @@ def resume_wizard_after_score(
         return "Partido no encontrado.", None
     p = svc._preds.get_active(user_id, match["match_id"], group_id)
     if not p:
-        return start_wizard(svc, user_id, match_number, group_id, initial_step=STEP_SCORE)
+        return start_wizard(svc, user_id, match_number, group_id)
     if svc._veda_closed(match):
         return "Veda activa.", None
     step = STEP_RED
@@ -188,10 +187,14 @@ def render_step(svc: PredictionService, user_id: str) -> tuple[str, dict | None]
     header = _header(svc, match, gid, step)
 
     if step in (STEP_SCORE, STEP_SCORE_CUSTOM):
-        body = "¿Cuánto terminan a los 90 min?"
-        if step == STEP_SCORE_CUSTOM:
-            body = "✏️ Escribí el marcador (ej: 2-1, 3:0).\nEnviá /cancel para salir."
-        return header + "\n\n" + body, wizard_score_keyboard(match, num, g8)
+        home = match.get("home_team", "LOC")
+        away = match.get("away_team", "VIS")
+        body = (
+            f"Escribí el resultado ({home}–{away}), ej: 0-1, 0:1 o 2-1.\n"
+            "Después podés terminar o seguir con roja, goleador y MVP.\n"
+            "/cancel para salir."
+        )
+        return header + "\n\n" + body, None
 
     if step == STEP_KO:
         score = w.get("pending_score", "?-?")
@@ -265,7 +268,7 @@ def wizard_submit_score(
             {
                 "match_number": match_number,
                 "group_id": group_id,
-                "step": STEP_SCORE,
+                "step": STEP_SCORE_CUSTOM,
                 "player_options": _players_for_match(match, profile),
             },
         )
@@ -329,7 +332,7 @@ def wizard_handle_text(
     if not w:
         return None
     step = w.get("step")
-    if step not in (STEP_SCORE_CUSTOM, STEP_SCORER_TEXT, STEP_MVP_TEXT):
+    if step not in (STEP_SCORE, STEP_SCORE_CUSTOM, STEP_SCORER_TEXT, STEP_MVP_TEXT):
         return None
     num = int(w.get("match_number", 0))
     gid = w.get("group_id") or svc.get_active_group_id(user_id)
@@ -338,10 +341,10 @@ def wizard_handle_text(
         _clear_wizard(svc, user_id)
         return "Sesión expirada.", None
 
-    if step == STEP_SCORE_CUSTOM:
+    if step in (STEP_SCORE, STEP_SCORE_CUSTOM):
         parsed = parse_simple_score(text)
         if not parsed:
-            return "No entendí el marcador. Usá formato 2-1 o 3:0.", None
+            return "No entendí el marcador. Usá formato 0-1, 0:1 o 2-1.", None
         return wizard_submit_score(svc, user_id, num, gid, parsed[0], parsed[1])
 
     name = (text or "").strip()[:80]
