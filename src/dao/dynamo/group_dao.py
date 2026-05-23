@@ -235,3 +235,33 @@ class GroupDAO:
             scan_kwargs["ExclusiveStartKey"] = resp["LastEvaluatedKey"]
         items.sort(key=lambda g: (not g.get("is_global"), (g.get("name") or "").lower()))
         return items[:limit]
+
+    def list_private_groups_for_invite(
+        self, user_id: str, *, is_admin: bool, limit: int = 50
+    ) -> list[dict[str, Any]]:
+        """Grupos privados invitables: scan admin + membresías del usuario (como /grupos)."""
+        seen: set[str] = set()
+        out: list[dict[str, Any]] = []
+
+        def _add(g: dict[str, Any] | None) -> None:
+            if not g or g.get("status") == _GROUP_STATUS_DELETED:
+                return
+            if g.get("is_global"):
+                return
+            gid = g.get("group_id")
+            if not gid or gid in seen:
+                return
+            seen.add(gid)
+            out.append(g)
+
+        if is_admin:
+            for g in self.list_active_groups(limit=limit):
+                _add(g)
+
+        for gid in self.list_group_ids_for_user(user_id):
+            if gid == GLOBAL_GROUP_ID:
+                continue
+            _add(self.get_group(gid))
+
+        out.sort(key=lambda x: (x.get("name") or "").lower())
+        return out[:limit]

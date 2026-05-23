@@ -69,14 +69,22 @@ def handle_invitation_command(user_id: str, text: str) -> tuple[str, dict | None
                         None,
                     )
         owner_group = groups.get_group(owner_gid) if owner_gid else None
+        private_groups = (
+            groups.list_private_groups_for_invite(user_id, is_admin=True)
+            if is_admin
+            else []
+        )
         intro = (
             f"🔗 Invitaciones — {max_uses} cupo{'s' if max_uses != 1 else ''}\n\n"
             "Elegí el grupo destino:"
         )
         if is_admin:
-            intro += "\nPor defecto podés invitar al torneo General (GLOBAL)."
+            intro += "\n🌍 GLOBAL o uno de tus grupos privados abajo."
         return intro, invite_destination_keyboard(
-            max_uses, is_admin=is_admin, owner_group=owner_group
+            max_uses,
+            is_admin=is_admin,
+            owner_group=owner_group,
+            private_groups=private_groups,
         )
 
     if _LISTAR.match(text):

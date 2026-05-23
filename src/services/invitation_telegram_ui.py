@@ -4,10 +4,18 @@ from __future__ import annotations
 from src.dao.dynamo.group_dao import GLOBAL_GROUP_ID
 
 
-def invite_destination_keyboard(max_uses: int, *, is_admin: bool, owner_group: dict | None) -> dict:
-    """Admin: GLOBAL + elegir otro. Owner: su grupo."""
+def invite_destination_keyboard(
+    max_uses: int,
+    *,
+    is_admin: bool,
+    owner_group: dict | None,
+    private_groups: list[dict] | None = None,
+) -> dict:
+    """Admin: GLOBAL + grupos privados en la misma pantalla. Owner: su grupo."""
     n = max(1, int(max_uses))
     rows: list[list[dict[str, str]]] = []
+    privates = private_groups or []
+
     if is_admin:
         rows.append(
             [
@@ -17,7 +25,18 @@ def invite_destination_keyboard(max_uses: int, *, is_admin: bool, owner_group: d
                 },
             ]
         )
-        rows.append([{"text": "📋 Elegir otro grupo…", "callback_data": f"inv:pick:{n}"}])
+        for g in privates[:12]:
+            gid = g.get("group_id", "")
+            if not gid or g.get("is_global"):
+                continue
+            label = f"{g.get('avatar', '⚽')} {(g.get('name') or gid)[:26]}"
+            rows.append(
+                [{"text": label, "callback_data": f"inv:grp:{gid}:{n}"}]
+            )
+        if len(privates) > 12:
+            rows.append(
+                [{"text": "📋 Ver más grupos…", "callback_data": f"inv:pick:{n}"}]
+            )
     elif owner_group:
         gid = owner_group.get("group_id", "")
         name = (owner_group.get("name") or gid)[:28]
@@ -34,7 +53,7 @@ def invite_destination_keyboard(max_uses: int, *, is_admin: bool, owner_group: d
 
 
 def invite_group_pick_keyboard(groups: list[dict], max_uses: int) -> dict:
-    """Lista de grupos para invitar (admin u owner con varios)."""
+    """Lista completa de grupos (ver más / refresco)."""
     n = max(1, int(max_uses))
     rows: list[list[dict[str, str]]] = []
     for g in groups[:15]:

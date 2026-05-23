@@ -66,6 +66,9 @@ def test_invitar_stale_group_context_admin_shows_keyboard():
         mock_auth.return_value.is_admin_global.return_value = True
         mock_groups.return_value.get_group.return_value = None
         mock_groups.return_value.get_owner_group_id.return_value = None
+        mock_groups.return_value.list_private_groups_for_invite.return_value = [
+            {"group_id": "g1", "name": "Putiskys", "avatar": "🎯"},
+        ]
         text, markup = handle_invitation_command("admin-1", "/invitar 3")
 
     assert "0 slot" not in text.lower()
