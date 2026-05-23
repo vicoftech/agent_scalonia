@@ -37,13 +37,16 @@ def handle_invitation_command(user_id: str, text: str) -> tuple[str, dict | None
         if ctx_gid:
             grp = groups.get_group(ctx_gid)
             if not grp:
-                # Grupo borrado (ej. tras purge) — no bloquear /invitar
                 UserDAO().update_profile(user_id, group_context_group_id=None)
-            else:
+                ctx_gid = None
+        # Admin siempre elige destino (no atar a group_context de /editar-grupo)
+        if ctx_gid and not is_admin:
+            grp = groups.get_group(ctx_gid)
+            if grp:  # noqa: SIM102 — ctx validado arriba
                 slots = auth.slots_available(ctx_gid, actor_user_id=user_id)
                 can_invite, _reason = auth.check_can_invite(user_id, ctx_gid)
                 use_context = can_invite and (
-                    is_admin or slots is None or max_uses <= slots
+                    slots is None or max_uses <= slots
                 )
                 if use_context:
                     try:

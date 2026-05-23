@@ -22,12 +22,20 @@ def _parse_inv_grp(data: str) -> tuple[str, int] | None:
 
 
 def _groups_for_invite_picker(user_id: str) -> list[dict]:
-    groups = GroupDAO().list_active_groups(limit=15)
+    """Grupos destino para inv:pick — admin: todos los privados; owner: su grupo."""
+    dao = GroupDAO()
     auth = AuthService()
+    groups = dao.list_active_groups(limit=100)
     if auth.is_admin_global(user_id):
-        return [g for g in groups if g.get("status") != "DELETED"]
-    owned = GroupDAO().get_owner_group_id(user_id)
-    return [g for g in groups if g.get("group_id") == owned and not g.get("is_global")]
+        return [
+            g
+            for g in groups
+            if not g.get("is_global") and g.get("status") != "DELETED"
+        ]
+    owned = dao.get_owner_group_id(user_id)
+    if not owned:
+        return []
+    return [g for g in groups if g.get("group_id") == owned]
 
 
 def handle_invitation_callback(user_id: str, data: str) -> tuple[str, dict | None] | None:

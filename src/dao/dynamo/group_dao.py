@@ -219,8 +219,8 @@ class GroupDAO:
             )
         self.update_group(group_id, member_count=0)
 
-    def list_active_groups(self, *, limit: int = 25) -> list[dict[str, Any]]:
-        """Admin: grupos no eliminados (scan MVP)."""
+    def list_active_groups(self, *, limit: int = 100) -> list[dict[str, Any]]:
+        """Admin: todos los grupos no eliminados (scan completo, luego recorta)."""
         items: list[dict[str, Any]] = []
         scan_kwargs: dict[str, Any] = {
             "FilterExpression": (
@@ -230,7 +230,8 @@ class GroupDAO:
         while True:
             resp = self._table.scan(**scan_kwargs)
             items.extend(resp.get("Items", []))
-            if len(items) >= limit or not resp.get("LastEvaluatedKey"):
+            if not resp.get("LastEvaluatedKey"):
                 break
             scan_kwargs["ExclusiveStartKey"] = resp["LastEvaluatedKey"]
+        items.sort(key=lambda g: (not g.get("is_global"), (g.get("name") or "").lower()))
         return items[:limit]

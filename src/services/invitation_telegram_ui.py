@@ -37,7 +37,7 @@ def invite_group_pick_keyboard(groups: list[dict], max_uses: int) -> dict:
     """Lista de grupos para invitar (admin u owner con varios)."""
     n = max(1, int(max_uses))
     rows: list[list[dict[str, str]]] = []
-    for g in groups[:10]:
+    for g in groups[:15]:
         if g.get("is_global"):
             continue
         gid = g.get("group_id", "")
@@ -55,7 +55,7 @@ def add_member_group_pick_keyboard(groups: list[dict], target_alias: str) -> dic
     """Admin elige grupo para /agregar-miembro <alias> (alias en PROFILE)."""
     _ = target_alias
     rows: list[list[dict[str, str]]] = []
-    for g in groups[:10]:
+    for g in groups[:15]:
         if g.get("is_global"):
             continue
         gid = g.get("group_id", "")
