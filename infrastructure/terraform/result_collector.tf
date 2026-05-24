@@ -52,7 +52,7 @@ resource "aws_sqs_queue" "match_notifications" {
 
   name                       = "prode-match-notify-${var.env}"
   message_retention_seconds  = 86400
-  visibility_timeout_seconds = 60
+  visibility_timeout_seconds = 120
 }
 
 resource "null_resource" "result_collector_package" {

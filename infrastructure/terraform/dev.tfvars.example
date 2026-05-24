@@ -70,6 +70,6 @@ telegram_bot_username = "scalonia_bot"
 # aws secretsmanager create-secret --name prode-mundial/dev/tavily-api-key --secret-string "tvly-..."
 tavily_secret_arn = "arn:aws:secretsmanager:us-east-1:ACCOUNT_ID:secret:prode-mundial/dev/tavily-api-key-XXXX"
 
-# SPEC-031 — result_collector (resultados + MVP + colas scoring/notify)
-# enable_result_queues     = true
-# enable_result_collector  = true
+# SPEC-031 — result_collector + notify dispatcher (SQS → Telegram)
+# enable_result_queues     = true   # colas + match_notify_dispatcher Lambda
+# enable_result_collector  = true   # schedule + recolectar resultados
