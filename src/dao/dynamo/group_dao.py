@@ -58,12 +58,31 @@ class GroupDAO:
         return "Item" in resp
 
     def list_member_user_ids(self, group_id: str) -> list[str]:
+        """Miembros del grupo. GSI-3 con fallback a query por PK (datos legacy)."""
+        try:
+            resp = self._table.query(
+                IndexName="GSI-3-group-members",
+                KeyConditionExpression=Key("group_id").eq(str(group_id)),
+                ProjectionExpression="user_id",
+            )
+            ids = [i["user_id"] for i in resp.get("Items", []) if i.get("user_id")]
+            if ids:
+                return ids
+        except Exception:
+            pass
         resp = self._table.query(
-            IndexName="GSI-3-group-members",
-            KeyConditionExpression=Key("group_id").eq(group_id),
-            ProjectionExpression="user_id",
+            KeyConditionExpression=Key("partition_key").eq(f"GROUP#{group_id}")
+            & Key("sort_key").begins_with("MEMBER#"),
+            ProjectionExpression="user_id, sort_key",
         )
-        return [i["user_id"] for i in resp.get("Items", []) if i.get("user_id")]
+        out: list[str] = []
+        for item in resp.get("Items", []):
+            uid = item.get("user_id")
+            if not uid and item.get("sort_key", "").startswith("MEMBER#"):
+                uid = item["sort_key"].split("#", 1)[1]
+            if uid:
+                out.append(str(uid))
+        return out
 
     def add_member(self, group_id: str, user_id: str, *, increment_count: bool = True) -> None:
         if self.is_member(group_id, user_id):

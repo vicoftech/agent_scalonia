@@ -1,0 +1,19 @@
+{
+  "fixtures": [
+    {
+      "api_match_id": 2,
+      "status": "FT",
+      "home_team": "MEX",
+      "away_team": "RSA",
+      "home_goals": 2,
+      "away_goals": 0,
+      "scorers": {"Lozano": 1, "Vega": 1},
+      "red_cards": 0,
+      "goal_before_5min": false,
+      "var_used": true,
+      "free_kick_goal": false,
+      "penalty_saved": false,
+      "penalty_scored": false
+    }
+  ]
+}

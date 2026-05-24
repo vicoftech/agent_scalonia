@@ -9,6 +9,7 @@ Uso:
   python scripts/collect_result.py --enrich-mvp-only --match-id <uuid> --env dev
   python scripts/collect_result.py --teams MEX RSA --inject 2-0 --env dev
   python scripts/collect_result.py --match-id <uuid> --inject 2-0 --profile prode-dev
+  python scripts/collect_result.py --teams MEX RSA --mock-web-search --skip-kickoff-check --dry-run
 """
 from __future__ import annotations
 
@@ -102,9 +103,32 @@ def main() -> int:
         action="store_true",
         help="No buscar prode-match-notify-{env} / prode-scoring-{env} en AWS",
     )
+    p.add_argument(
+        "--mock-web-search",
+        action="store_true",
+        help="Usar data/fixtures/mock_web_search_results.json (sin Tavily)",
+    )
+    p.add_argument(
+        "--mock-web-search-path",
+        default=None,
+        help="Ruta alternativa al JSON de fake web_search",
+    )
+    p.add_argument(
+        "--skip-kickoff-check",
+        action="store_true",
+        help="Recolectar aunque kickoff+110min no haya pasado (pruebas locales)",
+    )
     args = p.parse_args()
 
     _configure_runtime(args.env, profile=args.profile, region=args.region)
+
+    if args.mock_web_search:
+        from src.testing.fake_web_search import install_fake_web_search
+
+        install_fake_web_search(fixture_path=args.mock_web_search_path)
+        logger.info("web_search: modo mock (fixture)")
+    if args.skip_kickoff_check:
+        os.environ["RESULT_SKIP_KICKOFF_CHECK"] = "1"
 
     if not args.no_resolve_queues and not args.no_notify:
         from src.services.result_queues import ensure_queue_urls

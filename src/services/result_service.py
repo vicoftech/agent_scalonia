@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import logging
+import os
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Optional
 
@@ -56,22 +58,42 @@ class ResultService:
         self._groups = group_dao or GroupDAO()
         self._users = user_dao or UserDAO()
 
-    def collect_result(self, match_id: str) -> MatchResult | None:
+    def collect_result(
+        self,
+        match_id: str,
+        *,
+        telegram_direct: bool = False,
+        force_notify: bool = False,
+    ) -> MatchResult | None:
         existing = self._results.get_result(match_id)
-        if existing and existing.mvp_name:
+        if existing and existing.mvp_name and not force_notify:
             return existing
 
         if existing and self._results.has_scores(match_id):
             enriched = self._enrich_mvp(match_id, existing)
             if enriched.mvp_name and not existing.mvp_name:
                 self._results.update_mvp(match_id, enriched.mvp_name)
-            if not self._results.is_scoring_done(match_id):
+            should_notify = force_notify or not self._results.is_scoring_done(
+                match_id
+            )
+            if should_notify:
                 match = self._matches.get_match(match_id)
                 if match:
-                    enqueue_scoring(match_id, enriched.to_dict())
-                    self._notify_all_groups(
-                        match_id, match, enriched, telegram_direct=False
+                    if not self._results.is_scoring_done(match_id):
+                        enqueue_scoring(match_id, enriched.to_dict())
+                    sent = self._notify_all_groups(
+                        match_id,
+                        match,
+                        enriched,
+                        telegram_direct=telegram_direct,
                     )
+                    if sent == 0:
+                        logger.warning(
+                            "Sin notificaciones enviadas match=%s "
+                            "(¿NOTIFICATION_QUEUE_URL, --telegram-direct, "
+                            "o usuarios sin tg_chat_id?)",
+                            match_id[:8],
+                        )
             return enriched
 
         match = self._matches.get_match(match_id)
@@ -83,7 +105,9 @@ class ResultService:
         if not fetched:
             return None
 
-        saved = self._save_and_notify(match_id, match, fetched)
+        saved = self._save_and_notify(
+            match_id, match, fetched, telegram_direct=telegram_direct
+        )
         return saved or fetched
 
     def apply_manual_result(
@@ -142,7 +166,12 @@ class ResultService:
             return None
         kickoff = datetime.fromisoformat(kickoff_raw.replace("Z", "+00:00"))
         estimated_end = kickoff + timedelta(minutes=ESTIMATED_MATCH_MINUTES)
-        if datetime.now(tz=timezone.utc) < estimated_end:
+        skip_kickoff = os.environ.get("RESULT_SKIP_KICKOFF_CHECK", "").strip().lower() in (
+            "1",
+            "true",
+            "yes",
+        )
+        if not skip_kickoff and datetime.now(tz=timezone.utc) < estimated_end:
             logger.info("Partido %s vs %s aún en curso", home, away)
             return None
 
@@ -167,23 +196,7 @@ class ResultService:
             return existing
         mvp = extract_mvp_from_text(raw)
         if mvp:
-            return MatchResult(
-                home_goals=existing.home_goals,
-                away_goals=existing.away_goals,
-                phase=existing.phase,
-                playoff_via=existing.playoff_via,
-                playoff_winner=existing.playoff_winner,
-                home_goals_aet=existing.home_goals_aet,
-                away_goals_aet=existing.away_goals_aet,
-                scorers=existing.scorers,
-                red_cards=existing.red_cards,
-                mvp_name=mvp,
-                status=existing.status,
-                source=existing.source,
-                result_processed=existing.result_processed,
-                match_id=match_id,
-                recorded_at=existing.recorded_at,
-            )
+            return replace(existing, mvp_name=mvp, match_id=match_id)
         return existing
 
     def _save_and_notify(

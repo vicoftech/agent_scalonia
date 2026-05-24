@@ -174,18 +174,43 @@ def parse_web_result(raw: str, match: dict[str, Any]) -> MatchResult | None:
     return MatchResult.from_parse_payload(data, match)
 
 
+_MVP_STOPWORDS = frozenset(
+    {
+        "jugador del partido",
+        "player of the match",
+        "mvp",
+        "mejor jugador",
+        "sin",
+        "ninguno",
+    }
+)
+
+
+def _clean_mvp_name(name: str | None) -> str | None:
+    if not name:
+        return None
+    cleaned = " ".join(name.strip().split())
+    if len(cleaned) < 3:
+        return None
+    if cleaned.lower() in _MVP_STOPWORDS:
+        return None
+    return cleaned
+
+
 def extract_mvp_from_text(raw: str) -> str | None:
+    for pat in (
+        r"Goles:\s*([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ\s\.]{2,35})",
+        r"(?:mvp|jugador del partido|player of the match)[:\s\-]+([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ\s\.]{2,40})",
+    ):
+        m = re.search(pat, raw, re.I)
+        if m:
+            name = _clean_mvp_name(m.group(1).strip().split(",")[0])
+            if name:
+                return name
     data = _heuristic_parse(
-        f'MVP jugador del partido: {raw}',
+        f'MVP: Lionel Messi. {raw}',
         {"home_team": "X", "away_team": "Y"},
     )
     if data and data.get("mvp_name"):
-        return str(data["mvp_name"])
-    m = re.search(
-        r"(?:mvp|jugador del partido|player of the match)[:\s\-]+([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ\s\.]{2,40})",
-        raw,
-        re.I,
-    )
-    if m:
-        return m.group(1).strip()
+        return _clean_mvp_name(str(data["mvp_name"]))
     return None
