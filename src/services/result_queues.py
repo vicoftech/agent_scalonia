@@ -6,9 +6,53 @@ import logging
 import os
 from typing import Any
 
-import boto3
+from src.dao.dynamo.table import get_session
 
 logger = logging.getLogger(__name__)
+
+
+def _sqs_client():
+    return get_session().client("sqs")
+
+
+def lookup_queue_url(queue_name: str) -> str | None:
+    """Resuelve URL de cola por nombre (scripts locales con --profile)."""
+    try:
+        resp = _sqs_client().get_queue_url(QueueName=queue_name)
+        return resp.get("QueueUrl")
+    except Exception:
+        logger.debug("Queue not found or no access: %s", queue_name)
+        return None
+
+
+def ensure_queue_urls(*, env: str) -> dict[str, str | None]:
+    """
+    Completa NOTIFICATION_QUEUE_URL y SCORING_QUEUE_URL desde nombres estándar.
+    prode-match-notify-{env} / prode-scoring-{env}
+    """
+    found: dict[str, str | None] = {}
+    notify_name = f"prode-match-notify-{env}"
+    scoring_name = f"prode-scoring-{env}"
+
+    if not os.environ.get("NOTIFICATION_QUEUE_URL", "").strip():
+        url = lookup_queue_url(notify_name)
+        if url:
+            os.environ["NOTIFICATION_QUEUE_URL"] = url
+            logger.info("NOTIFICATION_QUEUE_URL ← %s", notify_name)
+        found["notification"] = url
+    else:
+        found["notification"] = os.environ["NOTIFICATION_QUEUE_URL"]
+
+    if not os.environ.get("SCORING_QUEUE_URL", "").strip():
+        url = lookup_queue_url(scoring_name)
+        if url:
+            os.environ["SCORING_QUEUE_URL"] = url
+            logger.info("SCORING_QUEUE_URL ← %s", scoring_name)
+        found["scoring"] = url
+    else:
+        found["scoring"] = os.environ.get("SCORING_QUEUE_URL")
+
+    return found
 
 
 def enqueue_scoring(match_id: str, result: dict[str, Any]) -> bool:
@@ -25,7 +69,7 @@ def enqueue_scoring(match_id: str, result: dict[str, Any]) -> bool:
         "result": result,
     }
     try:
-        boto3.client("sqs").send_message(
+        _sqs_client().send_message(
             QueueUrl=url,
             MessageBody=json.dumps(payload, default=str),
         )
@@ -43,11 +87,12 @@ def enqueue_match_result_notification(
     message: str,
     match_info: dict[str, Any],
     result: dict[str, Any],
+    group_ids: list[str] | None = None,
 ) -> bool:
     url = os.environ.get("NOTIFICATION_QUEUE_URL", "").strip()
     if not url:
-        logger.debug(
-            "NOTIFICATION_QUEUE_URL unset; skip notify user=%s match=%s",
+        logger.warning(
+            "NOTIFICATION_QUEUE_URL unset; no se encoló notify user=%s match=%s",
             user_id[:8],
             match_id[:8],
         )
@@ -57,6 +102,7 @@ def enqueue_match_result_notification(
         "user_id": user_id,
         "match_id": match_id,
         "group_id": group_id,
+        "group_ids": group_ids or [group_id],
         "message": message,
         "result": result,
         "match_info": {
@@ -74,7 +120,7 @@ def enqueue_match_result_notification(
         },
     }
     try:
-        boto3.client("sqs").send_message(
+        _sqs_client().send_message(
             QueueUrl=url,
             MessageBody=json.dumps(payload, default=str),
         )

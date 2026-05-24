@@ -1,0 +1,21 @@
+# Dependencias para scripts operativos (ejecutar desde la raíz del repo).
+#
+#   python3 -m venv .venv-scripts
+#   source .venv-scripts/bin/activate
+#   pip install -r scripts/requirements.txt
+#
+#   python scripts/collect_result.py --match-id <uuid> --inject 2-0 --env dev --profile asap_dev
+#
+# Telegram sin cola SQS (local):
+#   python scripts/collect_result.py ... --inject 2-0 --telegram-direct
+#
+# Si falla SSL CERTIFICATE_VERIFY_FAILED (proxy corporativo en Mac):
+#   export TELEGRAM_SSL_VERIFY=0
+#
+# Con cola en AWS (terraform enable_result_queues=true):
+#   export NOTIFICATION_QUEUE_URL=https://sqs.../prode-match-notify-dev
+#
+# Opcional (notify/scoring vía SQS): credenciales AWS con permisos en la tabla y colas.
+
+boto3>=1.34.0
+httpx>=0.27.0

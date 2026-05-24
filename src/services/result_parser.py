@@ -115,6 +115,11 @@ Respondé SOLO en JSON con este formato exacto:
   "playoff_winner": null,
   "scorers": {{}},
   "red_cards": 0,
+  "goal_before_5min": true | false | null,
+  "var_used": true | false | null,
+  "free_kick_goal": true | false | null,
+  "penalty_saved": true | false | null,
+  "penalty_scored": true | false | null,
   "mvp_name": null
 }}
 

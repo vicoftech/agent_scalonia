@@ -25,7 +25,7 @@ SPEC-031 cubre lo que SPEC-028 no garantiza:
 | Red cards count | ✓ (de los eventos) | ✓ (web_search si falta) |
 | **MVP oficial** | ✗ `mvp_name=None` | **✓ web_search post-partido** |
 | Fallback sin API activa | ✗ | ✓ web_search por hora estimada |
-| Notificación todos los grupos | Parcial (solo grupos con pred.) | **✓ todos los grupos afectados** |
+| Notificación todos los grupos | Parcial (solo grupos con pred.) | **✓ 1 mensaje/usuario, 👥 lista sus grupos ACTIVE** |
 | Re-intentar si datos incompletos | ✗ | ✓ con retry + TTL |
 
 ---
@@ -198,16 +198,14 @@ Si no encontraste el resultado, retorná {{"found": false}}.
 
     def _notify_all_groups(self, match_id: str, result: MatchResult) -> None:
         """
-        Envía el resultado final a todos los grupos que tienen
-        al menos un miembro con predicción del partido.
+        Envía el resultado final a cada miembro de todos los grupos ACTIVE
+        (incluye GLOBAL), tengan o no predicción del partido.
         Fire-and-forget via SQS NotificationQueue.
         """
-        groups = prediction_dao.get_groups_with_predictions(match_id)
         match = match_dao.get(match_id)
 
-        for group in groups:
-            members = group_dao.list_members_with_notifications(group.group_id)
-            for member in members:
+        for group in group_dao.list_groups_for_broadcast():
+            for member_user_id in group_dao.list_member_user_ids(group["group_id"]):
                 sqs.send_message(NotificationQueue, {
                     "type":       "MATCH_RESULT",
                     "user_id":    member.user_id,

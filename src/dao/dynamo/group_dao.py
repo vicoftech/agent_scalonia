@@ -219,6 +219,11 @@ class GroupDAO:
             )
         self.update_group(group_id, member_count=0)
 
+    def list_groups_for_broadcast(self, *, limit: int = 200) -> list[dict[str, Any]]:
+        """Grupos ACTIVE (incluye GLOBAL) — broadcast de resultados a todos los miembros."""
+        groups = self.list_active_groups(limit=limit)
+        return [g for g in groups if (g.get("status") or _GROUP_STATUS_ACTIVE) == _GROUP_STATUS_ACTIVE]
+
     def list_active_groups(self, *, limit: int = 100) -> list[dict[str, Any]]:
         """Admin: todos los grupos no eliminados (scan completo, luego recorta)."""
         items: list[dict[str, Any]] = []

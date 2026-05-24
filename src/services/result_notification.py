@@ -5,7 +5,17 @@ from typing import Any
 
 from src.models.match_result import MatchResult
 from src.services.match_service import PHASE_LABELS
+from src.services.prediction_rules import bool_label
 from src.services.team_flags import format_team
+
+# Eventos reales del partido (mismas etiquetas que el wizard de predicción)
+MATCH_EVENT_LINES: tuple[tuple[str, str], ...] = (
+    ("goal_before_5min", "Gol antes del 5'"),
+    ("var_used", "Intervención VAR"),
+    ("free_kick_goal", "Gol de tiro libre"),
+    ("penalty_saved", "Penal atajado"),
+    ("penalty_scored", "Penal convertido"),
+)
 
 
 def _format_scorers(scorers: dict[str, int]) -> list[str]:
@@ -18,8 +28,22 @@ def _format_scorers(scorers: dict[str, int]) -> list[str]:
     return lines
 
 
+def _format_red_cards(red_cards: int) -> str:
+    if red_cards <= 0:
+        return "ninguno"
+    return "Sí"
+
+
+def format_match_events_lines(result: MatchResult) -> list[str]:
+    """Hechos del partido: expulsiones y variables extendidas (Sí/No/—)."""
+    lines = [f"🟥 Expulsados: {_format_red_cards(result.red_cards)}"]
+    for attr, label in MATCH_EVENT_LINES:
+        lines.append(f"{label}: {bool_label(getattr(result, attr, None))}")
+    return lines
+
+
 def format_match_result_message(match: dict[str, Any], result: MatchResult) -> str:
-    """Mensaje 🏁 RESULTADO FINAL para Telegram."""
+    """Mensaje 🏁 RESULTADO FINAL — marcador, goles y eventos reales del partido."""
     home = format_team(match["home_team"])
     away = format_team(match["away_team"])
     h, a = result.home_goals, result.away_goals
@@ -57,19 +81,7 @@ def format_match_result_message(match: dict[str, Any], result: MatchResult) -> s
         lines.append("⚽ Goles:")
         lines.extend(_format_scorers(result.scorers))
 
-    if result.red_cards:
-        lines.append(f"\n🟥 Expulsados: {result.red_cards}")
-    else:
-        lines.append("\n🟥 Expulsados: ninguno")
+    lines.append("")
+    lines.extend(format_match_events_lines(result))
 
-    if result.mvp_name:
-        lines.append(f"\n⭐ Jugador del partido: {result.mvp_name}")
-
-    lines.extend(
-        [
-            "",
-            "📊 Calculando tus puntos...",
-            "[Ver mi desglose →]",
-        ]
-    )
     return "\n".join(lines)

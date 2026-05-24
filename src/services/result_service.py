@@ -69,7 +69,9 @@ class ResultService:
                 match = self._matches.get_match(match_id)
                 if match:
                     enqueue_scoring(match_id, enriched.to_dict())
-                    self._notify_all_groups(match_id, match, enriched)
+                    self._notify_all_groups(
+                        match_id, match, enriched, telegram_direct=False
+                    )
             return enriched
 
         match = self._matches.get_match(match_id)
@@ -83,6 +85,45 @@ class ResultService:
 
         saved = self._save_and_notify(match_id, match, fetched)
         return saved or fetched
+
+    def apply_manual_result(
+        self,
+        match_id: str,
+        home_goals: int,
+        away_goals: int,
+        *,
+        mvp_name: str | None = None,
+        replace: bool = True,
+        notify: bool = True,
+        telegram_direct: bool = False,
+    ) -> MatchResult | None:
+        """
+        Carga manual de resultado (pruebas / operador).
+        replace=True borra RESULT previo y re-dispara notify + scoring.
+        """
+        match = self._matches.get_match(match_id)
+        if not match:
+            logger.warning("apply_manual_result: match not found %s", match_id[:8])
+            return None
+
+        if replace and self._results.has_scores(match_id):
+            self._results.delete_result(match_id)
+
+        result = MatchResult(
+            home_goals=home_goals,
+            away_goals=away_goals,
+            phase=match.get("phase", "GROUP"),
+            mvp_name=mvp_name,
+            source="web_search",
+        )
+        if not notify:
+            self._results.save_result(match_id, result, allow_overwrite=replace)
+            self._matches.update_status(match_id, _match_status_from_result(result))
+            return self._results.get_result(match_id) or result
+
+        return self._save_and_notify(
+            match_id, match, result, telegram_direct=telegram_direct
+        )
 
     def find_incomplete_match_ids(self) -> list[str]:
         """Partidos que debieron terminar y aún no tienen resultado completo (sin MVP)."""
@@ -150,6 +191,8 @@ class ResultService:
         match_id: str,
         match: dict[str, Any],
         result: MatchResult,
+        *,
+        telegram_direct: bool = False,
     ) -> MatchResult | None:
         result.match_id = match_id
         already_scored = self._results.is_scoring_done(match_id)
@@ -164,47 +207,121 @@ class ResultService:
         self._matches.update_status(match_id, _match_status_from_result(result))
 
         if not already_scored:
-            self._notify_all_groups(match_id, match, result)
+            self._notify_all_groups(
+                match_id, match, result, telegram_direct=telegram_direct
+            )
             enqueue_scoring(match_id, result.to_dict())
 
         return self._results.get_result(match_id) or result
+
+    def _notify_recipients_by_user(self) -> dict[str, list[str]]:
+        """
+        user_id → group_ids ACTIVE donde es miembro.
+        Un solo envío Telegram por usuario (opción A).
+        """
+        by_user: dict[str, list[str]] = {}
+        for group in self._groups.list_groups_for_broadcast():
+            gid = group.get("group_id")
+            if not gid:
+                continue
+            for user_id in self._groups.list_member_user_ids(gid):
+                if gid not in by_user.setdefault(user_id, []):
+                    by_user[user_id].append(gid)
+        return by_user
 
     def _notify_all_groups(
         self,
         match_id: str,
         match: dict[str, Any],
         result: MatchResult,
+        *,
+        telegram_direct: bool = False,
     ) -> int:
-        message = format_match_result_message(match, result)
-        group_ids = self._preds.get_group_ids_with_predictions(match_id)
+        """Notifica el resultado: un mensaje Telegram por usuario (miembros ACTIVE)."""
+        by_user = self._notify_recipients_by_user()
+
+        if not by_user:
+            logger.warning(
+                "Sin grupos ACTIVE con miembros — no hay notificaciones match #%s",
+                match.get("match_number"),
+            )
+            return 0
+
+        dispatcher = None
+        if telegram_direct:
+            from src.services.match_notify_dispatcher import MatchNotifyDispatcher
+
+            dispatcher = MatchNotifyDispatcher(users=self._users)
+
         sent = 0
-        for group_id in group_ids:
-            group = self._groups.get_group(group_id) or {}
-            for user_id in self._groups.list_member_user_ids(group_id):
-                profile = self._users.get_profile(user_id) or {}
-                if profile.get("notifications_enabled") is False:
-                    continue
-                preds = self._preds.get_predictions_for_match(match_id)
-                if not any(
-                    p["user_id"] == user_id and p.get("group_id") == group_id
-                    for p in preds
-                ):
-                    continue
-                if enqueue_match_result_notification(
-                    user_id=user_id,
-                    match_id=match_id,
-                    group_id=group_id,
-                    message=message,
-                    match_info=match,
-                    result=result.to_dict(),
-                ):
+        skipped = 0
+        for user_id, group_ids in by_user.items():
+            profile = self._users.get_profile(user_id) or {}
+            if profile.get("notifications_enabled") is False:
+                skipped += 1
+                continue
+            if not profile.get("tg_chat_id"):
+                logger.warning(
+                    "Usuario %s sin tg_chat_id — no se puede enviar Telegram",
+                    user_id[:8],
+                )
+                skipped += 1
+                continue
+
+            message = format_match_result_message(match, result)
+            primary_gid = group_ids[0]
+            payload = {
+                "type": "MATCH_RESULT",
+                "user_id": user_id,
+                "match_id": match_id,
+                "group_id": primary_gid,
+                "group_ids": group_ids,
+                "message": message,
+                "result": result.to_dict(),
+                "match_info": match,
+            }
+
+            if telegram_direct and dispatcher:
+                outcome = dispatcher.dispatch_payload(payload)
+                if outcome == "SENT":
                     sent += 1
-                else:
                     logger.info(
-                        "MATCH_RESULT notify (no queue) user=%s group=%s #%s",
+                        "Telegram enviado user=%s groups=%s #%s",
                         user_id[:8],
-                        group.get("name", group_id),
+                        len(group_ids),
                         match.get("match_number"),
                     )
-                    sent += 1
+                else:
+                    skipped += 1
+                    logger.warning(
+                        "Telegram no enviado user=%s outcome=%s",
+                        user_id[:8],
+                        outcome,
+                    )
+            elif enqueue_match_result_notification(
+                user_id=user_id,
+                match_id=match_id,
+                group_id=primary_gid,
+                message=message,
+                match_info=match,
+                result=result.to_dict(),
+                group_ids=group_ids,
+            ):
+                sent += 1
+            else:
+                skipped += 1
+
+        if skipped and not telegram_direct:
+            logger.warning(
+                "Algunas notificaciones no se encolaron. "
+                "Definí NOTIFICATION_QUEUE_URL o usá --telegram-direct"
+            )
+        logger.info(
+            "Notify match #%s: sent=%s skipped=%s users=%s mode=%s",
+            match.get("match_number"),
+            sent,
+            skipped,
+            len(by_user),
+            "telegram" if telegram_direct else "sqs",
+        )
         return sent

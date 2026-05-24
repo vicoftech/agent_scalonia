@@ -19,6 +19,7 @@ def _payload(**kwargs):
         "user_id": "u1",
         "match_id": "m1",
         "group_id": "g1",
+        "group_ids": ["g1"],
         "message": "🏁 RESULTADO FINAL\n\nARG 2-0 ALG",
     }
     base.update(kwargs)
@@ -32,19 +33,16 @@ def test_dispatch_sent():
         "notifications_enabled": True,
         "tg_chat_id": 999,
     }
-    groups = MagicMock()
-    groups.get_group.return_value = {"name": "Los Pibes"}
-
     with patch("src.services.match_notify_dispatcher.get_bot_token", return_value="tok"):
         with patch("src.services.match_notify_dispatcher.send_telegram_message") as send:
-            out = MatchNotifyDispatcher(users=users, groups=groups).dispatch_payload(
-                _payload()
-            )
+            out = MatchNotifyDispatcher(users=users).dispatch_payload(_payload())
 
     assert out == DISPATCH_SENT
     send.assert_called_once()
     assert send.call_args[0][0] == 999
-    assert "Los Pibes" in send.call_args[0][1]
+    assert send.call_args[0][1] == _payload()["message"]
+    assert "👥" not in send.call_args[0][1]
+    assert "Calculando" not in send.call_args[0][1]
 
 
 def test_skip_no_chat():
@@ -77,8 +75,6 @@ def test_process_sqs_event_batch():
         "notifications_enabled": True,
         "tg_chat_id": 42,
     }
-    groups = MagicMock()
-    groups.get_group.return_value = {}
     event = {
         "Records": [
             {"messageId": "1", "body": json.dumps(_payload())},
@@ -90,17 +86,13 @@ def test_process_sqs_event_batch():
         return_value=users,
     ):
         with patch(
-            "src.services.match_notify_dispatcher.GroupDAO",
-            return_value=groups,
+            "src.services.match_notify_dispatcher.get_bot_token",
+            return_value="t",
         ):
             with patch(
-                "src.services.match_notify_dispatcher.get_bot_token",
-                return_value="t",
+                "src.services.match_notify_dispatcher.send_telegram_message"
             ):
-                with patch(
-                    "src.services.match_notify_dispatcher.send_telegram_message"
-                ):
-                    result = process_sqs_event(event)
+                result = process_sqs_event(event)
 
     assert result["sent"] == 1
     assert result["skipped"] == 1

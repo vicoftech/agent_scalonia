@@ -106,16 +106,17 @@ def test_sc02_fetch_and_save_enqueues():
     rdao.is_complete.return_value = False
 
     preds = MagicMock()
-    preds.get_group_ids_with_predictions.return_value = ["g1"]
     groups = MagicMock()
-    groups.get_group.return_value = {"name": "Los Pibes"}
-    groups.list_member_user_ids.return_value = ["u1", "u2"]
-    users = MagicMock()
-    users.get_profile.return_value = {"notifications_enabled": True}
-    preds.get_predictions_for_match.return_value = [
-        {"user_id": "u1", "group_id": "g1", "status": "ACTIVE"},
-        {"user_id": "u2", "group_id": "g1", "status": "ACTIVE"},
+    groups.list_groups_for_broadcast.return_value = [
+        {"group_id": "g1", "status": "ACTIVE", "name": "Los Pibes"},
     ]
+    groups.list_member_user_ids.return_value = ["u1", "u2"]
+    groups.get_group.return_value = {"name": "Los Pibes"}
+    users = MagicMock()
+    users.get_profile.side_effect = lambda uid: {
+        "notifications_enabled": True,
+        "tg_chat_id": 111 if uid == "u1" else 222,
+    }
 
     svc = _svc(
         result_dao=rdao,
@@ -238,15 +239,60 @@ def test_sc09_mvp_missing_still_returns_scores():
     assert out.mvp_name is None
 
 
+def test_notify_members_without_prediction():
+    """Todos los miembros del grupo, aunque no hayan predicho el partido."""
+    groups = MagicMock()
+    groups.list_groups_for_broadcast.return_value = [
+        {"group_id": "global", "status": "ACTIVE", "name": "Global"},
+    ]
+    groups.list_member_user_ids.return_value = ["u_no_pred"]
+    groups.get_group.return_value = {"name": "Global"}
+    users = MagicMock()
+    users.get_profile.return_value = {
+        "notifications_enabled": True,
+        "tg_chat_id": 999,
+    }
+    preds = MagicMock()
+
+    svc = _svc(group_dao=groups, user_dao=users, prediction_dao=preds)
+    by_user = svc._notify_recipients_by_user()
+    assert by_user == {"u_no_pred": ["global"]}
+
+
+def test_one_message_per_user_multiple_groups():
+    """Mismo usuario en 2 grupos → una entrada en by_user, no dos envíos."""
+    groups = MagicMock()
+    groups.list_groups_for_broadcast.return_value = [
+        {"group_id": "g1", "status": "ACTIVE"},
+        {"group_id": "g2", "status": "ACTIVE"},
+    ]
+    groups.list_member_user_ids.side_effect = lambda gid: ["u1"]
+    groups.get_group.side_effect = lambda gid: {
+        "name": "Scaloneta" if gid == "g1" else "Putiskys"
+    }
+
+    svc = _svc(group_dao=groups)
+    by_user = svc._notify_recipients_by_user()
+    assert by_user == {"u1": ["g1", "g2"]}
+
+
 def test_sc06_notify_all_groups_count():
     from src.services.result_notification import format_match_result_message
 
     match = _match()
-    result = MatchResult(home_goals=2, away_goals=0, mvp_name="Messi", scorers={"Messi": 1})
+    result = MatchResult(
+        home_goals=2,
+        away_goals=0,
+        mvp_name="Messi",
+        scorers={"Messi": 1},
+        var_used=False,
+    )
     msg = format_match_result_message(match, result)
     assert "RESULTADO FINAL" in msg
     assert "2 - 0" in msg
-    assert "Messi" in msg
+    assert "Messi" in msg  # en goleadores, no como MVP
+    assert "Jugador del partido" not in msg
+    assert "Intervención VAR: No" in msg
 
 
 def test_result_dao_is_complete():

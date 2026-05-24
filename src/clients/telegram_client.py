@@ -5,11 +5,9 @@ import json
 import logging
 import os
 import time
-import urllib.error
-import urllib.request
 from typing import Any, Callable, Optional
 
-import boto3
+import httpx
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +17,7 @@ MAX_TG_LEN = 4096
 _token_cache: str | None = None
 _get_token_fn: Optional[Callable[[], str]] = None
 _send_fn: Optional[Callable[[int, str, str], None]] = None
+_http_client: httpx.Client | None = None
 
 
 def set_token_provider(fn: Optional[Callable[[], str]]) -> None:
@@ -32,24 +31,43 @@ def set_send_fn(fn: Optional[Callable[[int, str, str], None]]) -> None:
     _send_fn = fn
 
 
+def _ssl_verify() -> bool | str:
+    """
+    Verificación TLS para api.telegram.org.
+
+    En Mac con proxy corporativo (cert self-signed en cadena), para scripts locales:
+      export TELEGRAM_SSL_VERIFY=0
+    O apuntar al bundle de la empresa:
+      export TELEGRAM_SSL_CERT_FILE=/ruta/a/ca-bundle.pem
+    """
+    cert_file = os.environ.get("TELEGRAM_SSL_CERT_FILE", "").strip()
+    if cert_file:
+        return cert_file
+    flag = os.environ.get("TELEGRAM_SSL_VERIFY", "true").strip().lower()
+    if flag in ("0", "false", "no", "off"):
+        logger.warning(
+            "TELEGRAM_SSL_VERIFY desactivado — solo para desarrollo local"
+        )
+        return False
+    return True
+
+
+def _http() -> httpx.Client:
+    global _http_client
+    if _http_client is None:
+        _http_client = httpx.Client(verify=_ssl_verify(), timeout=30.0)
+    return _http_client
+
+
 def _post_json(url: str, body: dict[str, Any], timeout: float = 15) -> tuple[int, dict[str, Any]]:
-    data = json.dumps(body).encode("utf-8")
-    req = urllib.request.Request(
-        url,
-        data=data,
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
+    resp = _http().post(url, json=body, timeout=timeout)
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            raw = resp.read().decode("utf-8")
-            return resp.getcode(), json.loads(raw) if raw else {}
-    except urllib.error.HTTPError as e:
-        try:
-            payload = json.loads(e.read().decode("utf-8"))
-        except Exception:
-            payload = {}
-        return e.code, payload
+        payload = resp.json() if resp.content else {}
+    except json.JSONDecodeError:
+        payload = {}
+    if not isinstance(payload, dict):
+        payload = {}
+    return resp.status_code, payload
 
 
 def get_bot_token() -> str:
@@ -72,8 +90,9 @@ def get_bot_token() -> str:
     if not secret_id:
         raise RuntimeError("TELEGRAM_BOT_TOKEN o TELEGRAM_SECRET_ID no configurado")
 
-    region = os.environ.get("AWS_REGION", "us-east-1")
-    raw = boto3.client("secretsmanager", region_name=region).get_secret_value(
+    from src.dao.dynamo.table import get_session
+
+    raw = get_session().client("secretsmanager").get_secret_value(
         SecretId=secret_id
     )["SecretString"]
     if raw.startswith("{"):
@@ -102,7 +121,10 @@ def send_telegram_message(
             body: dict[str, Any] = {"chat_id": int(chat_id), "text": chunk}
             if reply_markup and idx == 0:
                 body["reply_markup"] = reply_markup
-            code, resp = _post_json(f"{TG_API}/bot{token}/sendMessage", body)
+            try:
+                code, resp = _post_json(f"{TG_API}/bot{token}/sendMessage", body)
+            except httpx.HTTPError as exc:
+                raise RuntimeError(f"Telegram HTTP error: {exc}") from exc
             if code == 200 and resp.get("ok"):
                 break
             if code == 429:

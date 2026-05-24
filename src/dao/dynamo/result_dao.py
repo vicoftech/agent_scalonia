@@ -85,6 +85,11 @@ class ResultDAO:
             "phase": result.phase,
             "scorers": result.scorers,
             "red_cards": int(result.red_cards),
+            "goal_before_5min": result.goal_before_5min,
+            "var_used": result.var_used,
+            "free_kick_goal": result.free_kick_goal,
+            "penalty_saved": result.penalty_saved,
+            "penalty_scored": result.penalty_scored,
             "mvp_name": result.mvp_name,
             "status": result.status,
             "result_processed": bool(result.result_processed),
@@ -126,6 +131,15 @@ class ResultDAO:
             if exc.response["Error"]["Code"] == "ConditionalCheckFailedException":
                 return False
             raise
+
+    def delete_result(self, match_id: str) -> bool:
+        try:
+            self._table.delete_item(
+                Key={"partition_key": f"MATCH#{match_id}", "sort_key": "RESULT"},
+            )
+            return True
+        except ClientError:
+            return False
 
     def mark_result_processed(self, match_id: str) -> None:
         self._table.update_item(

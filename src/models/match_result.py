@@ -34,6 +34,11 @@ class MatchResult:
     away_goals_aet: int | None = None
     scorers: dict[str, int] = field(default_factory=dict)
     red_cards: int = 0
+    goal_before_5min: bool | None = None
+    var_used: bool | None = None
+    free_kick_goal: bool | None = None
+    penalty_saved: bool | None = None
+    penalty_scored: bool | None = None
     mvp_name: str | None = None
     status: ResultStatus = "FT"
     source: ResultSource = "web_search"
@@ -63,6 +68,11 @@ class MatchResult:
             "away_goals_aet": self.away_goals_aet,
             "scorers": dict(self.scorers),
             "red_cards": self.red_cards,
+            "goal_before_5min": self.goal_before_5min,
+            "var_used": self.var_used,
+            "free_kick_goal": self.free_kick_goal,
+            "penalty_saved": self.penalty_saved,
+            "penalty_scored": self.penalty_scored,
             "mvp_name": self.mvp_name,
             "status": self.status,
             "source": self.source,
@@ -98,6 +108,11 @@ class MatchResult:
             away_goals_aet=item.get("away_goals_aet"),
             scorers=dict(scorers) if isinstance(scorers, dict) else {},
             red_cards=int(item.get("red_cards", 0)),
+            goal_before_5min=item.get("goal_before_5min"),
+            var_used=item.get("var_used"),
+            free_kick_goal=item.get("free_kick_goal"),
+            penalty_saved=item.get("penalty_saved"),
+            penalty_scored=item.get("penalty_scored"),
             mvp_name=item.get("mvp_name"),
             status=item.get("status", "FT"),  # type: ignore[arg-type]
             source=item.get("source", "web_search"),  # type: ignore[arg-type]
@@ -122,6 +137,11 @@ class MatchResult:
             playoff_winner=data.get("playoff_winner"),
             scorers=dict(data.get("scorers") or {}),
             red_cards=int(data.get("red_cards", 0)),
+            goal_before_5min=data.get("goal_before_5min"),
+            var_used=data.get("var_used"),
+            free_kick_goal=data.get("free_kick_goal"),
+            penalty_saved=data.get("penalty_saved"),
+            penalty_scored=data.get("penalty_scored"),
             mvp_name=data.get("mvp_name"),
             status=status,  # type: ignore[arg-type]
             source="web_search",

@@ -6,7 +6,6 @@ import logging
 from typing import Any
 
 from src.clients.telegram_client import get_bot_token, send_telegram_message
-from src.dao.dynamo.group_dao import GroupDAO
 from src.dao.dynamo.user_dao import UserDAO
 
 logger = logging.getLogger(__name__)
@@ -24,10 +23,8 @@ class MatchNotifyDispatcher:
         self,
         *,
         users: UserDAO | None = None,
-        groups: GroupDAO | None = None,
     ):
         self._users = users or UserDAO()
-        self._groups = groups or GroupDAO()
 
     def dispatch_payload(self, payload: dict[str, Any]) -> str:
         msg_type = payload.get("type")
@@ -56,16 +53,17 @@ class MatchNotifyDispatcher:
         if not text:
             return DISPATCH_SKIPPED
 
-        group_id = payload.get("group_id")
-        if group_id:
-            group = self._groups.get_group(group_id) or {}
-            gname = group.get("name")
-            if gname and gname not in text:
-                text = f"{text}\n\n👥 {gname}"
-
-        token = get_bot_token()
-        send_telegram_message(int(chat_id), text, token)
-        return DISPATCH_SENT
+        try:
+            token = get_bot_token()
+            send_telegram_message(int(chat_id), text, token)
+            return DISPATCH_SENT
+        except Exception:
+            logger.exception(
+                "Telegram send failed user=%s match=%s",
+                str(user_id)[:8],
+                str(payload.get("match_id", ""))[:8],
+            )
+            return DISPATCH_FAILED
 
     def dispatch_sqs_record(self, record: dict[str, Any]) -> str:
         body = record.get("body") or "{}"
