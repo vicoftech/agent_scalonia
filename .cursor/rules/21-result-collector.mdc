@@ -1,0 +1,472 @@
+---
+description: SPEC-031 — Servicio de Resultados. Obtiene el resultado final de cada partido via API-Football (fuente primaria) o web_search (fallback), actualiza MATCH#/RESULT con el MatchResult completo incluyendo MVP, notifica a todos los grupos con predicciones, y encola en SQS ScoringQueue. Aplica cuando se trabaja en src/services/result_service.py, infrastructure/lambdas/result_collector/ o src/clients/api_football_client.py.
+globs: src/services/result_service.py, infrastructure/lambdas/result_collector/**/*.py, src/dao/dynamo/result_dao.py
+alwaysApply: false
+---
+
+# SPEC-2026-031 — Servicio de Resultados
+
+**SPEC-ID**: SPEC-2026-031 | **Sprint**: Sprint 3
+**Dependencias**: SPEC-2026-022 (scoring), SPEC-2026-028 (live events — fuente primaria)
+**Relación con SPEC-028**: SPEC-028 registra el resultado durante el partido en vivo.
+SPEC-031 garantiza que el resultado sea completo, enriquecido (MVP incluido)
+y alcance a todos los grupos — incluso cuando SPEC-028 no está activo.
+
+---
+
+## Responsabilidades
+
+SPEC-031 cubre lo que SPEC-028 no garantiza:
+
+| Responsabilidad | SPEC-028 (live events) | SPEC-031 (result service) |
+|-----------------|------------------------|--------------------------|
+| Resultado goles FT/AET/PEN | ✓ (del poller) | ✓ (fallback web_search) |
+| Scorers dict | ✓ (de los eventos) | ✓ (web_search si falta) |
+| Red cards count | ✓ (de los eventos) | ✓ (web_search si falta) |
+| **MVP oficial** | ✗ `mvp_name=None` | **✓ web_search post-partido** |
+| Fallback sin API activa | ✗ | ✓ web_search por hora estimada |
+| Notificación todos los grupos | Parcial (solo grupos con pred.) | **✓ todos los grupos afectados** |
+| Re-intentar si datos incompletos | ✗ | ✓ con retry + TTL |
+
+---
+
+## Dos modos de obtención del resultado
+
+### Modo 1 — API-Football (fuente primaria)
+
+Disponible cuando `match_poller` está activo (partido LIVE o recién terminado).
+El resultado llega a través del flujo de SPEC-028.
+
+```python
+# En este modo, result_service actúa como ENRIQUECEDOR:
+# SPEC-028 ya guardó home_goals, away_goals, scorers, red_cards con mvp_name=None
+# result_service agrega el MVP via web_search y completa el MatchResult
+```
+
+### Modo 2 — web_search (fallback / modo independiente)
+
+Activo cuando:
+- El `match_poller` no corrió (partido sin API activa, modo simulación, etc.)
+- El partido terminó hace más de 5 minutos y `MATCH#/RESULT` no existe aún
+- Se llama manualmente para enriquecer un resultado incompleto
+
+```python
+# Estrategia web_search para resultado:
+# 1. Calcular la hora estimada de fin del partido:
+#    fin_estimado = kickoff_utc + 110 minutos (90 + ~20 de descanso/extras)
+# 2. Si now() > fin_estimado → buscar resultado
+# 3. Query: f"{home_team} vs {away_team} resultado final Copa Mundial 2026"
+# 4. Parsear: marcador, goles (jugador + minuto), tarjetas rojas, MVP
+```
+
+---
+
+## result_service.py — lógica central
+
+```python
+# src/services/result_service.py
+
+class ResultService:
+
+    def collect_result(self, match_id: str) -> MatchResult | None:
+        """
+        Punto de entrada principal. Obtiene el resultado completo de un partido.
+
+        Orden de resolución:
+        1. MATCH#/RESULT ya existe y está completo (mvp_name no None) → retornar
+        2. MATCH#/RESULT existe pero falta mvp_name → enriquecer con web_search
+        3. MATCH#/RESULT no existe → obtener via web_search → guardar → retornar
+        4. Si web_search no tiene el resultado aún → retornar None (partido en curso)
+        """
+        existing = result_dao.get_result(match_id)
+
+        if existing and existing.mvp_name:
+            return existing                          # completo → nada que hacer
+
+        if existing and not existing.mvp_name:
+            return self._enrich_mvp(match_id, existing)  # agregar MVP
+
+        # No existe → obtener completo via web_search
+        match = match_dao.get(match_id)
+        result = self._fetch_via_web_search(match)
+        if result:
+            self._save_and_notify(match_id, result)
+        return result
+
+    def _fetch_via_web_search(self, match: dict) -> MatchResult | None:
+        """
+        Obtiene el resultado completo via web_search.
+        Retorna None si el partido no terminó aún.
+        """
+        home = match["home_team"]
+        away = match["away_team"]
+
+        # Verificar si el partido ya debería haber terminado
+        kickoff = datetime.fromisoformat(match["kickoff_utc"])
+        estimated_end = kickoff + timedelta(minutes=110)
+        if datetime.now(tz=timezone.utc) < estimated_end:
+            logger.info("Partido %s vs %s aún en curso o no iniciado", home, away)
+            return None
+
+        # Buscar resultado
+        query = f"{home} vs {away} resultado final Copa Mundial 2026"
+        raw = web_search_tool(query)
+        if not raw:
+            return None
+
+        return self._parse_web_result(raw, match)
+
+    def _parse_web_result(self, raw: str, match: dict) -> MatchResult | None:
+        """
+        Parsea el texto de web_search para extraer el MatchResult.
+        Usa el LLM para interpretar el resultado de forma robusta.
+        """
+        parse_prompt = f"""
+Extraé el resultado del siguiente partido de fútbol del texto.
+Partido: {match['home_team']} vs {match['away_team']}
+Texto: {raw[:2000]}
+
+Respondé SOLO en JSON con este formato exacto:
+{{
+  "found": true | false,
+  "home_goals": <int>,
+  "away_goals": <int>,
+  "status": "FT" | "AET" | "PEN",
+  "playoff_winner": "<código FIFA>" | null,
+  "scorers": {{"<jugador>": <goles>, ...}},
+  "red_cards": <int>,
+  "mvp_name": "<nombre>" | null
+}}
+
+Si no encontraste el resultado, retorná {{"found": false}}.
+"""
+        response = llm_client.complete(parse_prompt)
+        data = json.loads(response)
+
+        if not data.get("found"):
+            return None
+
+        return MatchResult(
+            home_goals     = data["home_goals"],
+            away_goals     = data["away_goals"],
+            phase          = match["phase"],
+            playoff_via    = _resolve_via(data["status"]),
+            playoff_winner = data.get("playoff_winner"),
+            scorers        = data.get("scorers", {}),
+            red_cards      = data.get("red_cards", 0),
+            mvp_name       = data.get("mvp_name"),
+        )
+
+    def _enrich_mvp(self, match_id: str, existing: MatchResult) -> MatchResult:
+        """
+        Completa mvp_name en un resultado que ya tiene los goles.
+        Solo busca el MVP — no toca el resto del resultado.
+        """
+        match = match_dao.get(match_id)
+        query = f"jugador del partido {match['home_team']} vs {match['away_team']} Copa Mundial 2026 MVP"
+        raw = web_search_tool(query)
+        if not raw:
+            return existing
+
+        mvp = self._extract_mvp(raw)
+        if mvp:
+            result_dao.update_mvp(match_id, mvp)
+            return MatchResult(**{**existing.__dict__, "mvp_name": mvp})
+
+        return existing
+
+    def _save_and_notify(self, match_id: str, result: MatchResult) -> None:
+        """
+        Guarda el resultado en MATCH#/RESULT, notifica a usuarios
+        y encola el scoring.
+        """
+        # 1. Guardar resultado (idempotente)
+        result_dao.save_result(match_id, result)
+
+        # 2. Actualizar status del partido
+        match_dao.update_status(match_id, result.status)
+
+        # 3. Notificar a todos los grupos con predicciones
+        self._notify_all_groups(match_id, result)
+
+        # 4. Encolar scoring en SQS
+        sqs.send_message(ScoringQueue, {
+            "event_type": "FINISH_MATCH",
+            "match_id":   match_id,
+            "result":     result.to_dict(),
+        })
+
+    def _notify_all_groups(self, match_id: str, result: MatchResult) -> None:
+        """
+        Envía el resultado final a todos los grupos que tienen
+        al menos un miembro con predicción del partido.
+        Fire-and-forget via SQS NotificationQueue.
+        """
+        groups = prediction_dao.get_groups_with_predictions(match_id)
+        match = match_dao.get(match_id)
+
+        for group in groups:
+            members = group_dao.list_members_with_notifications(group.group_id)
+            for member in members:
+                sqs.send_message(NotificationQueue, {
+                    "type":       "MATCH_RESULT",
+                    "user_id":    member.user_id,
+                    "match_id":   match_id,
+                    "group_id":   group.group_id,
+                    "result":     result.to_dict(),
+                    "match_info": match,
+                })
+```
+
+---
+
+## Mensaje de resultado final a usuarios
+
+```
+🏁 RESULTADO FINAL
+
+🇦🇷 Argentina  2 - 0  Argelia 🇩🇿
+Grupo J  ·  AT&T Stadium, Dallas
+
+⚽ Goles:
+   Messi · 45+2'
+   Lautaro · 78'
+
+🟥 Expulsados: ninguno
+
+⭐ Jugador del partido: Lionel Messi
+
+📊 Calculando tus puntos...
+[Ver mi desglose →]
+```
+
+En eliminatorias con ET o penales:
+```
+🏁 RESULTADO FINAL
+
+🇦🇷 Argentina  1 - 1  Francia 🇫🇷
+(Argentina gana en penales 4-2)
+Cuartos de Final  ·  MetLife Stadium
+
+⚽ Goles 90':
+   Messi · 23'  (ARG)
+   Mbappé · 76'  (FRA)
+
+🥅 Penales: ARG 4 - 2 FRA
+
+⭐ Jugador del partido: Lionel Messi
+
+📊 Calculando tus puntos...
+[Ver mi desglose →]
+```
+
+---
+
+## result_collector Lambda — activación automática
+
+```python
+# infrastructure/lambdas/result_collector/handler.py
+
+def handler(event, context):
+    """
+    Se activa de tres formas:
+    A) EventBridge rule: cada 5 min, busca partidos que debieron haber terminado
+    B) SQS directamente desde match_poller cuando detecta FT/AET/PEN
+    C) Invocación manual via CLI: python scripts/collect_result.py --match ARG-ALG
+    """
+    trigger = event.get("trigger", "scheduled")
+
+    if trigger == "scheduled":
+        # Buscar partidos que terminaron y no tienen MATCH#/RESULT completo
+        candidates = _find_incomplete_results()
+        for match_id in candidates:
+            try:
+                result = result_service.collect_result(match_id)
+                if result:
+                    logger.info("Resultado obtenido: %s", match_id[:8])
+            except Exception as e:
+                logger.error("Error: %s %s", match_id[:8], e)
+
+    elif trigger == "match_ended":
+        # Directo desde match_poller — el resultado ya está en MATCH#/RESULT
+        # pero puede faltar el MVP → enriquecer
+        match_id = event["match_id"]
+        result_service.collect_result(match_id)
+
+    elif trigger == "manual":
+        match_id = event["match_id"]
+        result = result_service.collect_result(match_id)
+        logger.info("Manual: %s → %s", match_id[:8], result)
+
+def _find_incomplete_results() -> list[str]:
+    """
+    Busca partidos que:
+    1. Tienen kickoff_utc + 110min < now() (ya deberían haber terminado)
+    2. No tienen MATCH#/RESULT o tienen mvp_name=None
+    3. status != FT/AET/PEN en MATCH#/DETAILS
+    """
+    now = datetime.now(tz=timezone.utc)
+    cutoff = now - timedelta(minutes=110)
+    matches = match_dao.get_matches_finished_before(cutoff)
+    return [
+        m["match_id"] for m in matches
+        if not result_dao.is_complete(m["match_id"])
+    ]
+```
+
+---
+
+## EventBridge — schedule del result_collector
+
+```python
+# Regla: "prode-result-collector"
+# Schedule: rate(5 minutes)
+# Activa durante el torneo (junto con tournament_started=true)
+# Solo corre cuando hay partidos sin resultado completo
+
+# La Lambda se auto-suspende rápidamente si no hay candidatos:
+candidates = _find_incomplete_results()
+if not candidates:
+    return  # ~100ms, sin llamadas a web_search
+```
+
+---
+
+## MATCH#/RESULT — campos completos
+
+```python
+{
+    "partition_key":   "MATCH#<uuid>",
+    "sort_key":        "RESULT",
+
+    # Resultado 90'
+    "home_goals_ft":   2,
+    "away_goals_ft":   0,
+
+    # Playoffs (si aplica)
+    "playoff_via":     None,          # "ET" | "PENALTIES" | None
+    "playoff_winner":  None,          # código FIFA ganador | None
+    "home_goals_aet":  None,          # goles en tiempo extra total (si aplica)
+    "away_goals_aet":  None,
+
+    # Variables para scoring
+    "scorers":         {"Messi": 2, "Lautaro": 1},
+    "red_cards":       0,
+    "mvp_name":        "Messi",       # None hasta que se enriquece
+
+    # Estado
+    "status":          "FT",          # FT | AET | PEN
+    "result_processed":False,          # True cuando scoring_service procesó
+    "source":          "api_football", # "api_football" | "web_search"
+    "recorded_at":     "2026-06-12T...",
+    "mvp_enriched_at": "2026-06-12T...", # cuando se completó el MVP
+}
+```
+
+---
+
+## Script CLI para uso manual
+
+```bash
+# Obtener resultado de un partido específico
+python scripts/collect_result.py --match ARG-ALG --env staging
+
+# Obtener resultados de todos los partidos sin resultado del día
+python scripts/collect_result.py --date 2026-06-12 --env staging
+
+# Solo enriquecer MVP en resultados que ya tienen goles
+python scripts/collect_result.py --enrich-mvp-only --env staging
+```
+
+---
+
+## Gherkin Acceptance Criteria
+
+```gherkin
+Scenario SC-01 — Resultado obtenido via API-Football (flujo primario SPEC-028)
+  Given match_poller detectó FT, MATCH#/RESULT creado con mvp_name=None
+  When result_collector Lambda recibe trigger=match_ended
+  Then result_service._enrich_mvp() busca MVP via web_search
+  And MATCH#/RESULT.mvp_name actualizado con el MVP oficial
+  And ScoringQueue ya fue encolado por SPEC-028 (no duplicar)
+
+Scenario SC-02 — Resultado obtenido via web_search (fallback)
+  Given partido terminó hace 20 minutos, MATCH#/RESULT no existe
+  When result_collector Lambda corre con trigger=scheduled
+  Then _find_incomplete_results() retorna el match_id
+  And result_service._fetch_via_web_search() obtiene el resultado
+  And LLM parsea el texto y extrae home_goals, away_goals, scorers, red_cards, mvp_name
+  And result_dao.save_result() crea MATCH#/RESULT con source="web_search"
+  And _notify_all_groups() encola mensajes para todos los grupos con predicciones
+  And ScoringQueue recibe {event_type: FINISH_MATCH, match_id, result}
+
+Scenario SC-03 — Resultado ya completo, no se reprocesa
+  Given MATCH#/RESULT existe con mvp_name="Messi" y result_processed=True
+  When result_collector corre con trigger=scheduled
+  Then _find_incomplete_results() NO retorna ese match_id
+  And collect_result() retorna el resultado existente sin llamar web_search
+
+Scenario SC-04 — Partido aún en curso, no hay resultado
+  Given partido con kickoff_utc=hace 50 minutos (fin estimado en 60min)
+  When _fetch_via_web_search() ejecuta
+  Then verifica kickoff + 110min > now() → retorna None
+  And web_search_tool NO es invocado
+
+Scenario SC-05 — web_search no encuentra el resultado aún
+  Given partido terminó hace 5 minutos, web_search no tiene datos
+  When LLM parsea la respuesta de web_search
+  Then data["found"] = false → retorna None
+  And result_collector intentará de nuevo en 5 minutos (próximo ciclo)
+
+Scenario SC-06 — Notificación a todos los grupos con predicciones
+  Given partido ARG vs ALG con predicciones en 3 grupos distintos (12 usuarios total)
+  When _notify_all_groups() ejecuta
+  Then NotificationQueue recibe 12 mensajes (uno por usuario×grupo)
+  And cada mensaje incluye: resultado, goles, MVP, match_info
+
+Scenario SC-07 — Resultado con ET y penales
+  Given web_search retorna "Argentina 1-1 Francia, Argentina gana en penales 4-2"
+  When LLM parsea el resultado
+  Then data["status"]="PEN", data["playoff_winner"]="ARG"
+  And MatchResult.playoff_via="PENALTIES", playoff_winner="ARG"
+  And mensaje de resultado incluye marcador 90' + resultado de penales separado
+
+Scenario SC-08 — Idempotencia — doble trigger
+  Given result_collector recibe trigger=match_ended dos veces para el mismo match
+  When result_service.collect_result() se llama la segunda vez
+  Then result_dao.save_result() usa ConditionExpression → no sobreescribe
+  And ScoringQueue NO recibe un segundo mensaje (result_processed ya es True)
+
+Scenario SC-09 — Enriquecimiento de MVP falla gracefully
+  Given MATCH#/RESULT existe con home_goals=2, away_goals=0 pero mvp_name=None
+  When web_search no encuentra el MVP ("no se informó el jugador del partido")
+  Then mvp_name permanece None
+  And scoring_service calcula mvp_bonus=0 (sin penalización)
+  And el partido sigue siendo procesable para scoring
+```
+
+---
+
+## Tasks
+
+| TASK-ID | Descripción | Modo | Est. |
+|---------|-------------|------|------|
+| TASK-031-001 | `src/services/result_service.py` — collect, fetch, parse, enrich, notify | Humano | 6h |
+| TASK-031-002 | `src/dao/dynamo/result_dao.py` — save, get, update_mvp, is_complete | IA-Autonomous | 3h |
+| TASK-031-003 | Lambda `result_collector` — scheduled + match_ended + manual triggers | IA-Assisted | 4h |
+| TASK-031-004 | `_parse_web_result()` — LLM parser con prompt estructurado | Humano | 3h |
+| TASK-031-005 | `notification_dispatcher` — formato de mensaje resultado con goles y MVP | IA-Assisted | 3h |
+| TASK-031-006 | EventBridge rule `prode-result-collector` — rate(5 minutes) | IA-Autonomous | 1h |
+| TASK-031-007 | `scripts/collect_result.py` — CLI manual para debugging | IA-Assisted | 2h |
+| TASK-031-008 | `tests/unit/test_results/test_result_service.py` — SC-01 a SC-09 | IA-Assisted | 4h |
+
+## Constraints
+- `result_dao.save_result()` usa `ConditionExpression=attribute_not_exists` — idempotente
+- Si `MATCH#/RESULT` ya tiene `result_processed=True` → NO encolar en ScoringQueue de nuevo
+- `_fetch_via_web_search()` verifica `kickoff_utc + 110min < now()` antes de buscar
+- El MVP es best-effort — si no se encuentra, `mvp_name=None` y `mvp_bonus=0` en scoring
+- La Lambda se auto-suspende si `_find_incomplete_results()` retorna lista vacía (~100ms, sin web_search)
+- `_notify_all_groups()` es fire-and-forget via SQS — no bloquea el guardado del resultado
+- `source` field en `MATCH#/RESULT` indica la procedencia: `"api_football"` o `"web_search"`
+- El LLM parser acepta formatos distintos de resultado (ej: "2-0", "2 a 0", "Argentina 2 Francia 0")
+- Reintentos automáticos: el scheduler de 5 min reintenta si el resultado no se encontró antes

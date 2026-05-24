@@ -64,7 +64,7 @@ def is_tavily_configured() -> bool:
 
 def perform_web_search(query: str) -> Optional[str]:
     """Wrapper testeable; delega en agent.tools.web_search_tool."""
-    from agent.tools.web_search_tool import perform_web_search as _tavily_search
+    from src.web.tavily_search import perform_web_search as _tavily_search
 
     return _tavily_search(query)
 

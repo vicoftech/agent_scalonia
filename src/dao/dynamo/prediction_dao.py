@@ -201,3 +201,14 @@ class PredictionDAO:
                 break
             kwargs["ExclusiveStartKey"] = resp["LastEvaluatedKey"]
         return [i for i in items if i.get("status") == STATUS_ACTIVE]
+
+    def get_group_ids_with_predictions(self, match_id: str) -> list[str]:
+        """Grupos distintos con al menos una predicción ACTIVE del partido."""
+        seen: set[str] = set()
+        out: list[str] = []
+        for pred in self.get_predictions_for_match(match_id):
+            gid = pred.get("group_id")
+            if gid and gid not in seen:
+                seen.add(gid)
+                out.append(gid)
+        return out

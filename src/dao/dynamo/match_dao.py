@@ -86,6 +86,41 @@ class MatchDAO:
             },
         )
 
+    def update_status(self, match_id: str, status: str) -> None:
+        """Actualiza status en DETAILS (SCHEDULED, LIVE, FINISHED, …)."""
+        self._table.update_item(
+            Key={"partition_key": f"MATCH#{match_id}", "sort_key": "DETAILS"},
+            UpdateExpression="SET #st = :s, updated_at = :now",
+            ExpressionAttributeNames={"#st": "status"},
+            ExpressionAttributeValues={":s": status, ":now": _now_iso()},
+        )
+
+    def list_matches_estimated_finished(self) -> list[dict[str, Any]]:
+        """Partidos cuyo kickoff + 110 min ya pasó (candidatos a resultado)."""
+        from datetime import datetime, timedelta, timezone
+
+        now = datetime.now(timezone.utc)
+        out: list[dict[str, Any]] = []
+        for m in self.list_matches():
+            kickoff_raw = m.get("kickoff_utc") or ""
+            if not kickoff_raw:
+                continue
+            kickoff = datetime.fromisoformat(
+                kickoff_raw.replace("Z", "+00:00")
+            )
+            if kickoff + timedelta(minutes=110) >= now:
+                continue
+            out.append(m)
+        return out
+
+    def find_by_teams(self, home_code: str, away_code: str) -> dict[str, Any] | None:
+        home = home_code.strip().upper()
+        away = away_code.strip().upper()
+        for m in self.list_matches():
+            if m.get("home_team") == home and m.get("away_team") == away:
+                return m
+        return None
+
     def list_matches(self) -> list[dict[str, Any]]:
         """Scan de partidos (≤104 ítems — aceptable en MVP)."""
         items: list[dict[str, Any]] = []

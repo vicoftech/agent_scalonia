@@ -6,8 +6,6 @@ import logging
 import os
 from typing import Callable, Optional
 
-import boto3
-import httpx
 from strands import tool
 
 from src.kb.cache import (
@@ -17,6 +15,11 @@ from src.kb.cache import (
     ttl_for_search_type,
 )
 from src.kb.domain import is_football_domain_query
+from src.web.tavily_search import (
+    get_tavily_api_key as _get_tavily_api_key,
+    is_tavily_configured,
+    perform_web_search,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -27,50 +30,6 @@ _OUT_OF_SCOPE_MSG = (
 
 # Inyectable en tests
 _search_fn: Optional[Callable[[str], Optional[str]]] = None
-
-
-def _get_tavily_api_key() -> str:
-    key = os.environ.get("TAVILY_API_KEY", "").strip()
-    if key:
-        return key
-    secret_id = os.environ.get("TAVILY_SECRET_ARN", "").strip()
-    if not secret_id:
-        return ""
-    resp = boto3.client("secretsmanager").get_secret_value(SecretId=secret_id)
-    raw = resp.get("SecretString", "")
-    if raw.startswith("{"):
-        return json.loads(raw).get("api_key", raw)
-    return raw
-
-
-def is_tavily_configured() -> bool:
-    """True si hay API key o secreto Tavily en el entorno."""
-    return bool(_get_tavily_api_key())
-
-
-def perform_web_search(query: str) -> Optional[str]:
-    """Búsqueda Tavily; sin API key devuelve None (tests pueden mockear)."""
-    api_key = _get_tavily_api_key()
-    if not api_key:
-        logger.warning("TAVILY_API_KEY / TAVILY_SECRET_ARN no configurado")
-        return None
-    resp = httpx.post(
-        "https://api.tavily.com/search",
-        json={
-            "api_key": api_key,
-            "query": query,
-            "search_depth": "advanced",
-            "max_results": 5,
-            "include_domains": [],
-        },
-        timeout=30.0,
-    )
-    resp.raise_for_status()
-    results = resp.json().get("results", [])
-    if not results:
-        return None
-    parts = [f"{r.get('title', '')}\n{r.get('content', '')}" for r in results]
-    return "\n\n".join(parts).strip()
 
 
 def _resolve_search(query: str) -> Optional[str]:
