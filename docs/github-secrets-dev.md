@@ -32,6 +32,13 @@ tavily_secret_arn     = "arn:aws:secretsmanager:us-east-1:615216531593:secret:pr
 
 bedrock_model_id = "us.mistral.pixtral-large-2502-v1:0"
 
+# SPEC-031 / SPEC-032 — colas resultado/scoring + collector + lifecycle (trivia/reminders/veda/scheduler).
+# Si no están, el apply local no crea esas Lambdas (default Terraform = false).
+# CI (GitHub Actions) las inyecta automáticamente en workspace dev cuando faltan; apply local debe declararlas.
+enable_result_queues     = true
+enable_result_collector  = true
+enable_match_schedules   = true
+
 # Obligatorio si ya desplegaste el módulo KB (sin esto CI destruye kb_ingest/kb_query):
 rds_proxy_endpoint            = "aurora-pg-asap-dev.cluster-cgxq84qu0b72.us-east-1.rds.amazonaws.com"
 db_name                       = "postgres"

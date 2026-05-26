@@ -55,6 +55,77 @@ def _load_arns_from_file(path: Path) -> None:
             os.environ[env_key] = data[key]
 
 
+# Nombres Terraform → variable de entorno (SPEC-032)
+_LAMBDA_FUNCTION_NAMES: dict[str, str] = {
+    "LAMBDA_ARN_TRIVIA_PRE_MATCH": "prode-trivia-pre-match-{env}",
+    "LAMBDA_ARN_MATCH_REMINDER": "prode-match-reminder-{env}",
+    "LAMBDA_ARN_VEDA_ACTIVATOR": "prode-veda-activator-{env}",
+    "LAMBDA_ARN_RESULT_COLLECTOR": "prode-result-collector-{env}",
+    "LAMBDA_ARN_SCORING_PROCESSOR": "prode-scoring-processor-{env}",
+}
+
+
+def _needs_auto_config() -> bool:
+    if os.environ.get("SCHEDULER_INVOKE_ROLE_ARN", "").strip():
+        return False
+    for env_key in _LAMBDA_FUNCTION_NAMES:
+        if not os.environ.get(env_key, "").strip():
+            return True
+    return False
+
+
+def _auto_configure_from_aws(env: str, *, profile: str | None, region: str) -> bool:
+    """
+    Resuelve ARNs por nombre de Lambda/rol (sin terraform output).
+    Útil si enable_match_schedules se aplicó pero el state local no tiene outputs.
+    """
+    from src.dao.dynamo.table import configure_aws, get_session
+
+    configure_aws(profile=profile, region=region)
+    lam = get_session().client("lambda")
+    iam = get_session().client("iam")
+
+    os.environ.setdefault("ENABLE_MATCH_SCHEDULES", "true")
+    os.environ.setdefault("SCHEDULER_GROUP_NAME", f"prode-match-{env}")
+
+    resolved = 0
+    for env_key, name_tpl in _LAMBDA_FUNCTION_NAMES.items():
+        if os.environ.get(env_key, "").strip():
+            continue
+        fn = name_tpl.format(env=env)
+        try:
+            resp = lam.get_function(FunctionName=fn)
+            arn = resp["Configuration"]["FunctionArn"]
+            os.environ[env_key] = arn
+            resolved += 1
+            logger.info("ARN %s ← %s", env_key, fn)
+        except lam.exceptions.ResourceNotFoundException:
+            logger.warning("Lambda no encontrada: %s", fn)
+        except Exception:
+            logger.exception("get_function failed: %s", fn)
+
+    if not os.environ.get("SCHEDULER_INVOKE_ROLE_ARN", "").strip():
+        role_name = f"prode-scheduler-invoke-{env}"
+        try:
+            resp = iam.get_role(RoleName=role_name)
+            os.environ["SCHEDULER_INVOKE_ROLE_ARN"] = resp["Role"]["Arn"]
+            logger.info("SCHEDULER_INVOKE_ROLE_ARN ← %s", role_name)
+        except iam.exceptions.NoSuchEntityException:
+            logger.warning("Rol IAM no encontrado: %s", role_name)
+        except Exception:
+            logger.exception("get_role failed: %s", role_name)
+
+    ok = bool(os.environ.get("SCHEDULER_INVOKE_ROLE_ARN")) and resolved >= 4
+    if not ok:
+        logger.error(
+            "Auto-config incompleta (%s/5 Lambdas, rol=%s). "
+            "¿Corriste terraform apply con enable_match_schedules=true?",
+            resolved,
+            "ok" if os.environ.get("SCHEDULER_INVOKE_ROLE_ARN") else "falta",
+        )
+    return ok
+
+
 def main() -> int:
     p = argparse.ArgumentParser(description="Provisionar schedules SPEC-032")
     p.add_argument("--env", default="dev")
@@ -66,6 +137,11 @@ def main() -> int:
     p.add_argument("--dry-run", action="store_true")
     p.add_argument("--from-date", help="ISO date — solo partidos con kickoff >= fecha")
     p.add_argument("--lambda-arns-json", type=Path, help="JSON con ARNs de terraform output")
+    p.add_argument(
+        "--no-auto-config",
+        action="store_true",
+        help="No resolver ARNs/rol desde AWS por nombre de función",
+    )
     args = p.parse_args()
 
     _configure(args.env, args.profile, args.region)
@@ -74,6 +150,13 @@ def main() -> int:
         _load_arns_from_file(args.lambda_arns_json)
 
     os.environ.setdefault("SCHEDULER_GROUP_NAME", f"prode-match-{args.env}")
+
+    if not args.no_auto_config and _needs_auto_config():
+        logger.info("Resolviendo ARNs desde AWS (profile=%s, env=%s)...", args.profile, args.env)
+        if not _auto_configure_from_aws(
+            args.env, profile=args.profile, region=args.region
+        ):
+            return 1
 
     from src.dao.dynamo.match_dao import MatchDAO
     from src.services.scheduler_manager import MatchScheduleManager
