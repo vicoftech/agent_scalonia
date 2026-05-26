@@ -29,39 +29,51 @@ class ExtendedStep:
     db_key: str
     question: str
     short_label: str
+    icon: str
 
 
 EXTENDED_STEPS: tuple[ExtendedStep, ...] = (
-    ExtendedStep("red", "has_red_card", "¿Habrá tarjeta roja?", "Tarjeta roja"),
+    ExtendedStep(
+        "red",
+        "has_red_card",
+        "¿Habrá tarjeta roja?",
+        "Tarjeta roja",
+        "🟥",
+    ),
     ExtendedStep(
         "goal_early",
         "pred_goal_before_5min",
         "¿Habrá gol antes del minuto 5?",
         "Gol antes del 5'",
+        "⚡",
     ),
     ExtendedStep(
         "var",
         "pred_var_used",
         "¿Habrá intervención del VAR (revisión que cambie la jugada)?",
         "Intervención VAR",
+        "📺",
     ),
     ExtendedStep(
         "free_kick",
         "pred_free_kick_goal",
         "¿Habrá gol de tiro libre (sin rebote de córner)?",
         "Gol de tiro libre",
+        "🎯",
     ),
     ExtendedStep(
         "pen_saved",
         "pred_penalty_saved",
         "¿Habrá penal atajado?",
         "Penal atajado",
+        "🧤",
     ),
     ExtendedStep(
         "pen_scored",
         "pred_penalty_scored",
         "¿Habrá penal convertido?",
         "Penal convertido",
+        "⚽",
     ),
 )
 
@@ -101,13 +113,84 @@ def bool_label(value: bool | None) -> str:
     return "—"
 
 
+def extended_value_display(pred: dict[str, Any], step: ExtendedStep) -> str:
+    """Sí / No si respondió; — si aún no completó el ítem."""
+    v = pred.get(step.db_key)
+    if v is None:
+        return "—"
+    return bool_label(v)
+
+
+def extended_item_line(
+    pred: dict[str, Any],
+    step: ExtendedStep,
+    *,
+    show_points_hint: bool = False,
+) -> str:
+    """Una línea con ícono + etiqueta + valor (o —)."""
+    val = extended_value_display(pred, step)
+    line = f"{step.icon} {step.short_label}: {val}"
+    if show_points_hint and pred.get(step.db_key) is not None:
+        line += f" (+{PTS_EXTENDED_BOOL} si acertás)"
+    return line
+
+
+def extended_brief_lines(pred: dict[str, Any]) -> list[str]:
+    """Brief / resumen: siempre los 6 ítems extendidos con ícono."""
+    return [extended_item_line(pred, s) for s in EXTENDED_STEPS]
+
+
+def format_prediction_brief(
+    pred: dict[str, Any],
+    *,
+    match_title: str,
+    group_name: str,
+    minutes_to_veda: str,
+    change_prompt: bool = True,
+) -> str:
+    """Vista al abrir un partido con predicción ya guardada."""
+    lines = [
+        f"📋 {match_title}",
+        f"👥 {group_name}",
+        f"⏱️ Veda cierra en {minutes_to_veda}",
+        "",
+        "── Tu predicción ──",
+        (
+            f"⚽ Marcador (90 min): {pred['home_goals']}-"
+            f"{pred['away_goals']}{extended_icons_compact(pred)}"
+        ),
+    ]
+    if pred.get("playoff_via"):
+        lines.append(
+            f"🏆 Playoff: {pred['playoff_via']} → "
+            f"{pred.get('playoff_winner', '?')}"
+        )
+    lines.append("")
+    lines.append("── Extendida ──")
+    lines.extend(extended_brief_lines(pred))
+    if change_prompt:
+        lines.append("")
+        lines.append("¿Querés cambiarla?")
+    return "\n".join(lines)
+
+
+def extended_icons_compact(pred: dict[str, Any] | None) -> str:
+    """Íconos en fila (listas / marcador compacto), sin valores."""
+    if not pred:
+        return ""
+    return " " + "".join(s.icon for s in EXTENDED_STEPS)
+
+
 def extended_lines_from_prediction(pred: dict[str, Any]) -> list[str]:
+    """Solo ítems respondidos (p. ej. reporte post-partido)."""
     lines: list[str] = []
     for s in EXTENDED_STEPS:
         v = pred.get(s.db_key)
         if v is None:
             continue
-        lines.append(f"· {s.short_label}: {bool_label(v)} (+{PTS_EXTENDED_BOOL} si acertás)")
+        lines.append(
+            extended_item_line(pred, s, show_points_hint=True)
+        )
     return lines
 
 
@@ -139,7 +222,8 @@ def resume_step_id(pred: dict[str, Any]) -> str:
 
 
 def help_scoring_text() -> str:
-    return """
+    extended_items = "\n".join(f"{s.icon} {s.short_label}" for s in EXTENDED_STEPS)
+    return f"""
 🎯 CÓMO PREDECIR Y PUNTUAR
 
 ━━ Básica (obligatoria) ━━
@@ -156,12 +240,7 @@ Ejemplo básica: predicción 2-1, resultado 3-1 → 3 pts (mismo ganador y dif. 
 Después del marcador podés responder (o saltar) cada ítem.
 Cada uno acertado suma +1 pt (solo si definiste Sí o No):
 
-🟥 Tarjeta roja
-⚡ Gol antes del minuto 5
-📺 Intervención del VAR
-🎯 Gol de tiro libre
-🧤 Penal atajado
-⚽ Penal convertido
+{extended_items}
 
 Ejemplo parcial: marcador 1-0 (3 pts) + roja Sí acertada (+1) + VAR No acertado (+1)
 = 5 pts si el resultado fue 1-0, hubo roja y no hubo VAR.

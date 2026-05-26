@@ -471,20 +471,9 @@ class PredictionService:
         )
 
     def _pred_icons(self, pred: dict) -> str:
-        parts = []
-        if pred.get("has_red_card") is not None:
-            parts.append("🟥")
-        if pred.get("pred_goal_before_5min") is not None:
-            parts.append("⚡")
-        if pred.get("pred_var_used") is not None:
-            parts.append("📺")
-        if pred.get("pred_free_kick_goal") is not None:
-            parts.append("🎯")
-        if pred.get("pred_penalty_saved") is not None:
-            parts.append("🧤")
-        if pred.get("pred_penalty_scored") is not None:
-            parts.append("⚽")
-        return " " + "".join(parts) if parts else ""
+        from src.services.prediction_rules import extended_icons_compact
+
+        return extended_icons_compact(pred)
 
     def _match_has_final_result(self, match: dict) -> bool:
         if (match.get("status") or "").upper() == "FINISHED":
@@ -542,15 +531,16 @@ class PredictionService:
         num = int(match.get("match_number", 0))
 
         if existing:
+            from src.services.prediction_rules import format_prediction_brief
             from src.services.prediction_telegram_ui import change_existing_keyboard
 
-            mins = self._minutes_to_veda(match)
-            return (
-                f"🔄 {self.format_match_title(match)} — "
-                f"tenés {existing['home_goals']}-{existing['away_goals']}\n"
-                f"👥 {gname}\nVeda cierra en {mins}\n\n¿Querés cambiarla?",
-                change_existing_keyboard(num, g8),
+            text = format_prediction_brief(
+                existing,
+                match_title=self.format_match_title(match),
+                group_name=gname,
+                minutes_to_veda=self._minutes_to_veda(match),
             )
+            return text, change_existing_keyboard(num, g8)
 
         from src.services import prediction_wizard as pw
 

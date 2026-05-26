@@ -7,7 +7,8 @@ from src.services.prediction_rules import (
     EXTENDED_STEPS,
     STEP_BY_ID,
     bool_label,
-    extended_lines_from_prediction,
+    extended_brief_lines,
+    extended_icons_compact,
     first_extended_step_id,
     max_possible_points,
     next_extended_step_id,
@@ -65,7 +66,7 @@ def _step_title(step: str) -> str:
         return "Playoff — ganador en alargue o penales"
     ext = STEP_BY_ID.get(step)
     if ext:
-        return ext.question
+        return f"{ext.icon} {ext.short_label}"
     return "Predicción"
 
 
@@ -171,7 +172,8 @@ def render_step(svc: PredictionService, user_id: str) -> tuple[str, dict | None]
         p = svc._preds.get_active(user_id, match["match_id"], gid)
         sc = f"{p['home_goals']}-{p['away_goals']}" if p else "—"
         return (
-            header + f"\n\n✅ Marcador: {sc}\n\n{ext.question}",
+            header
+            + f"\n\n✅ Marcador: {sc}\n\n{ext.icon} {ext.short_label}\n{ext.question}",
             wizard_yes_no_keyboard(num, g8, step),
         )
 
@@ -313,7 +315,10 @@ def wizard_set_extended(
     w["step"] = nxt
     _set_wizard(svc, user_id, w)
     text, kb = render_step(svc, user_id)
-    return f"✅ {ext.short_label}: {bool_label(value)} guardado.\n\n{text}", kb
+    return (
+        f"✅ {ext.icon} {ext.short_label}: {bool_label(value)} guardado.\n\n{text}",
+        kb,
+    )
 
 
 def finish_wizard(
@@ -327,8 +332,7 @@ def finish_wizard(
     if not p:
         return "Predicción guardada.", None
     gname = (svc._groups.get_group(group_id) or {}).get("name", group_id)
-    icons = svc._pred_icons(p)
-    extras = extended_lines_from_prediction(p)
+    icons = extended_icons_compact(p)
     max_pts = max_possible_points(p)
     lines = [
         "✅ Predicción lista",
@@ -336,17 +340,16 @@ def finish_wizard(
         f"👥 {gname}",
         "",
         "── Resumen ──",
-        f"Marcador (90 min): hasta 5 pts según resultado",
+        f"⚽ Marcador (90 min): {p['home_goals']}-{p['away_goals']} · hasta 5 pts",
     ]
     if p.get("playoff_via"):
         lines.append(
-            f"Playoff: {p['playoff_via']} → {p.get('playoff_winner', '?')} "
+            f"🏆 Playoff: {p['playoff_via']} → {p.get('playoff_winner', '?')} "
             f"(+2 pts si acertás vía y ganador)"
         )
-    if extras:
-        lines.extend(extras)
-    else:
-        lines.append("Extendida: sin variables extra (solo marcador)")
+    lines.append("")
+    lines.append("── Extendida ──")
+    lines.extend(extended_brief_lines(p))
     lines.append(f"\nMáx. posible: {max_pts} pts · Veda en {svc._minutes_to_veda(match)}")
     lines.append("\n📖 Reglas: /reglas")
     return "\n".join(lines), None
