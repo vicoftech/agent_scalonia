@@ -14,9 +14,14 @@ En el repo: **Settings → Secrets and variables → Actions → Environment `de
 
 Nombre: **`DEV_TFVARS`**
 
-Valor: copiá el bloque siguiente **tal cual** (sin `aws_profile`; CI usa OIDC):
+Valor: copiá el bloque siguiente **tal cual** en el secret `DEV_TFVARS` (CI usa OIDC; `aws_profile` debe quedar vacío):
 
 ```hcl
+# =============================================================================
+# DEV_TFVARS — GitHub Environment "development" (cuenta asap_dev 615216531593)
+# Pegar completo en: Settings → Secrets → Environment development → DEV_TFVARS
+# =============================================================================
+
 env                       = "dev"
 aws_region                = "us-east-1"
 aws_profile               = ""
@@ -26,27 +31,43 @@ terraform_state_bucket     = "prode-terraform-state-615216531593"
 terraform_state_lock_table = "prode-terraform-state-lock"
 terraform_state_key        = "prode/terraform.tfstate"
 
+project_name          = "prode-mundial"
 telegram_secret_arn   = "arn:aws:secretsmanager:us-east-1:615216531593:secret:SCALONIA_TELEGRAM_BOT_TOKEN-JkUUHh"
 telegram_bot_username = "scalonia_bot"
 tavily_secret_arn     = "arn:aws:secretsmanager:us-east-1:615216531593:secret:prode-mundial/dev/tavily-api-key-N45thZ"
 
 bedrock_model_id = "us.mistral.pixtral-large-2502-v1:0"
 
-# SPEC-031 / SPEC-032 — colas resultado/scoring + collector + lifecycle (trivia/reminders/veda/scheduler).
-# Si no están, el apply local no crea esas Lambdas (default Terraform = false).
-# CI (GitHub Actions) las inyecta automáticamente en workspace dev cuando faltan; apply local debe declararlas.
-enable_result_queues     = true
-enable_result_collector  = true
-enable_match_schedules   = true
+# GitHub OIDC (rol para deploy-dev.yml)
+enable_github_oidc           = true
+github_repository            = "vicoftech/agent_scalonia"
+github_actions_environment   = "development"
 
-# Obligatorio si ya desplegaste el módulo KB (sin esto CI destruye kb_ingest/kb_query):
+# SPEC-031 — resultados + notify SQS → Telegram
+enable_result_queues    = true
+enable_result_collector = true
+
+# SPEC-032 — EventBridge Scheduler por partido (trivia, reminders, veda, scoring)
+enable_match_schedules = true
+
+# Invitaciones agotadas → SQS (opcional)
+enable_invitation_notify_queue = false
+
+# Knowledge Base (obligatorio si kb_* ya está en el state de Terraform)
 rds_proxy_endpoint            = "aurora-pg-asap-dev.cluster-cgxq84qu0b72.us-east-1.rds.amazonaws.com"
 db_name                       = "postgres"
 aurora_sync_secret_arn        = "arn:aws:secretsmanager:us-east-1:615216531593:secret:prode-mundial/dev/aurora-sync-60iepS"
+manage_aurora_secret          = false
 lambda_vpc_subnet_ids         = ["subnet-0778965dc1b21dfb7", "subnet-01ad385e56ce2a2b9"]
 lambda_vpc_security_group_ids = ["sg-0773b50b361cb2068"]
 kb_aurora_security_group_id   = "sg-0ff149c197120e05a"
 kb_manage_aurora_lambda_vpc_ingress = false
+enable_kb_vpc_endpoints       = true
+kb_ingest_timeout               = 300
+kb_ingest_reserved_concurrency  = 3
+
+# Guardrails (opcional)
+# sns_alerts_arn = ""
 ```
 
 Si el workflow falla con `kb_*_lambda_name` pasando de un nombre a `""`, el secret `DEV_TFVARS` no incluye el bloque KB de arriba.

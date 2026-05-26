@@ -66,24 +66,3 @@ Deploy: `make prepare` → `terraform apply` → `bin/promote-agent-live.sh` (en
 El trust policy solo permite asumir el rol desde `repo:vicoftech/agent_scalonia:environment:development` (etc.), no desde forks.
 
 **Otros secrets:** `DEV_TFVARS` (contenido de `dev.tfvars`), `TELEGRAM_SECRET_ARN_DEV`, opcionalmente `TF_STATE_*` si no están en tfvars.
-
-### SPEC-031 / SPEC-032 (resultados, colas, schedules por partido)
-
-En `dev.tfvars` o en el secret `DEV_TFVARS`:
-
-```hcl
-enable_result_queues     = true
-enable_result_collector  = true
-enable_match_schedules   = true
-```
-
-Si no los definís, Terraform deja `false` y **no existen** Lambdas `prode-result-collector-dev`, `prode-trivia-pre-match-dev`, etc.
-
-En **GitHub Actions** (`ci-terraform-apply.sh`), si el workspace es `dev` y el tfvars **no** incluye `enable_match_schedules`, el script `bin/ensure-dev-match-schedule-flags.sh` **añade** esas tres líneas antes del `terraform apply` para que el siguiente deploy cree el stack.
-
-Para comprobar después del deploy:
-
-```bash
-AWS_PROFILE=… AWS_REGION=us-east-1 aws lambda list-functions \
-  --query "Functions[?contains(FunctionName,'prode-result')].FunctionName" --output text
-```

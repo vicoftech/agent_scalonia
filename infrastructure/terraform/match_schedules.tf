@@ -180,6 +180,29 @@ resource "aws_iam_role_policy" "lifecycle_lambda" {
   policy = data.aws_iam_policy_document.lifecycle_lambda_inline[0].json
 }
 
+data "aws_iam_policy_document" "scoring_processor_sqs_consume" {
+  count = var.enable_match_schedules && var.enable_result_queues ? 1 : 0
+
+  statement {
+    sid = "SQSConsumeScoring"
+    actions = [
+      "sqs:ReceiveMessage",
+      "sqs:DeleteMessage",
+      "sqs:GetQueueAttributes",
+      "sqs:ChangeMessageVisibility",
+    ]
+    resources = [aws_sqs_queue.scoring[0].arn]
+  }
+}
+
+resource "aws_iam_role_policy" "scoring_processor_sqs_consume" {
+  count = var.enable_match_schedules && var.enable_result_queues ? 1 : 0
+
+  name   = "scoring-processor-sqs-consume"
+  role   = aws_iam_role.lifecycle_lambda["scoring_processor"].id
+  policy = data.aws_iam_policy_document.scoring_processor_sqs_consume[0].json
+}
+
 resource "aws_lambda_function" "trivia_pre_match" {
   count = var.enable_match_schedules ? 1 : 0
 

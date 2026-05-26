@@ -23,10 +23,6 @@ if [[ -n "${GITHUB_ACTIONS:-}" ]]; then
     echo 'aws_profile = ""' >>"$TFVARS"
   fi
   rm -f "${TFVARS}.bak"
-
-  # CI dev: SPEC-031/032 flags si no están en DEV_TFVARS (defaults Terraform = false)
-  chmod +x bin/ensure-dev-match-schedule-flags.sh
-  bin/ensure-dev-match-schedule-flags.sh "$PWD/$TFVARS"
 fi
 
 chmod +x bin/*.sh
