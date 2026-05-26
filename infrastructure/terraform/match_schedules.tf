@@ -55,6 +55,9 @@ resource "aws_scheduler_schedule_group" "match_lifecycle" {
   count = var.enable_match_schedules ? 1 : 0
 
   name = local.scheduler_group_name
+
+  # CI usa prode-github-actions-dev: aplicar IAM del rol antes que el schedule group.
+  depends_on = var.enable_github_oidc ? [aws_iam_role_policy.github_actions_deploy[0]] : []
 }
 
 data "aws_iam_policy_document" "scheduler_assume" {

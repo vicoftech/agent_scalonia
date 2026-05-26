@@ -48,6 +48,16 @@ else
   terraform workspace new "$WORKSPACE"
 fi
 
+# SPEC-032: el schedule group usa el rol OIDC de GitHub; aplicar su IAM antes (evita 403 por propagación).
+if grep -qE '^[[:space:]]*enable_match_schedules[[:space:]]*=[[:space:]]*true' "$TFVARS" \
+  && grep -qE '^[[:space:]]*enable_github_oidc[[:space:]]*=[[:space:]]*true' "$TFVARS"; then
+  echo "=== Pre-apply: IAM GitHub Actions (Scheduler) ==="
+  terraform apply -var-file="$TFVARS" -input=false -auto-approve \
+    -target=aws_iam_role_policy.github_actions_deploy[0]
+  echo "Esperando propagación IAM (20s)..."
+  sleep 20
+fi
+
 terraform apply -var-file="$TFVARS" -input=false -auto-approve
 
 ./bin/promote-agent-live.sh

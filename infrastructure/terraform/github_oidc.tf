@@ -122,6 +122,30 @@ data "aws_iam_policy_document" "github_actions_deploy" {
     resources = ["*"]
   }
 
+  # EventBridge Scheduler (SPEC-032) — statement dedicado; algunos applies fallan si solo va en DeployServices.
+  statement {
+    sid    = "EventBridgeScheduler"
+    effect = "Allow"
+    actions = [
+      "scheduler:CreateScheduleGroup",
+      "scheduler:DeleteScheduleGroup",
+      "scheduler:GetScheduleGroup",
+      "scheduler:ListScheduleGroups",
+      "scheduler:CreateSchedule",
+      "scheduler:UpdateSchedule",
+      "scheduler:DeleteSchedule",
+      "scheduler:GetSchedule",
+      "scheduler:ListSchedules",
+      "scheduler:TagResource",
+      "scheduler:UntagResource",
+      "scheduler:ListTagsForResource",
+    ]
+    resources = [
+      "arn:aws:scheduler:${var.aws_region}:${data.aws_caller_identity.current.account_id}:schedule-group/*",
+      "arn:aws:scheduler:${var.aws_region}:${data.aws_caller_identity.current.account_id}:schedule/*",
+    ]
+  }
+
   statement {
     sid    = "IAMForStack"
     effect = "Allow"
