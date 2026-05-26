@@ -15,6 +15,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -39,6 +40,7 @@ SCHEDULE_SPECS: tuple[tuple[str, int, str, str, dict[str, Any]], ...] = (
 )
 
 AWS_SCHEDULE_NAME_MAX = 64
+_SCHEDULER_GROUP_RE = re.compile(r"^[0-9a-zA-Z-_.]{1,64}$")
 
 
 @dataclass
@@ -257,18 +259,44 @@ _LAMBDA_FUNCTION_NAMES: dict[str, str] = {
 }
 
 
+def normalize_scheduler_env(env: str) -> str:
+    """
+    Fija SCHEDULER_GROUP_NAME válido (prode-match-{env}).
+    Ignora valores basura (p. ej. stderr de terraform output en el shell).
+    """
+    expected = f"prode-match-{env}"
+    current = os.environ.get("SCHEDULER_GROUP_NAME", "").strip()
+    if not current or not _SCHEDULER_GROUP_RE.match(current):
+        if current:
+            logger.warning(
+                "SCHEDULER_GROUP_NAME inválido (%s chars); usando %s",
+                len(current),
+                expected,
+            )
+        os.environ["SCHEDULER_GROUP_NAME"] = expected
+    os.environ.setdefault("ENABLE_MATCH_SCHEDULES", "true")
+    return os.environ["SCHEDULER_GROUP_NAME"]
+
+
+def _lambda_arns_configured_count() -> int:
+    return sum(1 for k in _LAMBDA_FUNCTION_NAMES if os.environ.get(k, "").strip())
+
+
 def auto_configure_scheduler_env(
     env: str, *, profile: str | None = None, region: str = "us-east-1"
 ) -> bool:
     """Resuelve ARNs de Lambdas y rol Scheduler por nombre (CLI local / scripts)."""
     from src.dao.dynamo.table import configure_aws, get_session
 
+    normalize_scheduler_env(env)
+    if _lambda_arns_configured_count() >= 4 and os.environ.get(
+        "SCHEDULER_INVOKE_ROLE_ARN", ""
+    ).strip():
+        return True
+
     configure_aws(profile=profile, region=region)
     lam = get_session().client("lambda")
     iam = get_session().client("iam")
-
-    os.environ.setdefault("ENABLE_MATCH_SCHEDULES", "true")
-    os.environ.setdefault("SCHEDULER_GROUP_NAME", f"prode-match-{env}")
 
     resolved = 0
     for env_key, name_tpl in _LAMBDA_FUNCTION_NAMES.items():
@@ -293,11 +321,12 @@ def auto_configure_scheduler_env(
         except iam.exceptions.NoSuchEntityException:
             logger.warning("Rol IAM no encontrado: %s", role_name)
 
-    ok = bool(os.environ.get("SCHEDULER_INVOKE_ROLE_ARN")) and resolved >= 4
+    total_arns = _lambda_arns_configured_count()
+    ok = bool(os.environ.get("SCHEDULER_INVOKE_ROLE_ARN")) and total_arns >= 4
     if not ok:
         logger.error(
-            "Auto-config scheduler incompleta (%s/5 lambdas, rol=%s)",
-            resolved,
+            "Auto-config scheduler incompleta (%s/5 lambdas configuradas, rol=%s)",
+            total_arns,
             "ok" if os.environ.get("SCHEDULER_INVOKE_ROLE_ARN") else "falta",
         )
     return ok

@@ -95,7 +95,9 @@ def main() -> int:
     if args.lambda_arns_json:
         _load_arns_from_file(args.lambda_arns_json)
 
-    os.environ.setdefault("SCHEDULER_GROUP_NAME", f"prode-match-{args.env}")
+    from src.services.scheduler_manager import normalize_scheduler_env
+
+    normalize_scheduler_env(args.env)
 
     if not args.no_auto_config and _needs_auto_config():
         logger.info("Resolviendo ARNs desde AWS (profile=%s, env=%s)...", args.profile, args.env)

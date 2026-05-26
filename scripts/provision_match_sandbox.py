@@ -3,9 +3,10 @@
 Sandbox DEV_FAST (~4.5 min) — SPEC-2026-041.
 
 Ejemplos:
-  export ENABLE_MATCH_LIFECYCLE_SANDBOX=true
-  python scripts/provision_match_sandbox.py --teams MEX RSA --profile asap_dev --action provision
-  python scripts/provision_match_sandbox.py --match-id <uuid> --action cancel --dry-run
+  python scripts/provision_match_sandbox.py --teams MEX RSA --reset --action provision --profile asap_dev
+  python scripts/provision_match_sandbox.py --teams MEX RSA --reset --action provision
+      # default --profile asap_dev si AWS_PROFILE no está definido
+  python scripts/provision_match_sandbox.py --match-id <uuid> --action cancel --profile asap_dev
   python scripts/provision_match_sandbox.py --invoke-lambda --teams MEX RSA --profile asap_dev
 """
 from __future__ import annotations
@@ -25,12 +26,19 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s | %(message)s")
 logger = logging.getLogger(__name__)
 
 
+def _default_profile() -> str:
+    return os.environ.get("AWS_PROFILE") or "asap_dev"
+
+
 def _configure(env: str, profile: str | None, region: str | None) -> None:
     os.environ["DYNAMODB_TABLE"] = os.environ.get("DYNAMODB_TABLE", f"ProdeTable-{env}")
     os.environ["ENV"] = env
     os.environ.setdefault("ENABLE_MATCH_LIFECYCLE_SANDBOX", "true")
-    os.environ.setdefault("ENABLE_MATCH_SCHEDULES", "true")
-    os.environ.setdefault("SCHEDULER_GROUP_NAME", f"prode-match-{env}")
+    from src.services.scheduler_manager import normalize_scheduler_env
+
+    normalize_scheduler_env(env)
+    if profile:
+        os.environ["AWS_PROFILE"] = profile
     from src.dao.dynamo.table import configure_aws
 
     configure_aws(profile=profile, region=region)
@@ -39,7 +47,12 @@ def _configure(env: str, profile: str | None, region: str | None) -> None:
 def main() -> int:
     p = argparse.ArgumentParser(description="SPEC-041 sandbox schedules (devfast-*)")
     p.add_argument("--env", default="dev")
-    p.add_argument("--profile", "-p", default=os.environ.get("AWS_PROFILE"))
+    p.add_argument(
+        "--profile",
+        "-p",
+        default=_default_profile(),
+        help="Perfil AWS (default: AWS_PROFILE o asap_dev)",
+    )
     p.add_argument("--region", default=os.environ.get("AWS_REGION", "us-east-1"))
     p.add_argument("--match-id")
     p.add_argument("--teams", nargs=2, metavar=("HOME", "AWAY"))
@@ -95,7 +108,8 @@ def main() -> int:
         import boto3
 
         fn = f"prode-match-schedule-manager-{args.env}"
-        client = boto3.client("lambda", region_name=args.region)
+        session = boto3.Session(profile_name=args.profile, region_name=args.region)
+        client = session.client("lambda")
         payload = {"action": args.action, "match_id": match_id, "mode": "DEV_FAST"}
         resp = client.invoke(
             FunctionName=fn,
@@ -104,11 +118,6 @@ def main() -> int:
         body = json.loads(resp["Payload"].read())
         print(json.dumps(body, indent=2, default=str))
         return 0 if body.get("status") in ("OK", "PARTIAL") else 1
-
-    from src.services.scheduler_manager import auto_configure_scheduler_env
-
-    if not auto_configure_scheduler_env(args.env, profile=args.profile, region=args.region):
-        return 1
 
     from src.services.match_schedule_sandbox import MatchScheduleSandboxManager
 

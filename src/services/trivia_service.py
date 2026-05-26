@@ -178,7 +178,9 @@ class TriviaService:
         now = datetime.now(timezone.utc)
         home = match.get("home_team", "")
         away = match.get("away_team", "")
-        header = f"⚽ TRIVIA PRE-PARTIDO\n\n{home} vs {away}"
+        group = match.get("group_letter")
+        grp = f" · Grupo {group}" if group else ""
+        header = f"⚽ TRIVIA PRE-PARTIDO{grp}\n\n{home} vs {away}"
         item = self._trivia.put_broadcast_trivia(
             {
                 "trivia_id": trivia_id,
@@ -215,10 +217,16 @@ class TriviaService:
                     str(target.get("user_id", ""))[:8],
                 )
                 skipped += 1
+        logger.info(
+            "pre_match_trivia source=%s match=%s",
+            q.get("source", "?"),
+            str(match.get("match_id", ""))[:8],
+        )
         return {
             "status": "OK",
             "trivia_id": trivia_id,
             "match_id": match.get("match_id"),
+            "question_source": q.get("source"),
             "telegram_sent": sent,
             "telegram_skipped": skipped,
             "eligible": len(targets),

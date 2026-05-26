@@ -109,6 +109,38 @@ def pick_curated_for_teams(
     return _pick_from_pool(pool, exclude)
 
 
+def pick_curated_for_match_strict(
+    *,
+    home: str,
+    away: str,
+    level: str,
+    exclude_fingerprints: set[str] | None = None,
+) -> dict[str, Any] | None:
+    """Pre-partido: ambos equipos deben aparecer en el texto de la pregunta (no solo opciones)."""
+    exclude = exclude_fingerprints or set()
+    tokens_home = set()
+    tokens_away = set()
+    for code, bag in ((home, tokens_home), (away, tokens_away)):
+        if not code:
+            continue
+        up = code.upper()
+        bag.add(up)
+        bag.update(_TEAM_SEARCH_ALIASES.get(up, ()))
+
+    def _both_in_question(q: dict[str, Any]) -> bool:
+        qtext = (q.get("question") or "").upper()
+        home_ok = any(t in qtext for t in tokens_home)
+        away_ok = any(t in qtext for t in tokens_away)
+        return home_ok and away_ok
+
+    pool = [
+        dict(q)
+        for q in FALLBACK_QUESTIONS
+        if q["level"] == level.upper() and _both_in_question(q)
+    ]
+    return _pick_from_pool(pool, exclude)
+
+
 def _pick_from_pool(pool: list[dict[str, Any]], exclude: set[str]) -> dict[str, Any] | None:
     random.shuffle(pool)
     for q in pool:

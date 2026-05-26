@@ -102,20 +102,27 @@ class MatchScheduleSandboxManager:
             }
         if mode != SANDBOX_MODE_DEV_FAST:
             return {"status": "ERROR", "error": f"mode unsupported: {mode}"}
-        if not self._schedules.is_enabled():
-            return {
-                "status": "ERROR",
-                "error": "Scheduler no configurado (SCHEDULER_GROUP_NAME, ARNs, rol)",
-            }
 
         match = self._matches.get_match(match_id)
         if not match:
             return {"status": "NOT_FOUND", "match_id": match_id}
 
-        from src.services.scheduler_manager import auto_configure_scheduler_env
-
         env = os.environ.get("ENV") or os.environ.get("PRODE_ENV") or "dev"
-        auto_configure_scheduler_env(env, region=os.environ.get("AWS_REGION", "us-east-1"))
+        profile = os.environ.get("AWS_PROFILE") or None
+        region = os.environ.get("AWS_REGION", "us-east-1")
+        from src.services.scheduler_manager import (
+            MatchScheduleManager,
+            auto_configure_scheduler_env,
+            normalize_scheduler_env,
+        )
+
+        normalize_scheduler_env(env)
+        if not auto_configure_scheduler_env(env, profile=profile, region=region):
+            return {
+                "status": "ERROR",
+                "error": "Scheduler no configurado (ARNs Lambda o rol invoke)",
+            }
+        self._schedules = MatchScheduleManager()
 
         started_at = datetime.now(timezone.utc)
         self._matches.set_sandbox_state(
@@ -171,6 +178,19 @@ class MatchScheduleSandboxManager:
         }
 
     def cancel_sandbox_schedules(self, match_id: str) -> dict[str, Any]:
+        env = os.environ.get("ENV") or os.environ.get("PRODE_ENV") or "dev"
+        from src.services.scheduler_manager import (
+            MatchScheduleManager,
+            auto_configure_scheduler_env,
+            normalize_scheduler_env,
+        )
+
+        normalize_scheduler_env(env)
+        profile = os.environ.get("AWS_PROFILE") or None
+        auto_configure_scheduler_env(
+            env, profile=profile, region=os.environ.get("AWS_REGION", "us-east-1")
+        )
+        self._schedules = MatchScheduleManager()
         if not self._schedules.is_enabled():
             return {"match_id": match_id, "deleted": [], "disabled": True}
 

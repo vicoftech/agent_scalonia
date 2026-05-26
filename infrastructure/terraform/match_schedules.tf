@@ -198,8 +198,10 @@ data "aws_iam_policy_document" "lifecycle_lambda_inline" {
       "bedrock:InvokeModel",
     ]
     resources = [
-      "arn:aws:bedrock:${var.aws_region}::foundation-model/anthropic.claude-3-5-haiku-20241022-v1:0",
-      "arn:aws:bedrock:${var.aws_region}::foundation-model/us.anthropic.claude-3-5-haiku-20241022-v1:0",
+      "arn:aws:bedrock:${var.aws_region}::foundation-model/anthropic.claude-haiku-4-5-20251001-v1:0",
+      "arn:aws:bedrock:${var.aws_region}::foundation-model/us.anthropic.claude-haiku-4-5-20251001-v1:0",
+      "arn:aws:bedrock:${var.aws_region}::foundation-model/anthropic.claude-sonnet-4-6",
+      "arn:aws:bedrock:${var.aws_region}::foundation-model/us.anthropic.claude-sonnet-4-6",
     ]
   }
 }
@@ -266,9 +268,10 @@ resource "aws_lambda_function" "trivia_pre_match" {
   environment {
     variables = merge(
       {
-        DYNAMODB_TABLE      = module.prode_table.dynamodb_table_id
-        TELEGRAM_SECRET_ARN = var.telegram_secret_arn
-        LOG_LEVEL           = "INFO"
+        DYNAMODB_TABLE         = module.prode_table.dynamodb_table_id
+        TELEGRAM_SECRET_ARN    = var.telegram_secret_arn
+        LOG_LEVEL              = "INFO"
+        BEDROCK_TRIVIA_MODEL_ID = "us.anthropic.claude-sonnet-4-6"
       },
       module.kb.kb_query_lambda_name != "" ? {
         KB_QUERY_LAMBDA_NAME = module.kb.kb_query_lambda_name
