@@ -104,6 +104,11 @@ def main() -> int:
         action="store_true",
         help="Borrar MATCH#/RESULT antes de pollear (re-dispara notify)",
     )
+    p.add_argument(
+        "--with-scoring",
+        action="store_true",
+        help="Tras el poller, ejecutar scoring local (FINISH_MATCH)",
+    )
     args = p.parse_args()
 
     _configure_runtime(args.env, profile=args.profile, region=args.region)
@@ -145,6 +150,20 @@ def main() -> int:
             telegram_direct=args.telegram_direct,
         )
         print(json.dumps(out, indent=2))
+        if args.with_scoring and not args.dry_run and out.get("processed"):
+            from src.services.scoring_service import ScoringService
+
+            for mid in out["processed"]:
+                if len(mid) < 20:
+                    continue
+                scoring_out = ScoringService().process_finish_match(
+                    mid, force=args.replace_result
+                )
+                logger.info(
+                    "Scoring %s: scored=%s",
+                    mid[:8],
+                    scoring_out.scored,
+                )
         return 0
 
     from src.dao.dynamo.match_dao import MatchDAO

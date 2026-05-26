@@ -97,7 +97,7 @@ class TriviaDAO:
             "topic": record.get("topic", "mundiales"),
             "source": record.get("source", "KB"),
             "group_id": record.get("group_id", GLOBAL_GROUP_ID),
-            "created_by": record.get("created_by"),
+            "created_by": record.get("created_by") or "SYSTEM",
             "status": record.get("status", "SENT"),
             "sent_at": record.get("sent_at", now),
             "closes_at": closes,

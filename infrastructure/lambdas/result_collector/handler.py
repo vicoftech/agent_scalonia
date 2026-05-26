@@ -22,6 +22,9 @@ def handler(event: dict, context) -> dict:
 
     svc = ResultService()
     trigger = event.get("trigger", "scheduled")
+    event_type = event.get("event_type", "")
+    if event_type == "MATCH_RESULT":
+        trigger = event.get("trigger") or "match_ended"
     processed = 0
     errors = 0
 

@@ -73,3 +73,8 @@ tavily_secret_arn = "arn:aws:secretsmanager:us-east-1:ACCOUNT_ID:secret:prode-mu
 # SPEC-031 — result_collector + notify dispatcher (SQS → Telegram)
 # enable_result_queues     = true   # colas + match_notify_dispatcher Lambda
 # enable_result_collector  = true   # schedule + recolectar resultados
+
+# SPEC-032 — schedules por partido (trivia, reminders, veda, result, scoring)
+# enable_match_schedules   = true   # requiere enable_result_queues + enable_result_collector
+# Tras apply: terraform output match_schedule_lambda_arns
+# python scripts/provision_match_schedules.py --env dev --profile asap_dev

@@ -1,6 +1,7 @@
 """Predicciones USER#/PRED#<match_id>#GROUP#<group_id> — SPEC-2026-021."""
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 from typing import Any
 
@@ -189,6 +190,14 @@ class PredictionDAO:
         return self.get_active(user_id, match_id, group_id)
 
     def get_predictions_for_match(self, match_id: str) -> list[dict[str, Any]]:
+        return self.list_predictions_for_match(match_id, statuses=(STATUS_ACTIVE,))
+
+    def list_predictions_for_match(
+        self,
+        match_id: str,
+        *,
+        statuses: tuple[str, ...] | None = None,
+    ) -> list[dict[str, Any]]:
         items: list[dict[str, Any]] = []
         kwargs: dict[str, Any] = {
             "IndexName": "GSI-2-match-predictions",
@@ -200,7 +209,80 @@ class PredictionDAO:
             if not resp.get("LastEvaluatedKey"):
                 break
             kwargs["ExclusiveStartKey"] = resp["LastEvaluatedKey"]
-        return [i for i in items if i.get("status") == STATUS_ACTIVE]
+        if statuses:
+            allow = set(statuses)
+            return [i for i in items if i.get("status") in allow]
+        return items
+
+    def mark_scored(
+        self,
+        user_id: str,
+        match_id: str,
+        group_id: str,
+        *,
+        points: int,
+        scoring_reason: str,
+        scoring_detail: dict[str, Any] | None = None,
+    ) -> bool:
+        now = _now_iso()
+        detail_json = json.dumps(scoring_detail) if scoring_detail else None
+        try:
+            expr = (
+                "SET #st = :sc, points_earned = :pts, scoring_reason = :reason, "
+                "updated_at = :now"
+            )
+            vals: dict[str, Any] = {
+                ":act": STATUS_ACTIVE,
+                ":sc": STATUS_SCORED,
+                ":pts": int(points),
+                ":reason": scoring_reason,
+                ":now": now,
+            }
+            if detail_json is not None:
+                expr += ", scoring_detail = :detail"
+                vals[":detail"] = detail_json
+            self._table.update_item(
+                Key={
+                    "partition_key": f"USER#{user_id}",
+                    "sort_key": prediction_sk(match_id, group_id),
+                },
+                UpdateExpression=expr,
+                ConditionExpression="#st = :act",
+                ExpressionAttributeNames={"#st": "status"},
+                ExpressionAttributeValues=vals,
+            )
+            return True
+        except Exception as exc:
+            if exc.__class__.__name__ == "ConditionalCheckFailedException":
+                return False
+            raise
+
+    def reset_to_active(
+        self, user_id: str, match_id: str, group_id: str
+    ) -> bool:
+        try:
+            self._table.update_item(
+                Key={
+                    "partition_key": f"USER#{user_id}",
+                    "sort_key": prediction_sk(match_id, group_id),
+                },
+                UpdateExpression=(
+                    "SET #st = :act, updated_at = :now "
+                    "REMOVE points_earned, scoring_reason, scoring_detail"
+                ),
+                ConditionExpression="#st = :sc",
+                ExpressionAttributeNames={"#st": "status"},
+                ExpressionAttributeValues={
+                    ":act": STATUS_ACTIVE,
+                    ":sc": STATUS_SCORED,
+                    ":now": _now_iso(),
+                },
+            )
+            return True
+        except Exception as exc:
+            if exc.__class__.__name__ == "ConditionalCheckFailedException":
+                return False
+            raise
 
     def get_group_ids_with_predictions(self, match_id: str) -> list[str]:
         """Grupos distintos con al menos una predicción ACTIVE del partido."""

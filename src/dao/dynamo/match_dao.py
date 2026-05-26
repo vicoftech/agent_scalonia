@@ -1,8 +1,12 @@
 """MATCH#<uuid>/DETAILS — fixture Mundial 2026 (lectura/escritura DynamoDB)."""
 from __future__ import annotations
 
+import logging
+import os
 from datetime import datetime, timezone
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 from boto3.dynamodb.conditions import Attr, Key
 
@@ -17,7 +21,9 @@ class MatchDAO:
     def __init__(self, table_name: str | None = None):
         self._table = get_table(table_name)
 
-    def put_match(self, record: dict[str, Any]) -> dict[str, Any]:
+    def put_match(
+        self, record: dict[str, Any], *, provision_schedules: bool | None = None
+    ) -> dict[str, Any]:
         """Upsert idempotente de MATCH#/DETAILS."""
         match_id = record["match_id"]
         item = {
@@ -44,6 +50,18 @@ class MatchDAO:
             item["created_at"] = item["updated_at"]
 
         self._table.put_item(Item=item)
+
+        if provision_schedules is None:
+            provision_schedules = os.environ.get("ENABLE_MATCH_SCHEDULES", "").lower() in (
+                "1",
+                "true",
+                "yes",
+            )
+        if provision_schedules:
+            from src.services.scheduler_manager import maybe_provision_after_put
+
+            maybe_provision_after_put(item)
+
         return item
 
     def get_match(self, match_id: str) -> dict[str, Any] | None:
@@ -64,9 +82,22 @@ class MatchDAO:
                 return m
         return None
 
-    def delete_all_matches(self) -> int:
+    def delete_all_matches(self, *, deprovision_schedules: bool = True) -> int:
         """Elimina todos los MATCH#/DETAILS (reemplazo de fixture)."""
         items = self.list_matches()
+        if deprovision_schedules and os.environ.get("ENABLE_MATCH_SCHEDULES", "").lower() in (
+            "1",
+            "true",
+            "yes",
+        ):
+            from src.services.scheduler_manager import MatchScheduleManager
+
+            mgr = MatchScheduleManager()
+            if mgr.is_enabled():
+                for it in items:
+                    mid = it.get("match_id")
+                    if mid:
+                        mgr.deprovision_match(str(mid))
         for it in items:
             self._table.delete_item(
                 Key={

@@ -147,3 +147,10 @@ class ResultDAO:
             UpdateExpression="SET result_processed = :t, updated_at = :now",
             ExpressionAttributeValues={":t": True, ":now": _now_iso()},
         )
+
+    def clear_result_processed(self, match_id: str) -> None:
+        self._table.update_item(
+            Key={"partition_key": f"MATCH#{match_id}", "sort_key": "RESULT"},
+            UpdateExpression="SET result_processed = :f, updated_at = :now",
+            ExpressionAttributeValues={":f": False, ":now": _now_iso()},
+        )

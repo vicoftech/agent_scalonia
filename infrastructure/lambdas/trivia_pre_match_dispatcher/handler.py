@@ -21,6 +21,8 @@ def handler(event: dict, context) -> dict:
     from src.services.trivia_service import TriviaService
 
     match_id = event.get("match_id")
+    event_type = event.get("event_type", "")
+    force = bool(event.get("sandbox")) or event_type == "MATCH_TRIVIA"
     svc = TriviaService()
     dao = MatchDAO()
 
@@ -34,7 +36,7 @@ def handler(event: dict, context) -> dict:
 
     sent = 0
     for m in matches:
-        if m.get("status") != "SCHEDULED":
+        if not force and m.get("status") != "SCHEDULED":
             continue
         q = svc.generate_pre_match_trivia(m)
         trivia_id = q.get("match_id", "")[:8] or m.get("match_number")

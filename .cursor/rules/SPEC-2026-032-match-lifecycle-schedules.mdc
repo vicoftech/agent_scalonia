@@ -1,0 +1,46 @@
+---
+description: SPEC-032 — EventBridge Scheduler por partido (7 eventos al alta). Aplicar en scheduler_manager, ingest_matches, veda_activator, match_reminder_dispatcher, trivia/result/scoring hooks.
+globs: src/services/scheduler_manager.py, scripts/ingest_matches.py, scripts/provision_match_schedules.py, infrastructure/lambdas/veda_activator/**, infrastructure/lambdas/match_reminder_dispatcher/**, infrastructure/lambdas/trivia_pre_match_dispatcher/**, infrastructure/terraform/match_schedules.tf
+alwaysApply: false
+---
+
+# SPEC-2026-032 — Schedules por partido (7 eventos)
+
+**Estado:** Implementado — ver `docs/issues/SPEC-2026-032-match-lifecycle-schedules.md`. Activar con `enable_match_schedules` + `provision_match_schedules.py`.
+
+## Resumen
+
+Al **dar de alta** o **actualizar** `kickoff_utc` de un partido → provisionar schedules **one-time** en EventBridge Scheduler (nombres determinísticos). Al borrar/replace → `deprovision_match`.
+
+| # | Evento | Offset (vs kickoff) | Lambda |
+|---|--------|---------------------|--------|
+| 1 | Trivia pre-partido | **−2 h** | `trivia_pre_match_dispatcher` |
+| 2 | Reminder #1 (sin pred.) | **−1 h** | `match_reminder_dispatcher` |
+| 3 | Reminder #2 (sin pred.) | **−30 min** | `match_reminder_dispatcher` |
+| 4 | Reminder #3 (sin pred.) | **−15 min** | `match_reminder_dispatcher` |
+| 5 | Veda | **−30 min** | `veda_activator` |
+| 6 | Resultados | **+110 min** | `result_collector` (`match_ended`) |
+| 7 | Scoring | Tras (6) | `scoring_processor` vía SQS `FINISH_MATCH` (+ catch-up opcional +120 min) |
+
+**Hoy:** `ingest_matches` solo escribe DynamoDB — **no** crea schedules.
+
+## Nombres (idempotentes)
+
+`trivia-pre-{match_id}`, `remind-60-{match_id}`, `remind-30-{match_id}`, `remind-15-{match_id}`, `veda-{match_id}`, `result-{match_id}`, `scoring-catchup-{match_id}` (opcional).
+
+## Componente nuevo
+
+`src/services/scheduler_manager.py` → `MatchScheduleManager.provision_match | update_kickoff | deprovision_match`
+
+Hooks: `MatchDAO.put_match`, `ingest_matches`, `sync_fixture_from_api`.
+
+## Tasks
+
+TASK-032-001 … TASK-032-010 — ver doc completo.
+
+## NUNCA
+
+- Schedules con nombres no determinísticos
+- Reminders si ya hay predicción ACTIVE
+- Predicción con `veda_active=true`
+- Re-scoring si `result_processed=true`

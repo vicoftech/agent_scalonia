@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import sys
 from pathlib import Path
 
@@ -95,7 +96,15 @@ def main() -> None:
         action="store_true",
         help="Borra todos los MATCH#/DETAILS antes de cargar el JSON",
     )
+    p.add_argument(
+        "--provision-schedules",
+        action="store_true",
+        help="Tras ingest, crear schedules EventBridge (ENABLE_MATCH_SCHEDULES + ARNs)",
+    )
     args = p.parse_args()
+
+    if args.provision_schedules:
+        os.environ["ENABLE_MATCH_SCHEDULES"] = "true"
 
     table = args.table or f"ProdeTable-{args.env}"
     records: list[dict] | None = None

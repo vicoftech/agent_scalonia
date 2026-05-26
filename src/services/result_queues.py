@@ -79,6 +79,42 @@ def enqueue_scoring(match_id: str, result: dict[str, Any]) -> bool:
         return False
 
 
+def enqueue_lifecycle_notification(
+    *,
+    user_id: str,
+    match_id: str,
+    message: str,
+    msg_type: str,
+    group_id: str | None = None,
+) -> bool:
+    """MATCH_REMINDER | MATCH_VEDA — misma cola que resultados."""
+    url = os.environ.get("NOTIFICATION_QUEUE_URL", "").strip()
+    if not url:
+        return False
+    payload = {
+        "type": msg_type,
+        "user_id": user_id,
+        "match_id": match_id,
+        "message": message,
+    }
+    if group_id:
+        payload["group_id"] = group_id
+    try:
+        _sqs_client().send_message(
+            QueueUrl=url,
+            MessageBody=json.dumps(payload, default=str),
+        )
+        return True
+    except Exception:
+        logger.exception(
+            "Lifecycle notify SQS failed user=%s match=%s type=%s",
+            user_id[:8],
+            match_id[:8],
+            msg_type,
+        )
+        return False
+
+
 def enqueue_match_result_notification(
     *,
     user_id: str,
