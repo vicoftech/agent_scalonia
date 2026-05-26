@@ -72,3 +72,11 @@ def test_process_scores_active_predictions():
     assert out.rows[0].points == 6
     udao.add_match_points.assert_called_once_with("u1", 6)
     rdao.mark_result_processed.assert_called_once_with("mid-1")
+
+
+def test_notify_scoring_breakdowns_idempotent():
+    rdao = MagicMock()
+    rdao.is_breakdown_notified.return_value = True
+    svc = ScoringService(results=rdao)
+    assert svc.notify_scoring_breakdowns("mid-1") == 0
+    rdao.mark_breakdown_notified.assert_not_called()

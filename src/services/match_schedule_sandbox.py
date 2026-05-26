@@ -1,5 +1,5 @@
 """
-EventBridge Scheduler — modo DEV_FAST (~4.5 min) — SPEC-2026-041.
+EventBridge Scheduler — modo DEV_FAST (~90 s, eventos cada 15 s) — SPEC-2026-041.
 
 No usa offsets de kickoff; usa sandbox_started_at y prefijos devfast-*.
 """
@@ -29,47 +29,62 @@ SANDBOX_MODE_DEV_FAST = "DEV_FAST"
 # EventBridge Scheduler exige expresión at() en el futuro cercano
 _MIN_SCHEDULE_LEAD_SEC = 5
 
+# Paso entre eventos consecutivos (trivia → … → scoring)
+SANDBOX_EVENT_INTERVAL_SEC = 15
+SANDBOX_EVENT_COUNT = 7
+
+# Offsets en segundos desde sandbox_started_at: 0, 15, …, 90
+_sandbox_offsets_sec: tuple[int, ...] = tuple(
+    i * SANDBOX_EVENT_INTERVAL_SEC for i in range(SANDBOX_EVENT_COUNT)
+)
+
 # (suffix, offset_seconds desde sandbox_started_at, event_type, arn env key, extra payload)
 SANDBOX_SCHEDULE_SPECS: tuple[tuple[str, int, str, str, dict[str, Any]], ...] = (
-    ("devfast-trivia", 0, "MATCH_TRIVIA", "LAMBDA_ARN_TRIVIA_PRE_MATCH", {"sandbox": True}),
+    (
+        "devfast-trivia",
+        _sandbox_offsets_sec[0],
+        "MATCH_TRIVIA",
+        "LAMBDA_ARN_TRIVIA_PRE_MATCH",
+        {"sandbox": True},
+    ),
     (
         "devfast-remind1",
-        60,
+        _sandbox_offsets_sec[1],
         "MATCH_REMINDER",
         "LAMBDA_ARN_MATCH_REMINDER",
         {"reminder_tier": 1, "sandbox": True},
     ),
     (
         "devfast-remind2",
-        120,
+        _sandbox_offsets_sec[2],
         "MATCH_REMINDER",
         "LAMBDA_ARN_MATCH_REMINDER",
         {"reminder_tier": 2, "sandbox": True},
     ),
     (
         "devfast-remind3",
-        150,
+        _sandbox_offsets_sec[3],
         "MATCH_REMINDER",
         "LAMBDA_ARN_MATCH_REMINDER",
         {"reminder_tier": 3, "sandbox": True},
     ),
     (
         "devfast-veda",
-        180,
+        _sandbox_offsets_sec[4],
         "MATCH_VEDA",
         "LAMBDA_ARN_VEDA_ACTIVATOR",
         {"sandbox": True, "force": True},
     ),
     (
         "devfast-result",
-        240,
+        _sandbox_offsets_sec[5],
         "MATCH_RESULT",
         "LAMBDA_ARN_RESULT_COLLECTOR",
         {"trigger": "sandbox_devfast", "sandbox": True},
     ),
     (
         "devfast-scoring",
-        270,
+        _sandbox_offsets_sec[6],
         "MATCH_SCORING_CATCHUP",
         "LAMBDA_ARN_SCORING_PROCESSOR",
         {"sandbox": True},
@@ -242,12 +257,27 @@ def _build_sandbox_plans(
     lambda_arns: dict[str, str],
 ) -> list[SchedulePlan]:
     plans: list[SchedulePlan] = []
-    next_slot = now + timedelta(seconds=_MIN_SCHEDULE_LEAD_SEC)
+    prev_fire_at: datetime | None = None
+    gap = timedelta(seconds=SANDBOX_EVENT_INTERVAL_SEC)
+    min_horizon = now + timedelta(seconds=_MIN_SCHEDULE_LEAD_SEC)
     for suffix, offset_sec, event_type, arn_key, extra in SANDBOX_SCHEDULE_SPECS:
-        fire_at = started_at + timedelta(seconds=offset_sec)
-        if fire_at <= now:
-            fire_at = next_slot
-            next_slot = next_slot + timedelta(seconds=_MIN_SCHEDULE_LEAD_SEC)
+        ideal = started_at + timedelta(seconds=offset_sec)
+        if ideal <= now:
+            tentative = (
+                min_horizon if prev_fire_at is None else prev_fire_at + gap
+            )
+        else:
+            tentative = ideal
+
+        if prev_fire_at is None:
+            if tentative <= now:
+                fire_at = max(tentative, min_horizon)
+            else:
+                fire_at = tentative
+        else:
+            fire_at = max(tentative, prev_fire_at + gap)
+
+        prev_fire_at = fire_at
         target_arn = lambda_arns.get(arn_key, "")
         if not target_arn:
             logger.warning("sandbox missing %s for %s", arn_key, suffix)

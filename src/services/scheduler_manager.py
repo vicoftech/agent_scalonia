@@ -41,6 +41,12 @@ SCHEDULE_SPECS: tuple[tuple[str, int, str, str, dict[str, Any]], ...] = (
 
 AWS_SCHEDULE_NAME_MAX = 64
 _SCHEDULER_GROUP_RE = re.compile(r"^[0-9a-zA-Z-_.]{1,64}$")
+_IAM_ROLE_ARN_RE = re.compile(
+    r"^arn:aws[a-z-]*:iam::\d{12}:role/[\w+=,.@/-]+$"
+)
+_LAMBDA_ARN_RE = re.compile(
+    r"^arn:aws[a-z-]*:lambda:[a-z0-9-]+:\d{12}:function:[\w+=,.@-]+(?::\d+)?$"
+)
 
 
 @dataclass
@@ -245,9 +251,33 @@ def _parse_kickoff(raw: Any) -> datetime | None:
         return None
 
 
+def is_valid_iam_role_arn(value: str) -> bool:
+    return bool(value and _IAM_ROLE_ARN_RE.match(value.strip()))
+
+
+def is_valid_lambda_arn(value: str) -> bool:
+    return bool(value and _LAMBDA_ARN_RE.match(value.strip()))
+
+
+def _looks_like_terraform_output_garbage(value: str) -> bool:
+    v = value.strip()
+    if not v:
+        return False
+    if "Warning:" in v or "No outputs found" in v:
+        return True
+    if v.startswith("╷") or v.startswith("\x1b["):
+        return True
+    return False
+
+
 def _lambda_arns_from_env() -> dict[str, str]:
     keys = {spec[3] for spec in SCHEDULE_SPECS}
-    return {k: os.environ.get(k, "").strip() for k in keys if os.environ.get(k, "").strip()}
+    out: dict[str, str] = {}
+    for k in keys:
+        raw = os.environ.get(k, "").strip()
+        if raw and is_valid_lambda_arn(raw):
+            out[k] = raw
+    return out
 
 
 _LAMBDA_FUNCTION_NAMES: dict[str, str] = {
@@ -262,11 +292,15 @@ _LAMBDA_FUNCTION_NAMES: dict[str, str] = {
 def normalize_scheduler_env(env: str) -> str:
     """
     Fija SCHEDULER_GROUP_NAME válido (prode-match-{env}).
-    Ignora valores basura (p. ej. stderr de terraform output en el shell).
+    Elimina ARNs basura (p. ej. stderr de `terraform output` exportado en el shell).
     """
     expected = f"prode-match-{env}"
     current = os.environ.get("SCHEDULER_GROUP_NAME", "").strip()
-    if not current or not _SCHEDULER_GROUP_RE.match(current):
+    if (
+        not current
+        or not _SCHEDULER_GROUP_RE.match(current)
+        or _looks_like_terraform_output_garbage(current)
+    ):
         if current:
             logger.warning(
                 "SCHEDULER_GROUP_NAME inválido (%s chars); usando %s",
@@ -274,12 +308,40 @@ def normalize_scheduler_env(env: str) -> str:
                 expected,
             )
         os.environ["SCHEDULER_GROUP_NAME"] = expected
+
+    role = os.environ.get("SCHEDULER_INVOKE_ROLE_ARN", "").strip()
+    if role and (
+        not is_valid_iam_role_arn(role) or _looks_like_terraform_output_garbage(role)
+    ):
+        logger.warning(
+            "SCHEDULER_INVOKE_ROLE_ARN inválido (%s chars); se resolverá por AWS",
+            len(role),
+        )
+        os.environ.pop("SCHEDULER_INVOKE_ROLE_ARN", None)
+
+    for key in _LAMBDA_FUNCTION_NAMES:
+        val = os.environ.get(key, "").strip()
+        if not val:
+            continue
+        if not is_valid_lambda_arn(val) or _looks_like_terraform_output_garbage(val):
+            logger.warning("%s inválido; se resolverá por AWS", key)
+            os.environ.pop(key, None)
+
     os.environ.setdefault("ENABLE_MATCH_SCHEDULES", "true")
     return os.environ["SCHEDULER_GROUP_NAME"]
 
 
 def _lambda_arns_configured_count() -> int:
-    return sum(1 for k in _LAMBDA_FUNCTION_NAMES if os.environ.get(k, "").strip())
+    return sum(
+        1
+        for k in _LAMBDA_FUNCTION_NAMES
+        if is_valid_lambda_arn(os.environ.get(k, ""))
+    )
+
+
+def _scheduler_env_fully_configured() -> bool:
+    role = os.environ.get("SCHEDULER_INVOKE_ROLE_ARN", "").strip()
+    return is_valid_iam_role_arn(role) and _lambda_arns_configured_count() >= 4
 
 
 def auto_configure_scheduler_env(
@@ -289,9 +351,7 @@ def auto_configure_scheduler_env(
     from src.dao.dynamo.table import configure_aws, get_session
 
     normalize_scheduler_env(env)
-    if _lambda_arns_configured_count() >= 4 and os.environ.get(
-        "SCHEDULER_INVOKE_ROLE_ARN", ""
-    ).strip():
+    if _scheduler_env_fully_configured():
         return True
 
     configure_aws(profile=profile, region=region)
@@ -300,7 +360,7 @@ def auto_configure_scheduler_env(
 
     resolved = 0
     for env_key, name_tpl in _LAMBDA_FUNCTION_NAMES.items():
-        if os.environ.get(env_key, "").strip():
+        if is_valid_lambda_arn(os.environ.get(env_key, "")):
             continue
         fn = name_tpl.format(env=env)
         try:
@@ -313,16 +373,19 @@ def auto_configure_scheduler_env(
         except Exception:
             logger.exception("get_function failed: %s", fn)
 
-    if not os.environ.get("SCHEDULER_INVOKE_ROLE_ARN", "").strip():
+    role = os.environ.get("SCHEDULER_INVOKE_ROLE_ARN", "").strip()
+    if not is_valid_iam_role_arn(role):
         role_name = f"prode-scheduler-invoke-{env}"
         try:
-            os.environ["SCHEDULER_INVOKE_ROLE_ARN"] = iam.get_role(RoleName=role_name)["Role"]["Arn"]
+            os.environ["SCHEDULER_INVOKE_ROLE_ARN"] = iam.get_role(RoleName=role_name)[
+                "Role"
+            ]["Arn"]
             logger.info("SCHEDULER_INVOKE_ROLE_ARN ← %s", role_name)
         except iam.exceptions.NoSuchEntityException:
             logger.warning("Rol IAM no encontrado: %s", role_name)
 
     total_arns = _lambda_arns_configured_count()
-    ok = bool(os.environ.get("SCHEDULER_INVOKE_ROLE_ARN")) and total_arns >= 4
+    ok = _scheduler_env_fully_configured()
     if not ok:
         logger.error(
             "Auto-config scheduler incompleta (%s/5 lambdas configuradas, rol=%s)",

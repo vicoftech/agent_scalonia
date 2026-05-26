@@ -154,3 +154,16 @@ class ResultDAO:
             UpdateExpression="SET result_processed = :f, updated_at = :now",
             ExpressionAttributeValues={":f": False, ":now": _now_iso()},
         )
+
+    def is_breakdown_notified(self, match_id: str) -> bool:
+        item = self.get_raw(match_id)
+        return bool(item and item.get("scoring_breakdown_notified"))
+
+    def mark_breakdown_notified(self, match_id: str) -> None:
+        self._table.update_item(
+            Key={"partition_key": f"MATCH#{match_id}", "sort_key": "RESULT"},
+            UpdateExpression=(
+                "SET scoring_breakdown_notified = :t, updated_at = :now"
+            ),
+            ExpressionAttributeValues={":t": True, ":now": _now_iso()},
+        )

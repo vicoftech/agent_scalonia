@@ -32,7 +32,7 @@ def handler(event: dict, context) -> dict:
         svc = ScoringService()
         outcome = svc.process_finish_match(match_id)
         breakdowns = 0
-        if outcome.already_processed and outcome.scored == 0:
+        if results.is_scoring_done(match_id):
             breakdowns = svc.notify_scoring_breakdowns(match_id)
         return {
             "status": "OK",

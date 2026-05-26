@@ -30,7 +30,7 @@ def test_build_sandbox_plans_seven_events():
     plans = _build_sandbox_plans("mid", started, started - timedelta(seconds=1), arns)
     assert len(plans) == 7
     offsets = sorted(int((p.fire_at - started).total_seconds()) for p in plans)
-    assert offsets == [0, 60, 120, 150, 180, 240, 270]
+    assert offsets == list(range(0, 7 * 15, 15))
 
 
 def test_dry_run_helper():

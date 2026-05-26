@@ -142,6 +142,13 @@ class ScoringService:
         from src.services.prediction_result_report import format_finished_match_report
         from src.services.result_queues import enqueue_lifecycle_notification
 
+        if self._results.is_breakdown_notified(match_id):
+            logger.info(
+                "Scoring breakdown ya enviado match=%s",
+                match_id[:8],
+            )
+            return 0
+
         match = self._matches.get_match(match_id)
         if not match:
             return 0
@@ -173,6 +180,8 @@ class ScoringService:
                 group_id=group_id,
             ):
                 sent += 1
+        if sent > 0:
+            self._results.mark_breakdown_notified(match_id)
         logger.info("Scoring breakdowns enqueued match=%s sent=%s", match_id[:8], sent)
         return sent
 

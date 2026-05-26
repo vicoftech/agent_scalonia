@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Sandbox DEV_FAST (~4.5 min) — SPEC-2026-041.
+Sandbox DEV_FAST (~90 s, eventos cada 15 s) — SPEC-2026-041.
 
 Ejemplos:
   python scripts/provision_match_sandbox.py --teams MEX RSA --reset --action provision --profile asap_dev
@@ -91,8 +91,9 @@ def main() -> int:
         from src.services.scoring_service import ScoringService
 
         dao.set_veda_active(match_id, active=False)
-        if ResultDAO().get_raw(match_id):
-            ResultDAO().delete_result(match_id)
+        rdao = ResultDAO()
+        if rdao.get_raw(match_id):
+            rdao.delete_result(match_id)
             logger.info("RESULT borrado match=%s", match_id[:8])
         reset_n = ScoringService().reset_match_scoring(match_id)
         logger.info("Scoring reset: %s predicciones", reset_n)
