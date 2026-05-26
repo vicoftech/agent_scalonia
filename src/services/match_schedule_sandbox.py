@@ -218,8 +218,6 @@ def _build_sandbox_plans(
     plans: list[SchedulePlan] = []
     for suffix, offset_sec, event_type, arn_key, extra in SANDBOX_SCHEDULE_SPECS:
         fire_at = started_at + timedelta(seconds=offset_sec)
-        if fire_at < now:
-            continue
         if fire_at <= now:
             fire_at = now + timedelta(seconds=_MIN_SCHEDULE_LEAD_SEC)
         target_arn = lambda_arns.get(arn_key, "")

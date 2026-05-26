@@ -33,6 +33,8 @@ locals {
     "${local.lifecycle_repo_root}/src/scoring/${f}" if !endswith(f, "/") && !strcontains(f, "__pycache__")],
     [for f in sort(fileset("${local.lifecycle_repo_root}/src/fixtures", "**")) :
     "${local.lifecycle_repo_root}/src/fixtures/${f}" if !endswith(f, "/") && !strcontains(f, "__pycache__")],
+    [for f in sort(fileset("${local.lifecycle_repo_root}/src/jobs", "**")) :
+    "${local.lifecycle_repo_root}/src/jobs/${f}" if !endswith(f, "/") && !strcontains(f, "__pycache__")],
   )
   lifecycle_zip = {
     for name in local.lifecycle_lambda_names :
