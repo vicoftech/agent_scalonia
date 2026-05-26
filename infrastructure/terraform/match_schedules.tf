@@ -51,13 +51,19 @@ locals {
   scoring_queue_url    = var.enable_result_queues ? aws_sqs_queue.scoring[0].url : ""
 }
 
+# Gate: depends_on no admite ternarios; solo cuando OIDC + schedules están activos.
+resource "null_resource" "scheduler_github_iam_gate" {
+  count = var.enable_match_schedules && var.enable_github_oidc ? 1 : 0
+
+  depends_on = [aws_iam_role_policy.github_actions_deploy]
+}
+
 resource "aws_scheduler_schedule_group" "match_lifecycle" {
   count = var.enable_match_schedules ? 1 : 0
 
   name = local.scheduler_group_name
 
-  # CI usa prode-github-actions-dev: aplicar IAM del rol antes que el schedule group.
-  depends_on = var.enable_github_oidc ? [aws_iam_role_policy.github_actions_deploy[0]] : []
+  depends_on = [null_resource.scheduler_github_iam_gate]
 }
 
 data "aws_iam_policy_document" "scheduler_assume" {
