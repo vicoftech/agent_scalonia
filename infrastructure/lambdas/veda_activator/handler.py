@@ -11,6 +11,9 @@ def handler(event: dict, context) -> dict:
     os.environ.setdefault("DYNAMODB_TABLE", os.environ.get("DYNAMODB_TABLE", "ProdeTable-dev"))
     from src.services.match_lifecycle_service import MatchLifecycleService
 
+    if event.get("sandbox"):
+        logger.info("MATCH_VEDA sandbox match=%s", str(event.get("match_id", ""))[:8])
+
     match_id = event.get("match_id")
     if not match_id:
         return {"status": "ERROR", "error": "match_id required"}

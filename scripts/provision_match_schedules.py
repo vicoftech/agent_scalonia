@@ -55,17 +55,9 @@ def _load_arns_from_file(path: Path) -> None:
             os.environ[env_key] = data[key]
 
 
-# Nombres Terraform → variable de entorno (SPEC-032)
-_LAMBDA_FUNCTION_NAMES: dict[str, str] = {
-    "LAMBDA_ARN_TRIVIA_PRE_MATCH": "prode-trivia-pre-match-{env}",
-    "LAMBDA_ARN_MATCH_REMINDER": "prode-match-reminder-{env}",
-    "LAMBDA_ARN_VEDA_ACTIVATOR": "prode-veda-activator-{env}",
-    "LAMBDA_ARN_RESULT_COLLECTOR": "prode-result-collector-{env}",
-    "LAMBDA_ARN_SCORING_PROCESSOR": "prode-scoring-processor-{env}",
-}
-
-
 def _needs_auto_config() -> bool:
+    from src.services.scheduler_manager import _LAMBDA_FUNCTION_NAMES
+
     if os.environ.get("SCHEDULER_INVOKE_ROLE_ARN", "").strip():
         return False
     for env_key in _LAMBDA_FUNCTION_NAMES:
@@ -75,55 +67,9 @@ def _needs_auto_config() -> bool:
 
 
 def _auto_configure_from_aws(env: str, *, profile: str | None, region: str) -> bool:
-    """
-    Resuelve ARNs por nombre de Lambda/rol (sin terraform output).
-    Útil si enable_match_schedules se aplicó pero el state local no tiene outputs.
-    """
-    from src.dao.dynamo.table import configure_aws, get_session
+    from src.services.scheduler_manager import auto_configure_scheduler_env
 
-    configure_aws(profile=profile, region=region)
-    lam = get_session().client("lambda")
-    iam = get_session().client("iam")
-
-    os.environ.setdefault("ENABLE_MATCH_SCHEDULES", "true")
-    os.environ.setdefault("SCHEDULER_GROUP_NAME", f"prode-match-{env}")
-
-    resolved = 0
-    for env_key, name_tpl in _LAMBDA_FUNCTION_NAMES.items():
-        if os.environ.get(env_key, "").strip():
-            continue
-        fn = name_tpl.format(env=env)
-        try:
-            resp = lam.get_function(FunctionName=fn)
-            arn = resp["Configuration"]["FunctionArn"]
-            os.environ[env_key] = arn
-            resolved += 1
-            logger.info("ARN %s ← %s", env_key, fn)
-        except lam.exceptions.ResourceNotFoundException:
-            logger.warning("Lambda no encontrada: %s", fn)
-        except Exception:
-            logger.exception("get_function failed: %s", fn)
-
-    if not os.environ.get("SCHEDULER_INVOKE_ROLE_ARN", "").strip():
-        role_name = f"prode-scheduler-invoke-{env}"
-        try:
-            resp = iam.get_role(RoleName=role_name)
-            os.environ["SCHEDULER_INVOKE_ROLE_ARN"] = resp["Role"]["Arn"]
-            logger.info("SCHEDULER_INVOKE_ROLE_ARN ← %s", role_name)
-        except iam.exceptions.NoSuchEntityException:
-            logger.warning("Rol IAM no encontrado: %s", role_name)
-        except Exception:
-            logger.exception("get_role failed: %s", role_name)
-
-    ok = bool(os.environ.get("SCHEDULER_INVOKE_ROLE_ARN")) and resolved >= 4
-    if not ok:
-        logger.error(
-            "Auto-config incompleta (%s/5 Lambdas, rol=%s). "
-            "¿Corriste terraform apply con enable_match_schedules=true?",
-            resolved,
-            "ok" if os.environ.get("SCHEDULER_INVOKE_ROLE_ARN") else "falta",
-        )
-    return ok
+    return auto_configure_scheduler_env(env, profile=profile, region=region)
 
 
 def main() -> int:

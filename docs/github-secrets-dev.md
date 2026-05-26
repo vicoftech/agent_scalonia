@@ -50,6 +50,9 @@ enable_result_collector = true
 # SPEC-032 — EventBridge Scheduler por partido (trivia, reminders, veda, scoring)
 enable_match_schedules = true
 
+# SPEC-041 — sandbox ciclo ~4.5 min (solo dev)
+enable_match_lifecycle_sandbox = true
+
 # Invitaciones agotadas → SQS (opcional)
 enable_invitation_notify_queue = false
 

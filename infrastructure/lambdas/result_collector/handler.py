@@ -41,10 +41,12 @@ def handler(event: dict, context) -> dict:
                 errors += 1
                 logger.exception("collect_result failed match=%s", match_id[:8])
 
-    elif trigger == "match_ended":
+    elif trigger in ("match_ended", "sandbox_devfast"):
         match_id = event.get("match_id")
         if not match_id:
             return {"status": "ERROR", "error": "match_id required"}
+        if trigger == "sandbox_devfast" or event.get("sandbox"):
+            logger.info("sandbox_devfast collect_result match=%s", match_id[:8])
         result = svc.collect_result(match_id)
         return {
             "status": "OK",

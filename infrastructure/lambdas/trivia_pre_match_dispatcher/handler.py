@@ -22,6 +22,8 @@ def handler(event: dict, context) -> dict:
 
     match_id = event.get("match_id")
     event_type = event.get("event_type", "")
+    if event.get("sandbox"):
+        logger.info("MATCH_TRIVIA sandbox match=%s", str(match_id or "")[:8])
     force = bool(event.get("sandbox")) or event_type == "MATCH_TRIVIA"
     svc = TriviaService()
     dao = MatchDAO()

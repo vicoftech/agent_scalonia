@@ -1,0 +1,19 @@
+---
+description: SPEC-041 — Sandbox devfast schedules (~4.5 min). match_schedule_sandbox, provision_match_sandbox.py, match_schedule_manager Lambda.
+globs: src/services/match_schedule_sandbox.py, scripts/provision_match_sandbox.py, infrastructure/lambdas/match_schedule_manager/**, infrastructure/terraform/match_lifecycle_sandbox.tf
+alwaysApply: false
+---
+
+# SPEC-2026-041 — Dev sandbox (4 minutos)
+
+**Estado:** Implementado — ver `docs/issues/SPEC-2026-041-match-lifecycle-dev-sandbox.md`.
+
+- Prefijos schedule: `devfast-*` (nunca `trivia-pre-`, `veda-`, etc. de SPEC-032).
+- Referencia: `sandbox_started_at`, no `kickoff_utc`.
+- CLI: `scripts/provision_match_sandbox.py --action provision|cancel`
+- Terraform: `enable_match_lifecycle_sandbox=true` (solo dev, no prod).
+
+## NUNCA
+
+- Habilitar sandbox en prod
+- Mezclar nombres devfast con schedules prod del mismo partido sin cancelar

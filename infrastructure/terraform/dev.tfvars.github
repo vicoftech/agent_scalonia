@@ -28,6 +28,9 @@ enable_result_queues    = true
 enable_result_collector = true
 enable_match_schedules  = true
 
+# SPEC-041 — ciclo comprimido ~4.5 min (solo dev; no usar en prod)
+enable_match_lifecycle_sandbox = true
+
 enable_invitation_notify_queue = false
 
 rds_proxy_endpoint            = "aurora-pg-asap-dev.cluster-cgxq84qu0b72.us-east-1.rds.amazonaws.com"

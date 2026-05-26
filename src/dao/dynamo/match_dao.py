@@ -42,8 +42,11 @@ class MatchDAO:
             "veda_active": bool(record.get("veda_active", False)),
             "status": record.get("status", "SCHEDULED"),
             "result_processed": bool(record.get("result_processed", False)),
+            "sandbox_mode": record.get("sandbox_mode", "NONE"),
             "updated_at": _now_iso(),
         }
+        if record.get("sandbox_started_at"):
+            item["sandbox_started_at"] = record["sandbox_started_at"]
         if record.get("created_at"):
             item["created_at"] = record["created_at"]
         else:
@@ -106,6 +109,35 @@ class MatchDAO:
                 }
             )
         return len(items)
+
+    def set_sandbox_state(
+        self,
+        match_id: str,
+        *,
+        mode: str,
+        started_at: datetime | None = None,
+    ) -> None:
+        started = started_at or datetime.now(timezone.utc)
+        self._table.update_item(
+            Key={"partition_key": f"MATCH#{match_id}", "sort_key": "DETAILS"},
+            UpdateExpression=(
+                "SET sandbox_mode = :m, sandbox_started_at = :s, updated_at = :now"
+            ),
+            ExpressionAttributeValues={
+                ":m": mode,
+                ":s": started.isoformat(),
+                ":now": _now_iso(),
+            },
+        )
+
+    def clear_sandbox_state(self, match_id: str) -> None:
+        self._table.update_item(
+            Key={"partition_key": f"MATCH#{match_id}", "sort_key": "DETAILS"},
+            UpdateExpression=(
+                "SET sandbox_mode = :m, updated_at = :now REMOVE sandbox_started_at"
+            ),
+            ExpressionAttributeValues={":m": "NONE", ":now": _now_iso()},
+        )
 
     def set_veda_active(self, match_id: str, *, active: bool) -> None:
         self._table.update_item(

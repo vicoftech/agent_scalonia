@@ -207,6 +207,16 @@ class MatchScheduleManager:
 
 
 def schedule_name(suffix: str, match_id: str) -> str:
+    """Nombres SPEC-032 (trivia-pre-, remind-60-, …)."""
+    return _schedule_name_for_prefix(suffix, match_id)
+
+
+def sandbox_schedule_name(suffix: str, match_id: str) -> str:
+    """Nombres SPEC-041 (devfast-*)."""
+    return _schedule_name_for_prefix(suffix, match_id)
+
+
+def _schedule_name_for_prefix(suffix: str, match_id: str) -> str:
     base = f"{suffix}-{match_id}"
     if len(base) <= AWS_SCHEDULE_NAME_MAX:
         return base
@@ -236,6 +246,61 @@ def _parse_kickoff(raw: Any) -> datetime | None:
 def _lambda_arns_from_env() -> dict[str, str]:
     keys = {spec[3] for spec in SCHEDULE_SPECS}
     return {k: os.environ.get(k, "").strip() for k in keys if os.environ.get(k, "").strip()}
+
+
+_LAMBDA_FUNCTION_NAMES: dict[str, str] = {
+    "LAMBDA_ARN_TRIVIA_PRE_MATCH": "prode-trivia-pre-match-{env}",
+    "LAMBDA_ARN_MATCH_REMINDER": "prode-match-reminder-{env}",
+    "LAMBDA_ARN_VEDA_ACTIVATOR": "prode-veda-activator-{env}",
+    "LAMBDA_ARN_RESULT_COLLECTOR": "prode-result-collector-{env}",
+    "LAMBDA_ARN_SCORING_PROCESSOR": "prode-scoring-processor-{env}",
+}
+
+
+def auto_configure_scheduler_env(
+    env: str, *, profile: str | None = None, region: str = "us-east-1"
+) -> bool:
+    """Resuelve ARNs de Lambdas y rol Scheduler por nombre (CLI local / scripts)."""
+    from src.dao.dynamo.table import configure_aws, get_session
+
+    configure_aws(profile=profile, region=region)
+    lam = get_session().client("lambda")
+    iam = get_session().client("iam")
+
+    os.environ.setdefault("ENABLE_MATCH_SCHEDULES", "true")
+    os.environ.setdefault("SCHEDULER_GROUP_NAME", f"prode-match-{env}")
+
+    resolved = 0
+    for env_key, name_tpl in _LAMBDA_FUNCTION_NAMES.items():
+        if os.environ.get(env_key, "").strip():
+            continue
+        fn = name_tpl.format(env=env)
+        try:
+            arn = lam.get_function(FunctionName=fn)["Configuration"]["FunctionArn"]
+            os.environ[env_key] = arn
+            resolved += 1
+            logger.info("ARN %s ← %s", env_key, fn)
+        except lam.exceptions.ResourceNotFoundException:
+            logger.warning("Lambda no encontrada: %s", fn)
+        except Exception:
+            logger.exception("get_function failed: %s", fn)
+
+    if not os.environ.get("SCHEDULER_INVOKE_ROLE_ARN", "").strip():
+        role_name = f"prode-scheduler-invoke-{env}"
+        try:
+            os.environ["SCHEDULER_INVOKE_ROLE_ARN"] = iam.get_role(RoleName=role_name)["Role"]["Arn"]
+            logger.info("SCHEDULER_INVOKE_ROLE_ARN ← %s", role_name)
+        except iam.exceptions.NoSuchEntityException:
+            logger.warning("Rol IAM no encontrado: %s", role_name)
+
+    ok = bool(os.environ.get("SCHEDULER_INVOKE_ROLE_ARN")) and resolved >= 4
+    if not ok:
+        logger.error(
+            "Auto-config scheduler incompleta (%s/5 lambdas, rol=%s)",
+            resolved,
+            "ok" if os.environ.get("SCHEDULER_INVOKE_ROLE_ARN") else "falta",
+        )
+    return ok
 
 
 def _scheduler_client():

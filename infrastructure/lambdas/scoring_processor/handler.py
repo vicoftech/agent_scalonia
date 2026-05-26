@@ -22,6 +22,8 @@ def handler(event: dict, context) -> dict:
 
     if not event.get("Records") and event.get("event_type") == "MATCH_SCORING_CATCHUP":
         match_id = event.get("match_id")
+        if event.get("sandbox"):
+            logger.info("MATCH_SCORING_CATCHUP sandbox match=%s", str(match_id or "")[:8])
         if not match_id:
             return {"status": "ERROR", "error": "match_id required"}
         results = ResultDAO()

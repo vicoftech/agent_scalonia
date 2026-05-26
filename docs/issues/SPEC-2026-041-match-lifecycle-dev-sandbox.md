@@ -3,7 +3,7 @@
 | Campo | Valor |
 |-------|--------|
 | **SPEC-ID** | SPEC-2026-041 |
-| **Estado** | Abierto — no implementado |
+| **Estado** | Implementado — requiere `enable_match_lifecycle_sandbox` en dev |
 | **Sprint objetivo** | Sprint 2 (dev tooling) |
 | **Dependencias** | SPEC-2026-032 (modelo canónico, **no modificar**), SPEC-031, SPEC-022, SPEC-025, SPEC-021 |
 | **Relación** | Complementa a [SPEC-2026-032](SPEC-2026-032-match-lifecycle-schedules.md); no lo reemplaza |
