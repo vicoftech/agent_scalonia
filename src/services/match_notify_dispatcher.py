@@ -28,7 +28,12 @@ class MatchNotifyDispatcher:
 
     def dispatch_payload(self, payload: dict[str, Any]) -> str:
         msg_type = payload.get("type")
-        if msg_type not in ("MATCH_RESULT", "MATCH_REMINDER", "MATCH_VEDA"):
+        if msg_type not in (
+            "MATCH_RESULT",
+            "MATCH_REMINDER",
+            "MATCH_VEDA",
+            "MATCH_SCORING",
+        ):
             logger.info("skip notify type=%s", msg_type)
             return DISPATCH_SKIPPED_TYPE
 

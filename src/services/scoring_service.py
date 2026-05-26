@@ -135,6 +135,45 @@ class ScoringService:
         )
         return outcome
 
+    def notify_scoring_breakdowns(self, match_id: str) -> int:
+        """Encola desglose de puntos (MATCH_SCORING) tras puntuar — SPEC-041 sandbox."""
+        from src.services.prediction_result_report import format_finished_match_report
+        from src.services.result_queues import enqueue_lifecycle_notification
+
+        match = self._matches.get_match(match_id)
+        if not match:
+            return 0
+        result_raw = self._results.get_raw(match_id)
+        if not result_raw:
+            return 0
+
+        sent = 0
+        for pred in self._preds.list_predictions_for_match(
+            match_id, statuses=(STATUS_SCORED,)
+        ):
+            user_id = pred["user_id"]
+            group_id = pred["group_id"]
+            profile = self._users.get_profile(user_id) or {}
+            if profile.get("notifications_enabled") is False or not profile.get("tg_chat_id"):
+                continue
+            g = self._groups.get_group(group_id) or {}
+            text = format_finished_match_report(
+                match,
+                group_name=g.get("name") or group_id[:8],
+                result=result_raw,
+                prediction=pred,
+            )
+            if enqueue_lifecycle_notification(
+                user_id=user_id,
+                match_id=match_id,
+                message=text,
+                msg_type="MATCH_SCORING",
+                group_id=group_id,
+            ):
+                sent += 1
+        logger.info("Scoring breakdowns enqueued match=%s sent=%s", match_id[:8], sent)
+        return sent
+
     def reset_match_scoring(self, match_id: str) -> int:
         """Quita puntuación del partido para volver a probar (dev)."""
         reset = 0

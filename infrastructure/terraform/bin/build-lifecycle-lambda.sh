@@ -12,7 +12,7 @@ REPO_ROOT="$(cd "${LAMBDA_DIR}/../../.." && pwd)"
 python3 -m pip install -q -r "${LAMBDA_DIR}/requirements.txt" -t "${BUILD_DIR}" --upgrade
 cp "${LAMBDA_DIR}"/*.py "${BUILD_DIR}/"
 mkdir -p "${BUILD_DIR}/src"
-for pkg in dao services models clients scoring; do
+for pkg in dao services models clients scoring fixtures; do
   if [[ -d "${REPO_ROOT}/src/${pkg}" ]]; then
     cp -R "${REPO_ROOT}/src/${pkg}" "${BUILD_DIR}/src/"
   fi

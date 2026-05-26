@@ -148,7 +148,6 @@ class TriviaService:
         raise ValueError("TRIVIA_BANK_EXHAUSTED")
 
     def generate_pre_match_trivia(self, match: dict[str, Any]) -> dict[str, Any]:
-        topic = "pre_partido"
         home = match.get("home_team", "")
         away = match.get("away_team", "")
         q = self.generate_trivia_question(
@@ -162,6 +161,71 @@ class TriviaService:
         )
         q["match_id"] = match.get("match_id")
         return q
+
+    def _broadcast_user_ids(self) -> list[str]:
+        seen: set[str] = set()
+        for group in self._groups.list_groups_for_broadcast():
+            gid = group.get("group_id")
+            if not gid:
+                continue
+            for user_id in self._groups.list_member_user_ids(gid):
+                seen.add(user_id)
+        return list(seen)
+
+    def dispatch_pre_match_trivia(self, match: dict[str, Any]) -> dict[str, Any]:
+        """Genera trivia pre-partido, persiste y envía por Telegram a miembros ACTIVE."""
+        from src.clients.telegram_client import get_bot_token, send_telegram_message
+
+        q = self.generate_pre_match_trivia(match)
+        trivia_id = uuid.uuid4().hex[:8]
+        now = datetime.now(timezone.utc)
+        home = match.get("home_team", "")
+        away = match.get("away_team", "")
+        header = f"⚽ TRIVIA PRE-PARTIDO\n\n{home} vs {away}"
+        item = self._trivia.put_broadcast_trivia(
+            {
+                "trivia_id": trivia_id,
+                "type": "PRE_MATCH",
+                "level": "EXPERT",
+                "points": 5,
+                "match_id": match.get("match_id"),
+                "group_id": GLOBAL_GROUP_ID,
+                "status": "SENT",
+                "sent_at": now.isoformat(),
+                "closes_at": (now + timedelta(hours=2)).isoformat(),
+                **q,
+            }
+        )
+        member_ids = self._broadcast_user_ids()
+        targets = self._users.list_telegram_delivery_targets(member_ids)
+        message = self.format_question_message(item, header=header)
+        keyboard = self.answer_keyboard(trivia_id=trivia_id)
+        token = get_bot_token()
+        sent = skipped = 0
+        for target in targets:
+            chat_id = target.get("tg_chat_id")
+            if not chat_id:
+                skipped += 1
+                continue
+            try:
+                send_telegram_message(
+                    int(chat_id), message, token, reply_markup=keyboard
+                )
+                sent += 1
+            except Exception:
+                logger.exception(
+                    "pre_match_trivia send failed user=%s",
+                    str(target.get("user_id", ""))[:8],
+                )
+                skipped += 1
+        return {
+            "status": "OK",
+            "trivia_id": trivia_id,
+            "match_id": match.get("match_id"),
+            "telegram_sent": sent,
+            "telegram_skipped": skipped,
+            "eligible": len(targets),
+        }
 
     def format_question_message(self, q: dict[str, Any], *, header: str = "") -> str:
         level = q.get("level", "MEDIUM")

@@ -21,5 +21,5 @@ def handler(event: dict, context) -> dict:
     return MatchLifecycleService().activate_veda(
         match_id,
         telegram_direct=bool(event.get("telegram_direct")),
-        force=bool(event.get("force")),
+        force=bool(event.get("force") or event.get("sandbox")),
     )

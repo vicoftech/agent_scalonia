@@ -29,12 +29,17 @@ def handler(event: dict, context) -> dict:
         results = ResultDAO()
         if not results.get_raw(match_id):
             return {"status": "SKIP", "reason": "no_result"}
-        outcome = ScoringService().process_finish_match(match_id)
+        svc = ScoringService()
+        outcome = svc.process_finish_match(match_id)
+        breakdowns = 0
+        if event.get("sandbox") and (outcome.scored or outcome.already_processed):
+            breakdowns = svc.notify_scoring_breakdowns(match_id)
         return {
             "status": "OK",
             "event_type": "MATCH_SCORING_CATCHUP",
             "scored": outcome.scored,
             "already_processed": outcome.already_processed,
+            "breakdowns_enqueued": breakdowns,
         }
 
     svc = ScoringService()

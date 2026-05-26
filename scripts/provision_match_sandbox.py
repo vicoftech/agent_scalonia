@@ -50,6 +50,11 @@ def main() -> int:
         action="store_true",
         help="Invocar prode-match-schedule-manager-{env} en lugar del SDK local",
     )
+    p.add_argument(
+        "--reset",
+        action="store_true",
+        help="Antes de provision: quitar veda, RESULT y puntuación (re-test limpio)",
+    )
     args = p.parse_args()
 
     _configure(args.env, args.profile, args.region)
@@ -67,6 +72,17 @@ def main() -> int:
         match_id = m["match_id"]
     else:
         p.error("--match-id o --teams requerido")
+
+    if args.reset and args.action == "provision":
+        from src.dao.dynamo.result_dao import ResultDAO
+        from src.services.scoring_service import ScoringService
+
+        dao.set_veda_active(match_id, active=False)
+        if ResultDAO().get_raw(match_id):
+            ResultDAO().delete_result(match_id)
+            logger.info("RESULT borrado match=%s", match_id[:8])
+        reset_n = ScoringService().reset_match_scoring(match_id)
+        logger.info("Scoring reset: %s predicciones", reset_n)
 
     if args.dry_run:
         from src.services.match_schedule_sandbox import build_sandbox_plans_for_dry_run

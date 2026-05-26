@@ -31,6 +31,8 @@ locals {
     "${local.lifecycle_repo_root}/src/clients/${f}" if !endswith(f, "/") && !strcontains(f, "__pycache__")],
     [for f in sort(fileset("${local.lifecycle_repo_root}/src/scoring", "**")) :
     "${local.lifecycle_repo_root}/src/scoring/${f}" if !endswith(f, "/") && !strcontains(f, "__pycache__")],
+    [for f in sort(fileset("${local.lifecycle_repo_root}/src/fixtures", "**")) :
+    "${local.lifecycle_repo_root}/src/fixtures/${f}" if !endswith(f, "/") && !strcontains(f, "__pycache__")],
   )
   lifecycle_zip = {
     for name in local.lifecycle_lambda_names :
@@ -228,8 +230,9 @@ resource "aws_lambda_function" "trivia_pre_match" {
 
   environment {
     variables = {
-      DYNAMODB_TABLE = module.prode_table.dynamodb_table_id
-      LOG_LEVEL      = "INFO"
+      DYNAMODB_TABLE      = module.prode_table.dynamodb_table_id
+      TELEGRAM_SECRET_ARN = var.telegram_secret_arn
+      LOG_LEVEL           = "INFO"
     }
   }
 
@@ -304,8 +307,10 @@ resource "aws_lambda_function" "scoring_processor" {
 
   environment {
     variables = {
-      DYNAMODB_TABLE = module.prode_table.dynamodb_table_id
-      LOG_LEVEL      = "INFO"
+      DYNAMODB_TABLE          = module.prode_table.dynamodb_table_id
+      NOTIFICATION_QUEUE_URL  = local.notify_queue_url
+      TELEGRAM_SECRET_ARN     = var.telegram_secret_arn
+      LOG_LEVEL               = "INFO"
     }
   }
 

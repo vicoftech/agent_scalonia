@@ -46,8 +46,18 @@ def handler(event: dict, context) -> dict:
         if not match_id:
             return {"status": "ERROR", "error": "match_id required"}
         if trigger == "sandbox_devfast" or event.get("sandbox"):
-            logger.info("sandbox_devfast collect_result match=%s", match_id[:8])
-        result = svc.collect_result(match_id)
+            logger.info("sandbox_devfast apply_manual_result match=%s", match_id[:8])
+            home = int(os.environ.get("SANDBOX_RESULT_HOME_GOALS", "2"))
+            away = int(os.environ.get("SANDBOX_RESULT_AWAY_GOALS", "1"))
+            result = svc.apply_manual_result(
+                match_id,
+                home,
+                away,
+                mvp_name=os.environ.get("SANDBOX_RESULT_MVP", "Sandbox MVP"),
+                replace=True,
+            )
+        else:
+            result = svc.collect_result(match_id)
         return {
             "status": "OK",
             "trigger": trigger,

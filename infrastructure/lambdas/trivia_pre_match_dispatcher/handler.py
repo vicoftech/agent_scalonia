@@ -1,14 +1,10 @@
 """
 Lambda: trivia pre-partido — 1h antes del kickoff (SPEC-025).
 
-Programar con EventBridge Scheduler: trivia-pre-{match_id}
-MVP: invocación manual con {"match_id": "..."} o scan de partidos próximos.
-
-Deploy: pendiente (no incluido en este sprint de código).
+Programar con EventBridge Scheduler: trivia-pre-{match_id} o devfast-trivia (SPEC-041).
 """
 from __future__ import annotations
 
-import json
 import logging
 import os
 
@@ -36,30 +32,20 @@ def handler(event: dict, context) -> dict:
     else:
         matches = dao.list_matches()
 
-    sent = 0
+    results: list[dict] = []
     for m in matches:
         if not force and m.get("status") != "SCHEDULED":
             continue
-        q = svc.generate_pre_match_trivia(m)
-        trivia_id = q.get("match_id", "")[:8] or m.get("match_number")
-        from datetime import datetime, timedelta, timezone
-
-        now = datetime.now(timezone.utc)
-        svc._trivia.put_broadcast_trivia(
-            {
-                "trivia_id": str(trivia_id)[:8],
-                "type": "PRE_MATCH",
-                "level": "EXPERT",
-                "points": 5,
-                "match_id": m.get("match_id"),
-                "group_id": "GLOBAL",
-                "status": "SENT",
-                "sent_at": now.isoformat(),
-                "closes_at": (now + timedelta(hours=2)).isoformat(),
-                **q,
-            }
+        out = svc.dispatch_pre_match_trivia(m)
+        results.append(out)
+        logger.info(
+            "pre_match_trivia match=%s sent=%s",
+            m.get("match_number"),
+            out.get("telegram_sent"),
         )
-        sent += 1
-        logger.info("pre_match_trivia match=%s trivia=%s", m.get("match_number"), trivia_id)
 
-    return {"status": "OK", "sent": sent}
+    return {
+        "status": "OK",
+        "dispatched": len(results),
+        "results": results,
+    }

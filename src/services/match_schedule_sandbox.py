@@ -53,7 +53,13 @@ SANDBOX_SCHEDULE_SPECS: tuple[tuple[str, int, str, str, dict[str, Any]], ...] = 
         "LAMBDA_ARN_MATCH_REMINDER",
         {"reminder_tier": 3, "sandbox": True},
     ),
-    ("devfast-veda", 180, "MATCH_VEDA", "LAMBDA_ARN_VEDA_ACTIVATOR", {"sandbox": True}),
+    (
+        "devfast-veda",
+        180,
+        "MATCH_VEDA",
+        "LAMBDA_ARN_VEDA_ACTIVATOR",
+        {"sandbox": True, "force": True},
+    ),
     (
         "devfast-result",
         240,
