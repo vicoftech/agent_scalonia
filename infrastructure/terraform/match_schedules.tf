@@ -35,6 +35,10 @@ locals {
     "${local.lifecycle_repo_root}/src/fixtures/${f}" if !endswith(f, "/") && !strcontains(f, "__pycache__")],
     [for f in sort(fileset("${local.lifecycle_repo_root}/src/jobs", "**")) :
     "${local.lifecycle_repo_root}/src/jobs/${f}" if !endswith(f, "/") && !strcontains(f, "__pycache__")],
+    [for f in sort(fileset("${local.lifecycle_repo_root}/src/kb", "**")) :
+    "${local.lifecycle_repo_root}/src/kb/${f}" if !endswith(f, "/") && !strcontains(f, "__pycache__")],
+    [for f in sort(fileset("${local.lifecycle_repo_root}/src/web", "**")) :
+    "${local.lifecycle_repo_root}/src/web/${f}" if !endswith(f, "/") && !strcontains(f, "__pycache__")],
   )
   lifecycle_zip = {
     for name in local.lifecycle_lambda_names :
@@ -169,6 +173,35 @@ data "aws_iam_policy_document" "lifecycle_lambda_inline" {
     actions   = ["secretsmanager:GetSecretValue"]
     resources = [var.telegram_secret_arn]
   }
+
+  dynamic "statement" {
+    for_each = module.kb.kb_query_lambda_arn != "" ? [1] : []
+    content {
+      sid       = "InvokeKbQuery"
+      actions   = ["lambda:InvokeFunction"]
+      resources = [module.kb.kb_query_lambda_arn]
+    }
+  }
+
+  dynamic "statement" {
+    for_each = var.tavily_secret_arn != "" ? [1] : []
+    content {
+      sid       = "TavilySecret"
+      actions   = ["secretsmanager:GetSecretValue"]
+      resources = [var.tavily_secret_arn]
+    }
+  }
+
+  statement {
+    sid = "BedrockTrivia"
+    actions = [
+      "bedrock:InvokeModel",
+    ]
+    resources = [
+      "arn:aws:bedrock:${var.aws_region}::foundation-model/anthropic.claude-3-5-haiku-20241022-v1:0",
+      "arn:aws:bedrock:${var.aws_region}::foundation-model/us.anthropic.claude-3-5-haiku-20241022-v1:0",
+    ]
+  }
 }
 
 resource "aws_iam_role" "lifecycle_lambda" {
@@ -231,11 +264,19 @@ resource "aws_lambda_function" "trivia_pre_match" {
   source_code_hash = local.lifecycle_hash["trivia_pre_match"]
 
   environment {
-    variables = {
-      DYNAMODB_TABLE      = module.prode_table.dynamodb_table_id
-      TELEGRAM_SECRET_ARN = var.telegram_secret_arn
-      LOG_LEVEL           = "INFO"
-    }
+    variables = merge(
+      {
+        DYNAMODB_TABLE      = module.prode_table.dynamodb_table_id
+        TELEGRAM_SECRET_ARN = var.telegram_secret_arn
+        LOG_LEVEL           = "INFO"
+      },
+      module.kb.kb_query_lambda_name != "" ? {
+        KB_QUERY_LAMBDA_NAME = module.kb.kb_query_lambda_name
+      } : {},
+      var.tavily_secret_arn != "" ? {
+        TAVILY_SECRET_ARN = var.tavily_secret_arn
+      } : {},
+    )
   }
 
   depends_on = [null_resource.lifecycle_lambda_package["trivia_pre_match"]]

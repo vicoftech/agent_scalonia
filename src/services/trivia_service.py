@@ -148,17 +148,14 @@ class TriviaService:
         raise ValueError("TRIVIA_BANK_EXHAUSTED")
 
     def generate_pre_match_trivia(self, match: dict[str, Any]) -> dict[str, Any]:
+        from src.services.trivia_kb_generator import generate_pre_match_question
+
         home = match.get("home_team", "")
         away = match.get("away_team", "")
-        q = self.generate_trivia_question(
-            topic="selecciones",
-            level="EXPERT",
-            match=match,
-        )
-        q["question"] = (
-            f"Pre-partido {home} vs {away}: "
-            + q["question"]
-        )
+        exclude = self._trivia.get_used_question_fingerprints()
+        q = generate_pre_match_question(match, level="EXPERT", exclude_fingerprints=exclude)
+        if not str(q.get("question", "")).startswith("Pre-partido"):
+            q["question"] = f"Pre-partido {home} vs {away}: {q['question']}"
         q["match_id"] = match.get("match_id")
         return q
 

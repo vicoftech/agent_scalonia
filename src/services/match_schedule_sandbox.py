@@ -112,13 +112,19 @@ class MatchScheduleSandboxManager:
         if not match:
             return {"status": "NOT_FOUND", "match_id": match_id}
 
+        from src.services.scheduler_manager import auto_configure_scheduler_env
+
+        env = os.environ.get("ENV") or os.environ.get("PRODE_ENV") or "dev"
+        auto_configure_scheduler_env(env, region=os.environ.get("AWS_REGION", "us-east-1"))
+
         started_at = datetime.now(timezone.utc)
         self._matches.set_sandbox_state(
             match_id, mode=SANDBOX_MODE_DEV_FAST, started_at=started_at
         )
 
-        now = datetime.now(timezone.utc)
-        plans = _build_sandbox_plans(match_id, started_at, now, self._schedules._lambda_arns)
+        plans = _build_sandbox_plans(
+            match_id, started_at, started_at, self._schedules._lambda_arns
+        )
         client = _scheduler_client()
         group = self._schedules._group
         invoke_role = self._schedules._invoke_role
@@ -216,10 +222,12 @@ def _build_sandbox_plans(
     lambda_arns: dict[str, str],
 ) -> list[SchedulePlan]:
     plans: list[SchedulePlan] = []
+    next_slot = now + timedelta(seconds=_MIN_SCHEDULE_LEAD_SEC)
     for suffix, offset_sec, event_type, arn_key, extra in SANDBOX_SCHEDULE_SPECS:
         fire_at = started_at + timedelta(seconds=offset_sec)
         if fire_at <= now:
-            fire_at = now + timedelta(seconds=_MIN_SCHEDULE_LEAD_SEC)
+            fire_at = next_slot
+            next_slot = next_slot + timedelta(seconds=_MIN_SCHEDULE_LEAD_SEC)
         target_arn = lambda_arns.get(arn_key, "")
         if not target_arn:
             logger.warning("sandbox missing %s for %s", arn_key, suffix)

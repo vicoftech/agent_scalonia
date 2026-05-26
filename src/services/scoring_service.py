@@ -133,6 +133,8 @@ class ScoringService:
             outcome.scored,
             outcome.skipped,
         )
+        if outcome.scored > 0:
+            self.notify_scoring_breakdowns(match_id)
         return outcome
 
     def notify_scoring_breakdowns(self, match_id: str) -> int:

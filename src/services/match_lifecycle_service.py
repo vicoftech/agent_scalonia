@@ -63,6 +63,7 @@ class MatchLifecycleService:
         reminder_tier: int,
         *,
         telegram_direct: bool = False,
+        sandbox: bool = False,
     ) -> dict[str, Any]:
         if reminder_tier not in REMINDER_TEMPLATES:
             return {"status": "ERROR", "error": f"reminder_tier invalid: {reminder_tier}"}
@@ -75,7 +76,11 @@ class MatchLifecycleService:
         body_tpl = REMINDER_TEMPLATES[reminder_tier]
         message = body_tpl.format(title=title)
 
-        recipients = self._users_without_prediction_in_active_group(match_id)
+        if sandbox:
+            by_user = self._all_notify_users()
+            recipients = [(uid, gids[0]) for uid, gids in by_user.items() if gids]
+        else:
+            recipients = self._users_without_prediction_in_active_group(match_id)
         sent = 0
         skipped = 0
         errors = 0

@@ -64,6 +64,51 @@ def pick_any_curated_question(
     return _pick_from_pool(pool, exclude)
 
 
+_TEAM_SEARCH_ALIASES: dict[str, tuple[str, ...]] = {
+    "MEX": ("MEX", "MÉXICO", "MEXICO"),
+    "RSA": ("RSA", "SUDÁFRICA", "SOUTH AFRICA"),
+    "ARG": ("ARG", "ARGENTINA"),
+    "BRA": ("BRA", "BRASIL", "BRAZIL"),
+    "USA": ("USA", "ESTADOS UNIDOS", "UNITED STATES"),
+    "ENG": ("ENG", "INGLATERRA", "ENGLAND"),
+    "FRA": ("FRA", "FRANCIA", "FRANCE"),
+    "GER": ("GER", "ALEMANIA", "GERMANY"),
+    "ESP": ("ESP", "ESPAÑA", "SPAIN"),
+    "POR": ("POR", "PORTUGAL"),
+}
+
+
+def pick_curated_for_teams(
+    *,
+    home: str,
+    away: str,
+    level: str,
+    exclude_fingerprints: set[str] | None = None,
+) -> dict[str, Any] | None:
+    """Pregunta del banco que mencione alguno de los equipos (códigos FIFA)."""
+    exclude = exclude_fingerprints or set()
+    tokens: set[str] = set()
+    for code in (home, away):
+        if not code:
+            continue
+        up = code.upper()
+        tokens.add(up)
+        tokens.update(_TEAM_SEARCH_ALIASES.get(up, ()))
+
+    def _mentions_team(q: dict[str, Any]) -> bool:
+        blob = f"{q.get('question', '')} {' '.join((q.get('options') or {}).values())}".upper()
+        return any(tok in blob for tok in tokens)
+
+    pool = [
+        dict(q)
+        for q in FALLBACK_QUESTIONS
+        if q["level"] == level.upper() and _mentions_team(q)
+    ]
+    if not pool:
+        pool = [dict(q) for q in FALLBACK_QUESTIONS if _mentions_team(q)]
+    return _pick_from_pool(pool, exclude)
+
+
 def _pick_from_pool(pool: list[dict[str, Any]], exclude: set[str]) -> dict[str, Any] | None:
     random.shuffle(pool)
     for q in pool:

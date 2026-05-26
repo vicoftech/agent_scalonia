@@ -25,4 +25,5 @@ def handler(event: dict, context) -> dict:
         match_id,
         tier,
         telegram_direct=telegram_direct,
+        sandbox=bool(event.get("sandbox")),
     )
