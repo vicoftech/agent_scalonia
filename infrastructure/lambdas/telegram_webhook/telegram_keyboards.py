@@ -5,7 +5,7 @@ from __future__ import annotations
 REPLY_BUTTON_TO_COMMAND: dict[str, str] = {
     "⏭️ próximo": "/proximo",
     "⚽ partidos": "/partidos",
-    "🏁 resultados": "/resultados",
+    "🤖 ask ia": "/ask_ia",
     "📊 mi puntaje": "/mi_puntuacion",
     "👥 grupos": "/grupos",
     "📖 reglas": "/reglas",
@@ -21,7 +21,7 @@ def main_reply_keyboard() -> dict:
                 {"text": "⚽ Partidos"},
             ],
             [
-                {"text": "🏁 Resultados"},
+                {"text": "🤖 Ask IA"},
                 {"text": "📊 Mi puntaje"},
             ],
             [
@@ -31,7 +31,7 @@ def main_reply_keyboard() -> dict:
         ],
         "resize_keyboard": True,
         "is_persistent": True,
-        "input_field_placeholder": "Elegí un atajo o escribí tu mensaje",
+        "input_field_placeholder": "Elegí un atajo o /ask_ia para consultar",
     }
 
 

@@ -4,7 +4,7 @@
 |-------|--------|
 | **Tipo** | Feature — UX Telegram + cuotas + AgentCore |
 | **Sprint** | Post SPEC-011 (Telegram) / SPEC-019 (onboarding) |
-| **Estado** | **Especificado** — pendiente implementación |
+| **Estado** | **Implementado** (MVP) — deploy + `BOT_COMMANDS_VERSION=7` |
 | **Depende de** | SPEC-011 (`handler` + `invoke_agent_runtime`), SPEC-018 (auth), AgentCore Runtime |
 | **Reemplaza** | Atajo **«🏁 Resultados»** / `/resultados` por **«🤖 Ask IA»** / `/ask_ia` |
 | **Rompe** | Comportamiento actual: **cualquier texto libre** invoca al agente (líneas 573–602 de `handler.py`) |

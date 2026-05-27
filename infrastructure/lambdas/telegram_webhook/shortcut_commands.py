@@ -9,7 +9,6 @@ from src.dao.dynamo.user_dao import UserDAO
 from src.services.match_service import MatchService
 
 _MI_PUNTUACION = re.compile(r"^/mi[_-]puntuacion(?:@[\w_]+)?\s*$", re.IGNORECASE)
-_RESULTADOS = re.compile(r"^/resultados(?:@[\w_]+)?\s*$", re.IGNORECASE)
 _PROXIMO = re.compile(r"^/proximo(?:@[\w_]+)?\s*$", re.IGNORECASE)
 _REGLAS = re.compile(r"^/reglas(?:@[\w_]+)?\s*$", re.IGNORECASE)
 _MENU = re.compile(r"^/menu(?:@[\w_]+)?\s*$", re.IGNORECASE)
@@ -92,7 +91,7 @@ def handle_shortcut_command(
         return (
             "✅ Menú actualizado (botón / y teclado de abajo).\n\n"
             "Usá /help para la lista completa.\n"
-            "Atajos: ⏭️ Próximo · ⚽ Partidos · 🏁 Resultados · "
+            "Atajos: ⏭️ Próximo · ⚽ Partidos · 🤖 Ask IA · "
             "📊 Mi puntaje · 👥 Grupos · 📖 Reglas",
             None,
         )
@@ -113,8 +112,11 @@ def handle_shortcut_command(
     if _MI_PUNTUACION.match(text):
         return format_mi_puntuacion(user_id), None
 
-    if _RESULTADOS.match(text):
-        return format_resultados(), None
+    from ask_ia_commands import handle_ask_ia_command
+
+    ask_reply = handle_ask_ia_command(user_id, text)
+    if ask_reply:
+        return ask_reply
 
     return None
 
@@ -132,7 +134,7 @@ def should_refresh_bot_menu(text: str) -> bool:
         "/grupos",
         "/mi_puntuacion",
         "/mi-puntuacion",
-        "/resultados",
+        "/ask_ia",
         "/reglas",
         "/completo",
     }

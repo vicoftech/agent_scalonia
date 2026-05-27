@@ -278,6 +278,29 @@ def _handle_callback_query(callback: dict, ok: dict) -> dict:
                     token,
                 )
             return ok
+        elif data.startswith("ia:"):
+            cb_id = callback.get("id")
+            if cb_id:
+                _post_json(
+                    f"{TG_API}/bot{token}/answerCallbackQuery",
+                    {"callback_query_id": cb_id},
+                    timeout=5,
+                )
+            from ask_ia_commands import handle_ask_ia_callback
+
+            try:
+                result = handle_ask_ia_callback(user_id, data)
+                if result:
+                    reply, markup = result
+                    _send_message(chat_id, reply, token, reply_markup=markup)
+            except Exception:
+                logger.exception("ask_ia callback failed data=%s", data[:40])
+                _send_message(
+                    chat_id,
+                    "No pude procesar la acción de Ask IA. Probá /ask_ia.",
+                    token,
+                )
+            return ok
         else:
             return ok
 
@@ -307,15 +330,10 @@ def handler(event: dict, context) -> dict:
             return ok
 
         chat_id = message.get("chat", {}).get("id")
-        text = message.get("text", "").strip()
-        if not chat_id or not text:
+        if not chat_id:
             return ok
 
-        from telegram_keyboards import normalize_reply_button
-
-        mapped = normalize_reply_button(text)
-        if mapped:
-            text = mapped
+        text = (message.get("text") or "").strip()
 
         logger.info("Telegram update recibido")
 
@@ -368,11 +386,46 @@ def handler(event: dict, context) -> dict:
             return ok
 
         from src.dao.dynamo.user_dao import UserDAO
-        from src.services.onboarding_service import FIRST_POST_START_INSTRUCTION
 
         users_dao = UserDAO()
         users_dao.set_telegram_chat_id(user_id, int(chat_id))
         profile = users_dao.get_profile(user_id) if user_id else None
+
+        photos = message.get("photo") or []
+        document = message.get("document")
+        if user_id and profile and profile.get("ai_purchase_pending"):
+            if photos or document:
+                if photos:
+                    file_id = photos[-1].get("file_id", "")
+                    kind = "photo"
+                else:
+                    file_id = document.get("file_id", "")
+                    kind = "document"
+                if file_id:
+                    from ask_ia_commands import handle_ask_ia_purchase_proof
+
+                    proof_reply = handle_ask_ia_purchase_proof(
+                        user_id, file_id=file_id, file_kind=kind
+                    )
+                    if proof_reply:
+                        _send_message(chat_id, proof_reply, token)
+                return ok
+            if not text:
+                _send_message(
+                    chat_id,
+                    "Enviá el comprobante como foto o documento PDF en este chat.",
+                    token,
+                )
+                return ok
+
+        if not text:
+            return ok
+
+        from telegram_keyboards import normalize_reply_button
+
+        mapped = normalize_reply_button(text)
+        if mapped:
+            text = mapped
 
         if user_id and profile and text.startswith("/"):
             from shortcut_commands import should_refresh_bot_menu
@@ -414,14 +467,10 @@ def handler(event: dict, context) -> dict:
             logger.exception("shortcut_commands failed")
 
         onboarding_stage = (profile or {}).get("onboarding_stage", "?")
-        first_post_start = (
-            users_dao.consume_pending_first_agent_turn(user_id) if user_id else False
-        )
         logger.info(
-            "auth_ok user_prefix=%s onboarding_stage=%s first_post_start=%s",
+            "auth_ok user_prefix=%s onboarding_stage=%s",
             user_id[:8] if user_id else "?",
             onboarding_stage,
-            first_post_start,
         )
 
         if profile and profile.get("onboarding_stage") == "M1_PENDING":
@@ -555,7 +604,21 @@ def handler(event: dict, context) -> dict:
             )
             return ok
 
-        # Marcador suelto (2-1) sin wizard activo: no invocar agente ni KB.
+        try:
+            from ask_ia_commands import (
+                handle_ask_ia_pending_text,
+                invalid_command_message,
+            )
+
+            ia_pending = handle_ask_ia_pending_text(user_id, text)
+            if ia_pending:
+                ia_text, ia_markup = ia_pending
+                _send_message(chat_id, ia_text, token, reply_markup=ia_markup)
+                return ok
+        except Exception:
+            logger.exception("ask_ia_pending failed")
+
+        # Marcador suelto (2-1) sin wizard activo.
         try:
             from src.services.prediction_score_parse import looks_like_simple_score
 
@@ -570,36 +633,9 @@ def handler(event: dict, context) -> dict:
         except Exception:
             logger.exception("prediction_score_guard failed")
 
-        # AgentCore exige runtimeSessionId ≥33 chars. Versión bustea sesión post-deploy.
-        session_suffix = "-poststart" if first_post_start else ""
-        session_id = f"tg-{platform_id_hash[:32]}-v{AGENT_RUNTIME_VERSION}{session_suffix}"
-        from fixture_prefetch import enrich_prompt_with_fixture, try_direct_fixture_reply
-        from kb_prefetch import enrich_prompt_with_kb, try_direct_knowledge_reply
+        from ask_ia_commands import invalid_command_message
 
-        direct_fixture = try_direct_fixture_reply(text)
-        if direct_fixture:
-            logger.info("fixture_direct_reply user_prefix=%s", user_id[:8])
-            _send_message(chat_id, direct_fixture, token)
-            return ok
-
-        direct_kb = try_direct_knowledge_reply(text)
-        if direct_kb:
-            logger.info("kb_direct_reply user_prefix=%s", user_id[:8])
-            _send_message(chat_id, direct_kb, token)
-            return ok
-
-        agent_prompt, has_fixture = enrich_prompt_with_fixture(text)
-        if has_fixture:
-            logger.info("fixture_prefetch ok user_prefix=%s", user_id[:8])
-            kb_chunks = 0
-        else:
-            agent_prompt, kb_chunks = enrich_prompt_with_kb(agent_prompt)
-            if kb_chunks:
-                logger.info("kb_prefetch chunks=%s user_prefix=%s", kb_chunks, user_id[:8])
-        if first_post_start:
-            agent_prompt = f"{agent_prompt}\n\n{FIRST_POST_START_INSTRUCTION}"
-        response_text = _invoke_agent(user_id, session_id, agent_prompt)
-        _send_message(chat_id, response_text, token)
+        _send_message(chat_id, invalid_command_message(), token)
 
     except Exception:
         logger.exception("Webhook error")

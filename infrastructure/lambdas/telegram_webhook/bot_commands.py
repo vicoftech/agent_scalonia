@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 SHORTCUT_COMMANDS: list[dict[str, str]] = [
     {"command": "proximo", "description": "Próximos partidos del fixture"},
     {"command": "partidos", "description": "Partidos del Mundial y predecir"},
-    {"command": "resultados", "description": "Últimos partidos con resultado"},
+    {"command": "ask_ia", "description": "Consultá al agente IA sobre el Mundial"},
     {"command": "mi_puntuacion", "description": "Tu puntaje y predicciones"},
     {"command": "grupos", "description": "Ver y administrar tus grupos"},
     {"command": "reglas", "description": "Cómo predecir y puntuar"},
@@ -38,9 +38,13 @@ ADMIN_COMMANDS: list[dict[str, str]] = [
         "command": "crear_grupo_para",
         "description": "Crear grupo en nombre de un alias — ej. /crear_grupo_para vic",
     },
+    {
+        "command": "ia_otorgar",
+        "description": "Otorgar consultas IA bonus — ej. /ia_otorgar alias 10",
+    },
 ]
 
-_COMMANDS_VERSION = os.environ.get("BOT_COMMANDS_VERSION", "5")
+_COMMANDS_VERSION = os.environ.get("BOT_COMMANDS_VERSION", "7")
 
 
 def commands_for_user(*, is_admin: bool = False) -> list[dict[str, str]]:
@@ -60,7 +64,7 @@ HELP_USER = """📖 Comandos del Prode Mundial 2026
 Menú / y teclado de abajo:
 /proximo — Próximos partidos
 /partidos — Fixture y predecir
-/resultados — Partidos finalizados
+/ask_ia — Consultas al agente IA (5/día gratis)
 /mi_puntuacion — Tu puntaje
 /grupos — Tus grupos
 /reglas — Cómo predecir y puntuar
@@ -73,13 +77,14 @@ También podés escribir:
 /completo — Variables extendidas de una predicción
 /crear_grupo · /editar_grupo · /miembros · /invitar · /unirme
 
-O hablar con el agente en lenguaje natural."""
+El agente IA solo responde dentro de /ask_ia (no texto libre suelto)."""
 
 HELP_ADMIN_EXTRA = """
 Solo admin global:
 /trivia_admin [tema] — Trivia Experto a todos
 /admin_grupos — Panel de grupos
-/crear_grupo_para <alias> — Crear grupo para otro usuario"""
+/crear_grupo_para <alias> — Crear grupo para otro usuario
+/ia_otorgar <alias> <cantidad> — Consultas IA bonus extra"""
 
 
 def register_bot_commands(

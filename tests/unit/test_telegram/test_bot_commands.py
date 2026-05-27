@@ -18,7 +18,7 @@ def test_shortcuts_are_first_in_menu():
     assert names == [
         "proximo",
         "partidos",
-        "resultados",
+        "ask_ia",
         "mi_puntuacion",
         "grupos",
         "reglas",
@@ -39,7 +39,15 @@ def test_admin_menu_includes_admin_commands():
     admin = {c["command"] for c in commands_for_user(is_admin=True)}
     assert "trivia_admin" in admin
     assert "admin_grupos" in admin
+    assert "ia_otorgar" in admin
     assert "partidos" in admin
+
+
+def test_help_mentions_ask_ia_not_free_agent():
+    assert "/ask_ia" in help_message(is_admin=False)
+    assert "texto libre" in help_message(is_admin=False).lower() or "solo responde" in help_message(
+        is_admin=False
+    ).lower()
 
 
 def test_menu_matches_shortcut_count():
