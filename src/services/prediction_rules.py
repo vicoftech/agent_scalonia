@@ -147,12 +147,17 @@ def format_prediction_brief(
     group_name: str,
     minutes_to_veda: str,
     change_prompt: bool = True,
+    veda_locked: bool = False,
 ) -> str:
     """Vista al abrir un partido con predicción ya guardada."""
+    if veda_locked:
+        status_line = "🔒 Veda activa — la predicción ya no se puede modificar."
+    else:
+        status_line = f"⏱️ Veda cierra en {minutes_to_veda}"
     lines = [
         f"📋 {match_title}",
         f"👥 {group_name}",
-        f"⏱️ Veda cierra en {minutes_to_veda}",
+        status_line,
         "",
         "── Tu predicción ──",
         (

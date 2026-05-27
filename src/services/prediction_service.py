@@ -505,6 +505,37 @@ class PredictionService:
         )
         return text, None
 
+    def _existing_prediction_view(
+        self,
+        user_id: str,
+        match: dict,
+        group_id: str,
+        pred: dict,
+    ) -> tuple[str, dict | None]:
+        """Brief de predicción guardada; sin teclado si la veda ya cerró."""
+        gid = group_id or self.get_active_group_id(user_id)
+        if not gid:
+            return self.no_group_message()
+        gname = (self._groups.get_group(gid) or {}).get("name", gid)
+        locked = self._veda_closed(match)
+        from src.services.prediction_rules import format_prediction_brief
+
+        text = format_prediction_brief(
+            pred,
+            match_title=self.format_match_title(match),
+            group_name=gname,
+            minutes_to_veda=self._minutes_to_veda(match),
+            change_prompt=not locked,
+            veda_locked=locked,
+        )
+        if locked:
+            return text, None
+        num = int(match.get("match_number", 0))
+        g8 = gid.replace("-", "")[:8]
+        from src.services.prediction_telegram_ui import change_existing_keyboard
+
+        return text, change_existing_keyboard(num, g8)
+
     def open_match_picker(
         self, user_id: str, match_number: int, group_id: str
     ) -> tuple[str, dict | None]:
@@ -519,31 +550,22 @@ class PredictionService:
         if self._match_has_final_result(match):
             return self.format_finished_match_view(user_id, match, gid)
 
+        existing = self._preds.get_active(user_id, match["match_id"], gid)
+        if existing:
+            return self._existing_prediction_view(user_id, match, gid, existing)
+
         if self._veda_closed(match):
+            gname = (self._groups.get_group(gid) or {}).get("name", gid)
             return (
-                f"⛔ La veda para {self.format_match_title(match)} está activa.",
+                f"🔒 {self.format_match_title(match)}\n"
+                f"👥 {gname}\n\n"
+                "La veda está activa y no tenés predicción guardada para este partido.",
                 None,
             )
 
-        existing = self._preds.get_active(user_id, match["match_id"], gid)
-        gname = (self._groups.get_group(gid) or {}).get("name", gid)
-        g8 = gid.replace("-", "")[:8]
-        num = int(match.get("match_number", 0))
-
-        if existing:
-            from src.services.prediction_rules import format_prediction_brief
-            from src.services.prediction_telegram_ui import change_existing_keyboard
-
-            text = format_prediction_brief(
-                existing,
-                match_title=self.format_match_title(match),
-                group_name=gname,
-                minutes_to_veda=self._minutes_to_veda(match),
-            )
-            return text, change_existing_keyboard(num, g8)
-
         from src.services import prediction_wizard as pw
 
+        num = int(match.get("match_number", 0))
         return pw.start_wizard(self, user_id, num, gid)
 
     def _format_kickoff(self, match: dict) -> str:
@@ -654,6 +676,23 @@ class PredictionService:
     def start_prediction_wizard(
         self, user_id: str, match_number: int, group_id: str
     ) -> tuple[str, dict | None]:
+        match = self._matches.get_by_match_number(match_number)
+        if not match:
+            return "Partido no encontrado.", None
+        gid = group_id or self.get_active_group_id(user_id)
+        if not gid:
+            return self.no_group_message()
+        existing = self._preds.get_active(user_id, match["match_id"], gid)
+        if existing and self._veda_closed(match):
+            return self._existing_prediction_view(user_id, match, gid, existing)
+        if self._veda_closed(match):
+            gname = (self._groups.get_group(gid) or {}).get("name", gid)
+            return (
+                f"🔒 {self.format_match_title(match)}\n"
+                f"👥 {gname}\n\n"
+                "La veda está activa. No podés iniciar una predicción nueva.",
+                None,
+            )
         from src.services import prediction_wizard as pw
 
         return pw.start_wizard(self, user_id, match_number, group_id)

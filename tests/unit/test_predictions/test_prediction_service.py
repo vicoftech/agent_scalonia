@@ -234,3 +234,38 @@ def test_list_proximo_caps_at_five():
     assert len(btns) == 5
     assert any("T1" in b["text"] for b in btns)
     assert not any("T6" in b["text"] for b in btns)
+
+
+def test_open_match_picker_veda_with_existing_shows_locked_brief():
+    match = _match(veda_active=True, home_team="MEX", away_team="RSA")
+    matches = MagicMock()
+    svc = _svc(match_dao=matches)
+    matches.get_by_match_number.return_value = match
+    matches.get_result.return_value = None
+    svc._preds.get_active.return_value = {
+        "home_goals": 2,
+        "away_goals": 1,
+        "pred_var_used": False,
+        "status": "ACTIVE",
+    }
+    text, kb = svc.open_match_picker("u1", 10, "grp-private")
+    assert "🔒 Veda activa" in text
+    assert "── Tu predicción ──" in text
+    assert "2-1" in text or "2 - 1" in text or "Marcador" in text
+    assert "── Extendida ──" in text
+    assert kb is None
+
+
+def test_start_prediction_wizard_veda_with_existing_returns_locked_brief():
+    match = _match(veda_active=True)
+    matches = MagicMock()
+    svc = _svc(match_dao=matches)
+    matches.get_by_match_number.return_value = match
+    svc._preds.get_active.return_value = {
+        "home_goals": 1,
+        "away_goals": 0,
+        "status": "ACTIVE",
+    }
+    text, kb = svc.start_prediction_wizard("u1", 10, "grp-private")
+    assert "🔒 Veda activa" in text
+    assert kb is None

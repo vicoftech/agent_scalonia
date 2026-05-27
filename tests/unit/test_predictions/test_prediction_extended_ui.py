@@ -41,6 +41,21 @@ def test_format_prediction_brief_includes_extended_section():
     assert "¿Querés cambiarla?" in text
 
 
+def test_format_prediction_brief_veda_locked():
+    pred = {"home_goals": 1, "away_goals": 2}
+    text = format_prediction_brief(
+        pred,
+        match_title="MEX vs RSA",
+        group_name="Test",
+        minutes_to_veda="cerrada",
+        change_prompt=False,
+        veda_locked=True,
+    )
+    assert "🔒 Veda activa" in text
+    assert "── Extendida ──" in text
+    assert "¿Querés cambiarla?" not in text
+
+
 def test_extended_item_line_points_hint_only_when_answered():
     step = EXTENDED_STEPS[0]
     pred = {"has_red_card": True}
