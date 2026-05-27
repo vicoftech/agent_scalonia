@@ -166,6 +166,13 @@ def _invoke_agent(user_id: str, session_id: str, prompt: str) -> str:
             type(exc).__name__,
             str(exc)[:500],
         )
+        err = str(exc)
+        if "initialization time exceeded" in err or "Runtime initialization" in err:
+            return (
+                "⏳ El agente IA está arrancando (la primera consulta del día puede "
+                "tardar ~1 minuto).\n"
+                "No se descontó una consulta. Esperá un momento y reenviá la misma pregunta."
+            )
         return "Hubo un error. Por favor intentá de nuevo en unos segundos."
 
 
@@ -465,6 +472,13 @@ def handler(event: dict, context) -> dict:
                 return ok
         except Exception:
             logger.exception("shortcut_commands failed")
+            if text.strip().lower().startswith(("/ask_ia", "/ask-ia")):
+                _send_message(
+                    chat_id,
+                    "No pude iniciar Ask IA en este momento. Intentá de nuevo en un minuto.",
+                    token,
+                )
+                return ok
 
         onboarding_stage = (profile or {}).get("onboarding_stage", "?")
         logger.info(

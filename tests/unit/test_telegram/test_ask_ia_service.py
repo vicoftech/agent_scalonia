@@ -87,6 +87,27 @@ def test_handle_prompt_no_charge_on_error_response():
     )
     svc.handle_user_prompt("u1", "pregunta")
     assert store["ai_daily_remaining"] == 2
+    assert store.get("ai_awaiting_prompt") is False
+
+
+def test_handle_prompt_transient_error_keeps_session():
+    today = datetime.now(DISPLAY_TZ).date().isoformat()
+    store = {
+        "user_id": "u1",
+        "ai_daily_remaining": 2,
+        "ai_awaiting_prompt": True,
+        "ai_credits_reset_date": today,
+    }
+    cold_start = (
+        "⏳ El agente IA está arrancando.\n"
+        "No se descontó una consulta. Reenviá la misma pregunta."
+    )
+    svc = _svc(profile_store=store, invoke_agent=MagicMock(return_value=cold_start))
+    text, kb = svc.handle_user_prompt("u1", "¿Quién es favorito?")
+    assert store["ai_daily_remaining"] == 2
+    assert store.get("ai_awaiting_prompt") is True
+    assert "reenviar" in text.lower()
+    assert kb is None
 
 
 def test_purchase_proof_credits_bonus():

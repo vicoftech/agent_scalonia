@@ -7,6 +7,7 @@ from infrastructure.lambdas.telegram_webhook.telegram_keyboards import (
 def test_normalize_reply_button():
     assert normalize_reply_button("⏭️ Próximo") == "/proximo"
     assert normalize_reply_button("⚽ Partidos") == "/partidos"
+    assert normalize_reply_button("🤖 Ask IA") == "/ask_ia"
     assert normalize_reply_button("📊 Mi puntaje") == "/mi_puntuacion"
     assert normalize_reply_button("📖 Reglas") == "/reglas"
 

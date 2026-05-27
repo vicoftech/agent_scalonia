@@ -22,6 +22,35 @@ RESULTADOS_DEPRECATED = (
     "Usá /ask_ia o el botón «🤖 Ask IA» para consultar al agente sobre el Mundial."
 )
 
+# Errores del runtime AgentCore: no consumen crédito y la sesión queda abierta.
+_TRANSIENT_AGENT_MARKERS = (
+    "Hubo un error",
+    "error temporal",
+    "arrancando",
+    "initialization time exceeded",
+    "Runtime initialization",
+    "No se descontó",
+    "No pude generar",
+)
+_PERMANENT_AGENT_MARKERS = (
+    "Sin permisos",
+    "no está configurado",
+    "error procesando",
+)
+
+
+def _agent_response_is_error(response: str) -> bool:
+    return any(
+        m in response
+        for m in (*_TRANSIENT_AGENT_MARKERS, *_PERMANENT_AGENT_MARKERS)
+    )
+
+
+def _agent_error_is_transient(response: str) -> bool:
+    if any(m in response for m in _PERMANENT_AGENT_MARKERS):
+        return False
+    return any(m in response for m in _TRANSIENT_AGENT_MARKERS)
+
 
 def _env_int(name: str, default: int) -> int:
     try:
@@ -175,25 +204,25 @@ class AskIaService:
         )
         response = self._invoke_agent(user_id, session_id, prompt)
         if not response or not str(response).strip():
-            self._users.update_profile(user_id, ai_awaiting_prompt=False)
             return (
-                "No pude generar una respuesta. No se descontó una consulta. "
-                "Probá de nuevo con /ask_ia.",
+                "No pude generar una respuesta. No se descontó una consulta.\n"
+                "Reenviá tu pregunta o usá /ask_ia de nuevo.",
                 None,
             )
 
-        err_markers = (
-            "Hubo un error",
-            "No pude generar",
-            "error procesando",
-            "error temporal",
-            "Sin permisos",
-            "no está configurado",
-        )
-        if any(m in response for m in err_markers):
-            self._users.update_profile(user_id, ai_awaiting_prompt=False)
-            return response, self._post_response_keyboard(
-                self._users.get_profile(user_id) or profile
+        if _agent_response_is_error(response):
+            transient = _agent_error_is_transient(response)
+            if not transient:
+                self._users.update_profile(user_id, ai_awaiting_prompt=False)
+            body = response.strip()
+            if transient:
+                body += "\n\nPodés reenviar tu pregunta sin volver a usar /ask_ia."
+            return body, (
+                None
+                if transient
+                else self._post_response_keyboard(
+                    self._users.get_profile(user_id) or profile
+                )
             )
 
         self._consume_credit(user_id, profile)

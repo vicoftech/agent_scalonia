@@ -1,9 +1,12 @@
 """Comandos y callbacks Ask IA — SPEC-2026-043."""
 from __future__ import annotations
 
+import logging
 import re
 
 from src.services.ask_ia_service import AskIaService, INVALID_COMMAND, RESULTADOS_DEPRECATED
+
+logger = logging.getLogger(__name__)
 
 _ASK_IA = re.compile(r"^/ask[_-]ia(?:@[\w_]+)?\s*$", re.IGNORECASE)
 _IA_OTORGAR = re.compile(
@@ -27,11 +30,22 @@ def handle_ask_ia_command(user_id: str, text: str) -> tuple[str, dict | None] | 
         return RESULTADOS_DEPRECATED, None
 
     if _ASK_IA.match(stripped):
-        return _service().start_session(user_id)
+        try:
+            return _service().start_session(user_id)
+        except Exception:
+            logger.exception("ask_ia start_session failed user=%s", user_id[:8])
+            return (
+                "No pude iniciar Ask IA. Intentá de nuevo en un minuto.",
+                None,
+            )
 
     m = _IA_OTORGAR.match(stripped)
     if m:
-        return _service().admin_grant(user_id, m.group(1), int(m.group(2))), None
+        try:
+            return _service().admin_grant(user_id, m.group(1), int(m.group(2))), None
+        except Exception:
+            logger.exception("ask_ia admin_grant failed")
+            return "No pude otorgar consultas. Intentá de nuevo.", None
 
     return None
 
