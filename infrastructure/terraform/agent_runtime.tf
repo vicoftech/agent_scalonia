@@ -15,6 +15,8 @@ locals {
     "${local.repo_root}/src/dao/${f}" if !endswith(f, "/") && !strcontains(f, "__pycache__")],
     [for f in sort(fileset("${local.repo_root}/src/services", "**")) :
     "${local.repo_root}/src/services/${f}" if !endswith(f, "/") && !strcontains(f, "__pycache__")],
+    [for f in sort(fileset("${local.repo_root}/src/web", "**")) :
+    "${local.repo_root}/src/web/${f}" if !endswith(f, "/") && !strcontains(f, "__pycache__")],
     [for f in sort(fileset("${local.repo_root}/src/fixtures", "**")) :
     "${local.repo_root}/src/fixtures/${f}" if !endswith(f, "/") && !strcontains(f, "__pycache__")],
     [for f in sort(fileset("${local.repo_root}/src/jobs", "**")) :
