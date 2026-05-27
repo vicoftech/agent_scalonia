@@ -242,7 +242,7 @@ def test_open_match_picker_veda_with_existing_shows_locked_brief():
     svc = _svc(match_dao=matches)
     matches.get_by_match_number.return_value = match
     matches.get_result.return_value = None
-    svc._preds.get_active.return_value = {
+    svc._preds.get_for_group.return_value = {
         "home_goals": 2,
         "away_goals": 1,
         "pred_var_used": False,
@@ -261,11 +261,32 @@ def test_start_prediction_wizard_veda_with_existing_returns_locked_brief():
     matches = MagicMock()
     svc = _svc(match_dao=matches)
     matches.get_by_match_number.return_value = match
-    svc._preds.get_active.return_value = {
+    svc._preds.get_for_group.return_value = {
         "home_goals": 1,
         "away_goals": 0,
-        "status": "ACTIVE",
+        "status": "SCORED",
     }
     text, kb = svc.start_prediction_wizard("u1", 10, "grp-private")
     assert "🔒 Veda activa" in text
+    assert kb is None
+
+
+def test_open_match_picker_veda_with_result_still_shows_locked_brief():
+    """Sandbox puede tener RESULT antes de FINISHED; priorizar brief en veda."""
+    match = _match(veda_active=True, home_team="MEX", away_team="RSA", status="LIVE")
+    matches = MagicMock()
+    svc = _svc(match_dao=matches)
+    matches.get_by_match_number.return_value = match
+    matches.get_result.return_value = {
+        "result_90min_home": 2,
+        "result_90min_away": 1,
+    }
+    svc._preds.get_for_group.return_value = {
+        "home_goals": 2,
+        "away_goals": 1,
+        "status": "SCORED",
+    }
+    text, kb = svc.open_match_picker("u1", 10, "grp-private")
+    assert "🔒 Veda activa" in text
+    assert "Partido finalizado" not in text
     assert kb is None

@@ -9,6 +9,8 @@ locals {
     "${local.telegram_repo_root}/src/dao/${f}" if !endswith(f, "/") && !strcontains(f, "__pycache__")],
     [for f in sort(fileset("${local.telegram_repo_root}/src/services", "**")) :
     "${local.telegram_repo_root}/src/services/${f}" if !endswith(f, "/") && !strcontains(f, "__pycache__")],
+    [for f in sort(fileset("${local.telegram_repo_root}/src/scoring", "**")) :
+    "${local.telegram_repo_root}/src/scoring/${f}" if !endswith(f, "/") && !strcontains(f, "__pycache__")],
     [for f in sort(fileset("${local.telegram_repo_root}/src/utils", "**")) :
     "${local.telegram_repo_root}/src/utils/${f}" if !endswith(f, "/") && !strcontains(f, "__pycache__")],
     [for f in sort(fileset("${local.telegram_repo_root}/src/kb", "**")) :

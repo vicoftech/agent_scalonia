@@ -547,10 +547,14 @@ class PredictionService:
         if not gid:
             return self.no_group_message()
 
+        existing = self._preds.get_for_group(user_id, match["match_id"], gid)
+        status = (match.get("status") or "").upper()
+        if existing and self._veda_closed(match) and status != "FINISHED":
+            return self._existing_prediction_view(user_id, match, gid, existing)
+
         if self._match_has_final_result(match):
             return self.format_finished_match_view(user_id, match, gid)
 
-        existing = self._preds.get_active(user_id, match["match_id"], gid)
         if existing:
             return self._existing_prediction_view(user_id, match, gid, existing)
 
@@ -682,7 +686,7 @@ class PredictionService:
         gid = group_id or self.get_active_group_id(user_id)
         if not gid:
             return self.no_group_message()
-        existing = self._preds.get_active(user_id, match["match_id"], gid)
+        existing = self._preds.get_for_group(user_id, match["match_id"], gid)
         if existing and self._veda_closed(match):
             return self._existing_prediction_view(user_id, match, gid, existing)
         if self._veda_closed(match):
