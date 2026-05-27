@@ -47,13 +47,31 @@ def handler(event: dict, context) -> dict:
             return {"status": "ERROR", "error": "match_id required"}
         if trigger == "sandbox_devfast" or event.get("sandbox"):
             logger.info("sandbox_devfast apply_manual_result match=%s", match_id[:8])
-            home = int(os.environ.get("SANDBOX_RESULT_HOME_GOALS", "2"))
-            away = int(os.environ.get("SANDBOX_RESULT_AWAY_GOALS", "1"))
+            sr = event.get("sandbox_result") or {}
+            home = int(sr.get("home_goals", os.environ.get("SANDBOX_RESULT_HOME_GOALS", "2")))
+            away = int(sr.get("away_goals", os.environ.get("SANDBOX_RESULT_AWAY_GOALS", "1")))
+
+            def _sb_bool(key: str, env_key: str) -> bool | None:
+                if key in sr:
+                    return bool(sr[key])
+                raw = os.environ.get(env_key, "").strip().lower()
+                if raw in ("1", "true", "yes", "si", "sí"):
+                    return True
+                if raw in ("0", "false", "no"):
+                    return False
+                return None
+
             result = svc.apply_manual_result(
                 match_id,
                 home,
                 away,
-                mvp_name=os.environ.get("SANDBOX_RESULT_MVP", "Sandbox MVP"),
+                mvp_name=sr.get("mvp_name") or os.environ.get("SANDBOX_RESULT_MVP", "Sandbox MVP"),
+                red_cards=int(sr.get("red_cards", os.environ.get("SANDBOX_RESULT_RED_CARDS", "0"))),
+                goal_before_5min=_sb_bool("goal_before_5min", "SANDBOX_RESULT_GOAL_BEFORE_5MIN"),
+                var_used=_sb_bool("var_used", "SANDBOX_RESULT_VAR_USED"),
+                free_kick_goal=_sb_bool("free_kick_goal", "SANDBOX_RESULT_FREE_KICK_GOAL"),
+                penalty_saved=_sb_bool("penalty_saved", "SANDBOX_RESULT_PENALTY_SAVED"),
+                penalty_scored=_sb_bool("penalty_scored", "SANDBOX_RESULT_PENALTY_SCORED"),
                 replace=True,
             )
         else:

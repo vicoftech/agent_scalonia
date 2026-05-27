@@ -108,7 +108,11 @@ class MatchScheduleSandboxManager:
         return _sandbox_allowed() and self._schedules.is_enabled()
 
     def provision_sandbox_schedules(
-        self, match_id: str, *, mode: str = SANDBOX_MODE_DEV_FAST
+        self,
+        match_id: str,
+        *,
+        mode: str = SANDBOX_MODE_DEV_FAST,
+        sandbox_result: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         if not _sandbox_allowed():
             return {
@@ -145,7 +149,11 @@ class MatchScheduleSandboxManager:
         )
 
         plans = _build_sandbox_plans(
-            match_id, started_at, started_at, self._schedules._lambda_arns
+            match_id,
+            started_at,
+            started_at,
+            self._schedules._lambda_arns,
+            sandbox_result=sandbox_result,
         )
         client = _scheduler_client()
         group = self._schedules._group
@@ -255,6 +263,8 @@ def _build_sandbox_plans(
     started_at: datetime,
     now: datetime,
     lambda_arns: dict[str, str],
+    *,
+    sandbox_result: dict[str, Any] | None = None,
 ) -> list[SchedulePlan]:
     plans: list[SchedulePlan] = []
     prev_fire_at: datetime | None = None
@@ -290,6 +300,8 @@ def _build_sandbox_plans(
         }
         if event_type == "MATCH_RESULT":
             payload.setdefault("trigger", "sandbox_devfast")
+            if sandbox_result:
+                payload["sandbox_result"] = sandbox_result
         plans.append(
             SchedulePlan(
                 suffix=suffix,
