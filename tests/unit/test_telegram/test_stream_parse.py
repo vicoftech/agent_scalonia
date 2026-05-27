@@ -9,6 +9,7 @@ from infrastructure.lambdas.telegram_webhook.handler import _friendly_agent_erro
 from infrastructure.lambdas.telegram_webhook.stream_parse import (
     accumulate_stream_event,
     finalize_stream_text,
+    is_tool_call_payload,
     parse_agent_stream_payload,
     parse_sse_events,
     StreamParseState,
@@ -40,12 +41,61 @@ class TestStreamParse:
         assert "1962" in out
         assert "Pelé" in out
 
-    def test_prefers_final_message_over_deltas(self):
-        state = StreamParseState(deltas=["parcial "], final_message="respuesta final")
+    def test_prefers_last_assistant_message_over_deltas(self):
+        state = StreamParseState(
+            deltas=["parcial "],
+            assistant_texts=["intermedio", "respuesta final"],
+        )
         assert (
             finalize_stream_text(state, friendly_error=_friendly_agent_error)
             == "respuesta final"
         )
+
+    def test_ignores_tool_call_json_in_message(self):
+        tool_json = (
+            '[{"name": "kb_retrieval_tool", '
+            '"arguments": {"query": "primer gol mundial historia"}}]'
+        )
+        assert is_tool_call_payload(tool_json)
+        raw = "\n".join([
+            json.dumps(
+                {
+                    "message": {
+                        "role": "assistant",
+                        "content": [{"text": tool_json}],
+                    }
+                }
+            ),
+            json.dumps(
+                {
+                    "message": {
+                        "role": "assistant",
+                        "content": [
+                            {"text": "El primer gol fue de Lucien Laurent en 1930."}
+                        ],
+                    }
+                }
+            ),
+        ])
+        out = parse_agent_stream_payload(raw, friendly_error=_friendly_agent_error)
+        assert "kb_retrieval_tool" not in out
+        assert "1930" in out
+
+    def test_only_tool_call_json_returns_friendly_fallback(self):
+        tool_json = (
+            '[{"name": "kb_retrieval_tool", "arguments": {"query": "messi"}}]'
+        )
+        raw = json.dumps(
+            {
+                "message": {
+                    "role": "assistant",
+                    "content": [{"text": tool_json}],
+                }
+            }
+        )
+        out = parse_agent_stream_payload(raw, friendly_error=_friendly_agent_error)
+        assert "kb_retrieval_tool" not in out
+        assert "intentá" in out.lower()
 
     def test_deltas_when_no_final_message(self):
         state = StreamParseState(deltas=["a", "b"])
