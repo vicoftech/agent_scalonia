@@ -2,6 +2,10 @@
 
 Telegram solo acepta nombres con a-z, 0-9 y _. Los handlers aceptan
 también guiones (/crear-grupo, /trivia-admin) por compatibilidad.
+
+Menú público (botón /): atajos del teclado fijo + start, help, trivia.
+Comandos de admin: solo en setMyCommands con scope del chat admin.
+Otros (/predecir, /crear_grupo, invitaciones, etc.) siguen activos si se escriben.
 """
 from __future__ import annotations
 
@@ -10,7 +14,7 @@ import os
 
 logger = logging.getLogger(__name__)
 
-# Atajos primero en el menú «/» de Telegram (sin /menu: botón azul nativo)
+# Coinciden con telegram_keyboards.main_reply_keyboard (6 botones)
 SHORTCUT_COMMANDS: list[dict[str, str]] = [
     {"command": "proximo", "description": "Próximos partidos del fixture"},
     {"command": "partidos", "description": "Partidos del Mundial y predecir"},
@@ -20,21 +24,11 @@ SHORTCUT_COMMANDS: list[dict[str, str]] = [
     {"command": "reglas", "description": "Cómo predecir y puntuar"},
 ]
 
-BOT_COMMANDS: list[dict[str, str]] = [
-    {"command": "menu", "description": "Actualizar menú de comandos del bot"},
+# Menú «/» para todos los usuarios (sin admin ni meta /menu)
+MENU_COMMANDS: list[dict[str, str]] = SHORTCUT_COMMANDS + [
     {"command": "start", "description": "Registrarte o volver al inicio"},
     {"command": "help", "description": "Ayuda y lista de comandos"},
-    {"command": "predecir", "description": "Marcador — ej. /predecir ARG 2-0 ALG"},
-    {"command": "completo", "description": "Variables opcionales de tu predicción"},
-    {"command": "crear_grupo", "description": "Crear tu grupo (plan Free: 1 máx.)"},
-    {"command": "editar_grupo", "description": "Administrar tu grupo (dueño)"},
-    {"command": "miembros", "description": "Ver miembros de tu grupo"},
-    {"command": "invitar", "description": "Link de invitación (grupo en edición)"},
-    {"command": "mis_invitaciones", "description": "Ver tus invitaciones activas"},
-    {"command": "unirme", "description": "Unirte con código — ej. /unirme abc12345"},
-    {"command": "agregar_miembro", "description": "Sumar usuario existente por alias"},
     {"command": "trivia", "description": "Jugar una trivia (máx. 5 por día)"},
-    {"command": "trivia_grupo", "description": "Publicar trivia a tu grupo (dueño)"},
 ]
 
 ADMIN_COMMANDS: list[dict[str, str]] = [
@@ -46,14 +40,15 @@ ADMIN_COMMANDS: list[dict[str, str]] = [
     },
 ]
 
-_COMMANDS_VERSION = os.environ.get("BOT_COMMANDS_VERSION", "4")
+_COMMANDS_VERSION = os.environ.get("BOT_COMMANDS_VERSION", "5")
 
 
 def commands_for_user(*, is_admin: bool = False) -> list[dict[str, str]]:
-    """Lista única para setMyCommands según rol (atajos arriba)."""
+    """Lista para setMyCommands. Admin añade comandos solo en su chat (no menú global)."""
     seen: set[str] = set()
     out: list[dict[str, str]] = []
-    for cmd in SHORTCUT_COMMANDS + BOT_COMMANDS + (ADMIN_COMMANDS if is_admin else []):
+    source = MENU_COMMANDS + (ADMIN_COMMANDS if is_admin else [])
+    for cmd in source:
         if cmd["command"] not in seen:
             seen.add(cmd["command"])
             out.append(cmd)
@@ -62,37 +57,29 @@ def commands_for_user(*, is_admin: bool = False) -> list[dict[str, str]]:
 
 HELP_USER = """📖 Comandos del Prode Mundial 2026
 
-Atajos:
-/proximo — Próximos partidos del fixture
+Menú / y teclado de abajo:
+/proximo — Próximos partidos
 /partidos — Fixture y predecir
 /resultados — Partidos finalizados
-/mi_puntuacion — Tu puntaje y predicciones puntuadas
-/grupos — Ver tus grupos
-/reglas — Cómo predecir y puntuar (sin lista de comandos)
-
-Más comandos:
+/mi_puntuacion — Tu puntaje
+/grupos — Tus grupos
+/reglas — Cómo predecir y puntuar
 /start — Registro o bienvenida
-/help — Lista de comandos (esta ayuda)
-/menu — Actualizar menú del botón «/» y teclado de abajo
-/predecir ARG 2-0 ALG — Marcador rápido
-/completo — Variables extendidas Sí/No (tarjeta roja, VAR, etc.)
-/crear-grupo · /editar-grupo · /miembros
+/help — Esta ayuda
 /trivia — Trivia con botones (máx. 5/día)
-/trivia-grupo [tema] — Trivia a tu grupo (dueño)
 
-Invitaciones:
-/invitar <cupos> — Link (usa el grupo que estés editando)
-/mis_invitaciones — Tus invitaciones activas
-/unirme <código> — Unirte con código del link
-/agregar-miembro <alias> — Sumar usuario que ya usa el bot
+También podés escribir:
+/predecir ARG 2-0 ALG — Marcador rápido
+/completo — Variables extendidas de una predicción
+/crear_grupo · /editar_grupo · /miembros · /invitar · /unirme
 
-También podés hablar con el agente en lenguaje natural."""
+O hablar con el agente en lenguaje natural."""
 
 HELP_ADMIN_EXTRA = """
-Solo admin:
-/trivia-admin [tema] — Publica trivia Experto a todos
-/admin-grupos — Panel de administración de grupos
-/crear-grupo-para <alias> — Crear grupo en nombre de otro usuario"""
+Solo admin global:
+/trivia_admin [tema] — Trivia Experto a todos
+/admin_grupos — Panel de grupos
+/crear_grupo_para <alias> — Crear grupo para otro usuario"""
 
 
 def register_bot_commands(
@@ -172,9 +159,9 @@ def rules_message() -> str:
     return help_scoring_text()
 
 
-def help_message(*, is_admin: bool = False, is_group_owner: bool = False) -> str:
+def help_message(*, is_admin: bool = False) -> str:
     text = HELP_USER
-    if is_admin or is_group_owner:
+    if is_admin:
         text += HELP_ADMIN_EXTRA
     return text.strip()
 
@@ -185,9 +172,7 @@ def handle_reglas_command(_user_id: str) -> str:
 
 def handle_help_command(user_id: str) -> str | None:
     from src.dao.dynamo.user_dao import UserDAO
-    from src.dao.dynamo.group_dao import GroupDAO
 
     profile = UserDAO().get_profile(user_id) or {}
     is_admin = bool(profile.get("is_admin"))
-    is_owner = bool(GroupDAO().get_owner_group_id(user_id))
-    return help_message(is_admin=is_admin, is_group_owner=is_owner)
+    return help_message(is_admin=is_admin)

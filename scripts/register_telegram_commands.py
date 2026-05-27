@@ -22,7 +22,7 @@ _LAMBDA_DIR = os.path.join(_REPO_ROOT, "infrastructure", "lambdas", "telegram_we
 if _LAMBDA_DIR not in sys.path:
     sys.path.insert(0, _LAMBDA_DIR)
 
-from bot_commands import commands_for_user  # noqa: E402
+from bot_commands import ADMIN_COMMANDS, commands_for_user  # noqa: E402
 
 TG_API = "https://api.telegram.org"
 SECRET_ID = os.environ.get("TELEGRAM_SECRET_ID", "SCALONIA_TELEGRAM_BOT_TOKEN")

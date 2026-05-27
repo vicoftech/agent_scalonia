@@ -353,7 +353,10 @@ def finish_wizard(
     lines.extend(extended_brief_lines(p))
     lines.append(f"\nMáx. posible: {max_pts} pts · Veda en {svc._minutes_to_veda(match)}")
     lines.append("\n📖 Reglas: /reglas")
-    return "\n".join(lines), None
+    followup, kb = svc.build_post_prediction_followup(user_id, match_number, group_id)
+    if followup.strip():
+        lines.append(followup)
+    return "\n".join(lines), kb
 
 
 def wizard_cancel(svc: PredictionService, user_id: str) -> tuple[str, dict | None]:

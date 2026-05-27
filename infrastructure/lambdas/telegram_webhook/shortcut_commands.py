@@ -91,10 +91,9 @@ def handle_shortcut_command(
     if _MENU.match(text):
         return (
             "✅ Menú actualizado (botón / y teclado de abajo).\n\n"
-            "Atajos:\n"
-            "⏭️ Próximo · ⚽ Partidos\n"
-            "🏁 Resultados · 📊 Mi puntaje\n"
-            "👥 Grupos · 📖 Reglas",
+            "Usá /help para la lista completa.\n"
+            "Atajos: ⏭️ Próximo · ⚽ Partidos · 🏁 Resultados · "
+            "📊 Mi puntaje · 👥 Grupos · 📖 Reglas",
             None,
         )
 

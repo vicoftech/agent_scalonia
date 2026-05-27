@@ -33,15 +33,37 @@ def handle_prediction_callback(user_id: str, data: str) -> tuple[str, dict | Non
             return svc.no_group_message()
         return svc.start_prediction_wizard(user_id, num, gid)
 
-    if parts[1] == "o" and len(parts) >= 4:
+    if parts[1] == "o" and len(parts) >= 3:
         try:
             num = int(parts[2])
         except ValueError:
             return "Partido inválido.", None
-        gid = svc.resolve_group_short(user_id, parts[3]) or svc.get_active_group_id(user_id)
+        if len(parts) >= 4:
+            gid = svc.resolve_group_short(user_id, parts[3]) or svc.get_active_group_id(user_id)
+            if not gid:
+                return svc.no_group_message()
+            return svc.open_match_picker(user_id, num, gid)
+        return svc.open_match_flow(user_id, num)
+
+    if parts[1] == "mg" and len(parts) >= 4:
+        try:
+            num = int(parts[2])
+        except ValueError:
+            return "Partido inválido.", None
+        gid = svc.resolve_group_short(user_id, parts[3])
         if not gid:
-            return svc.no_group_message()
+            return "Grupo no encontrado.", None
         return svc.open_match_picker(user_id, num, gid)
+
+    if parts[1] == "cpa" and len(parts) >= 4:
+        try:
+            num = int(parts[2])
+        except ValueError:
+            return "Partido inválido.", None
+        src_gid = svc.resolve_group_short(user_id, parts[3])
+        if not src_gid:
+            return "Grupo no encontrado.", None
+        return svc.copy_prediction_to_all_other_groups(user_id, num, src_gid)
 
     if parts[1] == "s" and len(parts) >= 5:
         try:

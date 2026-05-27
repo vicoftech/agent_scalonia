@@ -1,7 +1,10 @@
-"""Menú setMyCommands — atajos primero."""
+"""Menú setMyCommands — atajos primero, sin admin en menú global."""
 from infrastructure.lambdas.telegram_webhook.bot_commands import (
+    ADMIN_COMMANDS,
+    MENU_COMMANDS,
     SHORTCUT_COMMANDS,
     commands_for_user,
+    help_message,
     rules_message,
 )
 from infrastructure.lambdas.telegram_webhook.shortcut_commands import (
@@ -22,12 +25,25 @@ def test_shortcuts_are_first_in_menu():
     ]
 
 
-def test_menu_not_in_shortcuts():
-    shortcut_names = {c["command"] for c in SHORTCUT_COMMANDS}
-    assert "menu" not in shortcut_names
+def test_public_menu_has_no_admin_or_legacy_meta():
+    public = {c["command"] for c in commands_for_user(is_admin=False)}
+    admin_only = {c["command"] for c in ADMIN_COMMANDS}
+    assert not public & admin_only
+    assert "menu" not in public
+    assert "predecir" not in public
+    assert "crear_grupo" not in public
+    assert len(commands_for_user(is_admin=False)) == len(MENU_COMMANDS)
+
+
+def test_admin_menu_includes_admin_commands():
+    admin = {c["command"] for c in commands_for_user(is_admin=True)}
+    assert "trivia_admin" in admin
+    assert "admin_grupos" in admin
+    assert "partidos" in admin
+
+
+def test_menu_matches_shortcut_count():
     assert len(SHORTCUT_COMMANDS) == 6
-    all_names = [c["command"] for c in commands_for_user()]
-    assert "menu" in all_names
 
 
 def test_should_refresh_on_shortcuts():
@@ -42,3 +58,8 @@ def test_rules_message_has_scoring_not_commands():
     text = rules_message()
     assert "Básica" in text
     assert "/partidos" not in text
+
+
+def test_help_admin_only_for_global_admin():
+    assert "trivia_admin" not in help_message(is_admin=False)
+    assert "trivia_admin" in help_message(is_admin=True)

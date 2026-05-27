@@ -105,6 +105,224 @@ class PredictionService:
         self._users.update_profile(user_id, prediction_group_id=group_id)
         return g.get("name", group_id)
 
+    def _prediction_copy_fields(self, pred: dict) -> dict:
+        """Campos a replicar al copiar predicción entre grupos."""
+        keys = (
+            "playoff_via",
+            "playoff_winner",
+            "has_red_card",
+            "pred_goal_before_5min",
+            "pred_var_used",
+            "pred_free_kick_goal",
+            "pred_penalty_saved",
+            "pred_penalty_scored",
+            "scorer_name",
+            "scorer_goals",
+            "mvp_name",
+        )
+        if not isinstance(pred, dict):
+            return {}
+        return {k: pred[k] for k in keys if k in pred and pred[k] is not None}
+
+    def _group_rows_for_match(
+        self, user_id: str, match: dict
+    ) -> list[dict]:
+        match_id = match["match_id"]
+        finished = (match.get("status") or "").upper() == "FINISHED"
+        veda_closed = self._veda_closed(match)
+        rows: list[dict] = []
+        for gid in self._predictable_groups(user_id):
+            g = self._groups.get_group(gid) or {}
+            pred = self._preds.get_for_group(user_id, match_id, gid)
+            has_pred = pred is not None
+            if has_pred:
+                icon, suffix = "✅", " · ver/cambiar"
+            elif veda_closed or finished:
+                icon, suffix = "🔒", ""
+            else:
+                icon, suffix = "⏳", ""
+            rows.append(
+                {
+                    "group_id": gid,
+                    "name": g.get("name", gid),
+                    "avatar": g.get("avatar", "⚽"),
+                    "has_prediction": has_pred,
+                    "status_icon": icon,
+                    "suffix": suffix,
+                }
+            )
+        return rows
+
+    def match_group_selection_view(
+        self, user_id: str, match_number: int
+    ) -> tuple[str, dict | None]:
+        """Paso 1: elegir grupo antes del wizard (varios grupos privados)."""
+        match = self._matches.get_by_match_number(match_number)
+        if not match:
+            return "Partido no encontrado.", None
+        rows = self._group_rows_for_match(user_id, match)
+        if not rows:
+            return self.no_group_message()
+        if len(rows) == 1:
+            return self.open_match_picker(
+                user_id, match_number, rows[0]["group_id"]
+            )
+        from src.services.prediction_telegram_ui import match_group_picker_keyboard
+
+        title = self.format_match_title(match, full_names=True)
+        lines = [
+            title,
+            "",
+            "👥 Elegí el grupo en el que querés predecir:",
+            "⏳ sin predicción · ✅ ya predijiste · 🔒 veda o finalizado",
+        ]
+        return "\n".join(lines), match_group_picker_keyboard(match_number, rows)
+
+    def open_match_flow(
+        self, user_id: str, match_number: int, group_id: str | None = None
+    ) -> tuple[str, dict | None]:
+        """Entrada desde /partidos: grupo primero si hay varios."""
+        if group_id:
+            return self.open_match_picker(user_id, match_number, group_id)
+        groups = self._predictable_groups(user_id)
+        if len(groups) <= 1:
+            gid = groups[0] if groups else None
+            if not gid:
+                return self.no_group_message()
+            return self.open_match_picker(user_id, match_number, gid)
+        return self.match_group_selection_view(user_id, match_number)
+
+    def groups_pending_prediction(
+        self, user_id: str, match_id: str, *, exclude_group_id: str
+    ) -> list[dict]:
+        """Grupos privados sin predicción ACTIVE y con veda abierta."""
+        match = self._matches.get_match(match_id)
+        if not match or self._veda_closed(match):
+            return []
+        if (match.get("status") or "").upper() == "FINISHED":
+            return []
+        pending: list[dict] = []
+        for gid in self._predictable_groups(user_id):
+            if gid == exclude_group_id:
+                continue
+            if self._preds.get_active(user_id, match_id, gid):
+                continue
+            g = self._groups.get_group(gid) or {}
+            pending.append(
+                {"group_id": gid, "name": g.get("name", gid), "avatar": g.get("avatar", "⚽")}
+            )
+        return pending
+
+    def build_post_prediction_followup(
+        self, user_id: str, match_number: int, completed_group_id: str
+    ) -> tuple[str, dict | None]:
+        match = self._matches.get_by_match_number(match_number)
+        if not match:
+            return "", None
+        pending = self.groups_pending_prediction(
+            user_id, match["match_id"], exclude_group_id=completed_group_id
+        )
+        gname = (self._groups.get_group(completed_group_id) or {}).get(
+            "name", completed_group_id
+        )
+        lines = [
+            "",
+            "── Otros grupos ──",
+            f"Guardaste la predicción en «{gname}».",
+        ]
+        if not pending:
+            lines.append("Ya tenés este partido en todos tus grupos (o la veda cerró).")
+            return "\n".join(lines), None
+        lines.append(
+            "Podés predecir en otro grupo (puede ser distinta) o copiar "
+            "esta misma predicción."
+        )
+        from src.services.prediction_telegram_ui import post_prediction_groups_keyboard
+
+        kb = post_prediction_groups_keyboard(
+            match_number,
+            source_group_id=completed_group_id,
+            pending_groups=pending,
+            copy_all_count=len(pending),
+        )
+        return "\n".join(lines), kb
+
+    def copy_prediction_to_groups(
+        self,
+        user_id: str,
+        match_id: str,
+        source_group_id: str,
+        target_group_ids: list[str],
+    ) -> tuple[str, dict | None]:
+        """Replica predicción ACTIVE a otros grupos (scoring independiente por grupo)."""
+        match = self._matches.get_match(match_id)
+        if not match:
+            return "Partido no encontrado.", None
+        src = self._preds.get_active(user_id, match_id, source_group_id)
+        if not src:
+            return "No encontré la predicción de origen.", None
+        if self._veda_closed(match):
+            return "La veda ya está activa para este partido.", None
+
+        fields = self._prediction_copy_fields(src)
+        hg, ag = int(src["home_goals"]), int(src["away_goals"])
+        copied: list[str] = []
+        skipped: list[str] = []
+        for gid in target_group_ids:
+            if gid == source_group_id or gid not in self._predictable_groups(user_id):
+                continue
+            if self._preds.get_active(user_id, match_id, gid):
+                gname = (self._groups.get_group(gid) or {}).get("name", gid)
+                skipped.append(gname)
+                continue
+            self._preds.save_prediction(
+                user_id=user_id,
+                match_id=match_id,
+                group_id=gid,
+                home_goals=hg,
+                away_goals=ag,
+                **fields,
+            )
+            gname = (self._groups.get_group(gid) or {}).get("name", gid)
+            copied.append(gname)
+
+        if not copied:
+            return (
+                "No se copió a ningún grupo "
+                + (f"(omitidos: {', '.join(skipped)})" if skipped else ""),
+                None,
+            )
+        lines = [
+            f"📋 Predicción {hg}-{ag} copiada a:",
+            *[f"  · {n}" for n in copied],
+        ]
+        if skipped:
+            lines.append(f"Omitidos (ya tenían predicción): {', '.join(skipped)}")
+        followup, kb = self.build_post_prediction_followup(
+            user_id, int(match.get("match_number", 0)), source_group_id
+        )
+        if followup.strip():
+            lines.append(followup)
+        return "\n".join(lines), kb
+
+    def copy_prediction_to_all_other_groups(
+        self, user_id: str, match_number: int, source_group_id: str
+    ) -> tuple[str, dict | None]:
+        match = self._matches.get_by_match_number(match_number)
+        if not match:
+            return "Partido no encontrado.", None
+        pending_ids = [
+            g["group_id"]
+            for g in self.groups_pending_prediction(
+                user_id, match["match_id"], exclude_group_id=source_group_id
+            )
+        ]
+        if not pending_ids:
+            return "No hay otros grupos pendientes para este partido.", None
+        return self.copy_prediction_to_groups(
+            user_id, match["match_id"], source_group_id, pending_ids
+        )
+
     def _parse_kickoff(self, iso: str) -> datetime:
         return datetime.fromisoformat(iso.replace("Z", "+00:00"))
 
@@ -374,7 +592,7 @@ class PredictionService:
                 is_predictable=is_predictable,
             )
             buttons.append(
-                [{"text": label, "callback_data": f"prd:o:{num}:{g8}"}]
+                [{"text": label, "callback_data": f"prd:o:{num}"}]
             )
 
         if show_pagination:
@@ -548,6 +766,7 @@ class PredictionService:
         gid = group_id or self.get_active_group_id(user_id)
         if not gid:
             return self.no_group_message()
+        self.set_active_group(user_id, gid)
 
         existing = self._preds.get_for_group(user_id, match["match_id"], gid)
         status = (match.get("status") or "").upper()

@@ -149,6 +149,59 @@ def group_picker_keyboard(groups: list[dict[str, Any]]) -> dict:
     return {"inline_keyboard": rows}
 
 
+def match_group_picker_keyboard(
+    match_number: int, group_rows: list[dict[str, Any]]
+) -> dict:
+    """Elegir grupo antes del wizard (SPEC-046 multi-grupo)."""
+    rows: list[list[dict[str, str]]] = []
+    for row in group_rows:
+        gid = row.get("group_id", "")
+        g8 = gid.replace("-", "")[:8]
+        icon = row.get("status_icon", "⏳")
+        name = (row.get("name") or gid)[:28]
+        suffix = row.get("suffix", "")
+        label = _fit_button_label(f"{icon} {name}{suffix}")
+        rows.append([{"text": label, "callback_data": f"prd:mg:{match_number}:{g8}"}])
+    return {"inline_keyboard": rows}
+
+
+def post_prediction_groups_keyboard(
+    match_number: int,
+    *,
+    source_group_id: str,
+    pending_groups: list[dict[str, Any]],
+    copy_all_count: int,
+) -> dict | None:
+    """Tras terminar el wizard: otros grupos o copiar la misma predicción."""
+    if not pending_groups and copy_all_count <= 0:
+        return None
+    src_g8 = source_group_id.replace("-", "")[:8]
+    rows: list[list[dict[str, str]]] = []
+    for g in pending_groups:
+        gid = g.get("group_id", "")
+        g8 = gid.replace("-", "")[:8]
+        name = (g.get("name") or gid)[:26]
+        rows.append(
+            [
+                {
+                    "text": _fit_button_label(f"👥 {name} — predecir"),
+                    "callback_data": f"prd:mg:{match_number}:{g8}",
+                }
+            ]
+        )
+    if copy_all_count > 0:
+        rows.append(
+            [
+                {
+                    "text": f"📋 Misma predicción en {copy_all_count} grupo(s)",
+                    "callback_data": f"prd:cpa:{match_number}:{src_g8}",
+                }
+            ]
+        )
+    rows.append([{"text": "✅ Listo", "callback_data": "prd:noop"}])
+    return {"inline_keyboard": rows}
+
+
 def ko_playoff_keyboard(match: dict, match_number: int, score: str, grp8: str) -> dict:
     """Empate en KO: vía + ganador en un tap (prd:k:...)."""
     home = match.get("home_team", "LOC")
