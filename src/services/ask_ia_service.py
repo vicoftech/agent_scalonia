@@ -31,6 +31,7 @@ _TRANSIENT_AGENT_MARKERS = (
     "Runtime initialization",
     "No se descontó",
     "No pude generar",
+    "Consulté fuentes internas",
 )
 _PERMANENT_AGENT_MARKERS = (
     "Sin permisos",
@@ -197,8 +198,23 @@ class AskIaService:
                 None,
             )
 
+        from src.services.ask_ia_knowledge import prepare_ask_ia_turn
+
+        prep = prepare_ask_ia_turn(text)
+        if prep.direct_reply:
+            self._consume_credit(user_id, profile)
+            profile = self._users.get_profile(user_id) or profile
+            remaining = self.credits_available(profile)
+            self._users.update_profile(
+                user_id,
+                ai_awaiting_prompt=False,
+                ai_session_id=self._session_id(user_id, profile),
+            )
+            body = f"{prep.direct_reply.strip()}\n\nConsultas restantes: {remaining}"
+            return body, self._post_response_keyboard(profile)
+
         session_id = self._session_id(user_id, profile)
-        prompt = (
+        prompt = prep.agent_prompt or (
             "Respondé en español rioplatense, breve, solo fútbol Mundial 2026.\n\n"
             f"{text.strip()}"
         )

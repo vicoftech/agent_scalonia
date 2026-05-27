@@ -6,11 +6,16 @@ import os
 from dataclasses import dataclass
 from typing import Optional
 
+from src.kb.cache import get_from_cache, make_cache_key, save_to_cache, ttl_for_search_type
 from src.kb.chunks_format import format_kb_chunks
 from src.kb.domain import is_football_domain_query
 from src.kb.enrichment_queue import enqueue_enrichment
 from src.kb.kb_enrichment_service import KB_RESULT_MIN_CHARS, classify_query
-from src.kb.query_intent import is_analytical_query, is_historical_football_query
+from src.kb.query_intent import (
+    is_analytical_query,
+    is_historical_football_query,
+    suggested_web_search_type,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +38,7 @@ class KbWebResolveResult:
     kb_max_score: float
     web_fallback_used: bool
     tavily_configured: bool
+    web_cache_hit: bool = False
 
 
 def max_kb_score(rows: list[dict]) -> float:
@@ -63,10 +69,32 @@ def is_tavily_configured() -> bool:
 
 
 def perform_web_search(query: str) -> Optional[str]:
-    """Wrapper testeable; delega en agent.tools.web_search_tool."""
+    """Wrapper testeable; delega en tavily_search."""
     from src.web.tavily_search import perform_web_search as _tavily_search
 
     return _tavily_search(query)
+
+
+def _web_search_with_cache(query: str) -> tuple[str | None, bool]:
+    """
+    Cache Dynamo CACHE# → Tavily → guarda en cache si hay resultado útil.
+    Retorna (texto, cache_hit).
+    """
+    cache_key = make_cache_key(query)
+    cached = get_from_cache(cache_key)
+    if cached and _is_usable_web_result(cached):
+        logger.info("kb_resolve web cache hit key=%s", cache_key[:24])
+        return cached, True
+
+    web_text = perform_web_search(query)
+    if web_text and _is_usable_web_result(web_text):
+        try:
+            ttl = ttl_for_search_type(suggested_web_search_type(query))
+            save_to_cache(cache_key, query, web_text, ttl)
+        except Exception:
+            logger.exception("save web cache failed")
+        return web_text, False
+    return None, False
 
 
 def format_kb_web_miss_message(*, tavily_configured: bool, had_kb_snippet: bool) -> str:
@@ -137,25 +165,28 @@ def resolve_kb_then_web(
 
     web_text: str | None = None
     web_used = False
+    web_cache_hit = False
 
     if is_football_domain_query(query):
         try:
-            web_text = perform_web_search(query)
-            web_used = bool(web_text and _is_usable_web_result(web_text))
+            web_text, web_cache_hit = _web_search_with_cache(query)
+            web_used = bool(web_text)
         except Exception:
             logger.exception("resolve_kb_then_web web failed")
 
-        if web_used and enqueue_on_web:
+        if web_used and enqueue_on_web and not web_cache_hit:
             try:
                 enqueue_enrichment(query, web_text, classify_query(query))
             except Exception:
                 logger.exception("enqueue enrichment failed")
 
     logger.info(
-        "kb_resolve fallback | chunks=%s max_score=%.3f web_used=%s tavily=%s analytical=%s force_web=%s",
+        "kb_resolve fallback | chunks=%s max_score=%.3f web_used=%s cache_hit=%s "
+        "tavily=%s analytical=%s force_web=%s",
         len(rows),
         kb_max,
         web_used,
+        web_cache_hit,
         tavily_ok,
         is_analytical_query(query),
         force_web,
@@ -168,4 +199,5 @@ def resolve_kb_then_web(
         kb_max_score=kb_max,
         web_fallback_used=web_used,
         tavily_configured=tavily_ok,
+        web_cache_hit=web_cache_hit,
     )

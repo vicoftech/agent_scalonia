@@ -15,6 +15,8 @@ locals {
     "${local.telegram_repo_root}/src/utils/${f}" if !endswith(f, "/") && !strcontains(f, "__pycache__")],
     [for f in sort(fileset("${local.telegram_repo_root}/src/kb", "**")) :
     "${local.telegram_repo_root}/src/kb/${f}" if !endswith(f, "/") && !strcontains(f, "__pycache__")],
+    [for f in sort(fileset("${local.telegram_repo_root}/src/web", "**")) :
+    "${local.telegram_repo_root}/src/web/${f}" if !endswith(f, "/") && !strcontains(f, "__pycache__")],
     [for f in sort(fileset("${local.telegram_repo_root}/src/fixtures", "**")) :
     "${local.telegram_repo_root}/src/fixtures/${f}" if !endswith(f, "/") && !strcontains(f, "__pycache__")],
   )
@@ -100,6 +102,15 @@ data "aws_iam_policy_document" "telegram_webhook_inline" {
     }
   }
 
+  dynamic "statement" {
+    for_each = module.kb.kb_enrichment_queue_arn != "" ? [1] : []
+    content {
+      sid       = "KbEnrichmentSQS"
+      actions   = ["sqs:SendMessage"]
+      resources = [module.kb.kb_enrichment_queue_arn]
+    }
+  }
+
   statement {
     sid = "AgentCoreInvoke"
     actions = [
@@ -144,6 +155,12 @@ resource "aws_lambda_function" "telegram_webhook" {
       },
       module.kb.kb_query_lambda_name != "" ? {
         KB_QUERY_LAMBDA_NAME = module.kb.kb_query_lambda_name
+      } : {},
+      module.kb.kb_enrichment_queue_url != "" ? {
+        KB_ENRICHMENT_QUEUE_URL = module.kb.kb_enrichment_queue_url
+      } : {},
+      module.kb.kb_s3_bucket != "" ? {
+        KB_S3_BUCKET = module.kb.kb_s3_bucket
       } : {},
       var.tavily_secret_arn != "" ? {
         TAVILY_SECRET_ARN = var.tavily_secret_arn

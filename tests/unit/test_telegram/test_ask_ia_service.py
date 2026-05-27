@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from src.services.ask_ia_service import AskIaService
 
@@ -55,6 +55,29 @@ def test_start_session_sets_awaiting():
     text, _kb = svc.start_session("u1")
     assert "consultas disponibles" in text
     assert store.get("ai_awaiting_prompt") is True
+
+
+def test_handle_prompt_uses_kb_direct_reply_without_agent():
+    store = {
+        "user_id": "u1",
+        "ai_daily_remaining": 2,
+        "ai_bonus_credits": 0,
+        "ai_awaiting_prompt": True,
+        "ai_credits_reset_date": datetime.now(DISPLAY_TZ).date().isoformat(),
+    }
+    svc = _svc(profile_store=store)
+    invoke = MagicMock()
+    svc._invoke_agent = invoke
+    from src.services.ask_ia_knowledge import AskIaTurnPrep
+
+    with patch(
+        "src.services.ask_ia_knowledge.prepare_ask_ia_turn",
+        return_value=AskIaTurnPrep(direct_reply="📚 El primer gol fue en 1930."),
+    ):
+        text, kb = svc.handle_user_prompt("u1", "primer gol mundial")
+    assert "1930" in text
+    assert store["ai_daily_remaining"] == 1
+    invoke.assert_not_called()
 
 
 def test_handle_prompt_consumes_daily_credit():

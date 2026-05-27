@@ -71,9 +71,30 @@ class TestResolveKbThenWeb:
                 "src.kb.resolve.perform_web_search",
                 return_value="Titulo\nContenido web largo " * 10,
             ):
-                out = resolve_kb_then_web("Compará Messi y Haaland en selecciones")
+                with patch("src.kb.resolve.get_from_cache", return_value=None):
+                    with patch("src.kb.resolve.save_to_cache"):
+                        out = resolve_kb_then_web("Compará Messi y Haaland en selecciones")
         assert out.web_fallback_used
         assert out.web_text
+        assert not out.web_cache_hit
+
+    def test_web_cache_hit_skips_tavily(self, monkeypatch):
+        monkeypatch.setenv("TAVILY_API_KEY", "test-key")
+        cached = "Resultado cacheado de web " * 12
+
+        with patch("src.kb.lambda_client.search_kb", return_value=[]):
+            with patch("src.kb.resolve.get_from_cache", return_value=cached):
+                with patch("src.kb.resolve.perform_web_search") as mock_tavily:
+                    with patch("src.kb.resolve.enqueue_enrichment") as mock_enrich:
+                        out = resolve_kb_then_web(
+                            "primer gol mundial historia",
+                            enqueue_on_web=True,
+                        )
+        assert out.web_fallback_used
+        assert out.web_cache_hit
+        assert out.web_text == cached
+        mock_tavily.assert_not_called()
+        mock_enrich.assert_not_called()
 
     def test_final_historica_kb_alta_no_fuerza_web(self, monkeypatch):
         monkeypatch.setenv("TAVILY_API_KEY", "test-key")
@@ -105,11 +126,13 @@ class TestResolveKbThenWeb:
         ]
 
         with patch("src.kb.lambda_client.search_kb", return_value=rows):
-            with patch(
-                "src.kb.resolve.perform_web_search",
-                return_value="Stats Messi vs Haaland\n" + "data " * 50,
-            ):
-                out = resolve_kb_then_web("Compará Messi y Haaland en goles")
+            with patch("src.kb.resolve.get_from_cache", return_value=None):
+                with patch("src.kb.resolve.save_to_cache"):
+                    with patch(
+                        "src.kb.resolve.perform_web_search",
+                        return_value="Stats Messi vs Haaland\n" + "data " * 50,
+                    ):
+                        out = resolve_kb_then_web("Compará Messi y Haaland en goles")
         assert out.web_fallback_used
         assert out.web_text
 
