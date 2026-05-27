@@ -8,7 +8,7 @@ from src.services.prediction_rules import (
     PTS_EXTENDED_BOOL,
     extended_lines_from_prediction,
 )
-from src.services.team_flags import format_team
+from src.services.team_flags import format_match_heading
 
 _SCORING_REASON_ES: dict[ScoringReason, str] = {
     "EXACT_SCORE": "Resultado exacto: +5 pts",
@@ -89,7 +89,7 @@ def format_finished_match_report(
     result: dict | None,
     prediction: dict | None,
 ) -> str:
-    title = format_team(match["home_team"]) + " vs " + format_team(match["away_team"])
+    title = format_match_heading(match)
     num = match.get("match_number", "?")
     gl = match.get("group_letter") or "—"
     lines = [

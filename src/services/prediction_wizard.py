@@ -17,6 +17,7 @@ from src.services.prediction_rules import (
 )
 from src.services.prediction_score_parse import parse_simple_score
 from src.services.prediction_telegram_ui import KO_PHASES
+from src.services.team_flags import resolve_team_display_name
 from src.services.prediction_wizard_ui import wizard_ko_keyboard, wizard_yes_no_keyboard
 
 if TYPE_CHECKING:
@@ -77,7 +78,7 @@ def _header(svc: PredictionService, match: dict, group_id: str, step: str) -> st
         f"🎯 Predicción · paso {n}/7",
         _step_title(step),
         "",
-        svc.format_match_title(match),
+        svc.format_match_title(match, full_names=True),
         f"Grupo {match.get('group_letter') or '—'}  ·  {svc._format_kickoff(match)}",
         f"👥 {gname}  ·  Veda en {svc._minutes_to_veda(match)}",
     ]
@@ -151,8 +152,8 @@ def render_step(svc: PredictionService, user_id: str) -> tuple[str, dict | None]
     header = _header(svc, match, gid, step)
 
     if step in (STEP_SCORE, STEP_SCORE_CUSTOM):
-        home = match.get("home_team", "LOC")
-        away = match.get("away_team", "VIS")
+        home = resolve_team_display_name(match.get("home_team", ""), match=match, side="home")
+        away = resolve_team_display_name(match.get("away_team", ""), match=match, side="away")
         body = (
             f"Escribí el resultado ({home}–{away}), ej: 0-1, 0:1 o 2-1.\n"
             "Luego podés sumar variables extendidas (Sí/No) o terminar.\n"

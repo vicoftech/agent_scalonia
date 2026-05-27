@@ -11,7 +11,7 @@ from src.dao.dynamo.match_dao import MatchDAO
 from src.dao.dynamo.prediction_dao import PredictionDAO
 from src.dao.dynamo.user_dao import UserDAO
 from src.services.auth_service import USER_STATUS_ACTIVE
-from src.services.team_flags import format_team
+from src.services.team_flags import format_match_heading, format_team
 
 DISPLAY_TZ = timezone(timedelta(hours=-3))
 GROUP_PHASE = frozenset({"GROUP"})
@@ -47,7 +47,9 @@ class PredictionService:
         self._groups = group_dao or GroupDAO()
         self._users = user_dao or UserDAO()
 
-    def format_match_title(self, match: dict) -> str:
+    def format_match_title(self, match: dict, *, full_names: bool = False) -> str:
+        if full_names:
+            return format_match_heading(match)
         return f"{format_team(match['home_team'])} vs {format_team(match['away_team'])}"
 
     def check_can_predict(self, user_id: str) -> tuple[bool, str]:
@@ -522,7 +524,7 @@ class PredictionService:
 
         text = format_prediction_brief(
             pred,
-            match_title=self.format_match_title(match),
+            match_title=self.format_match_title(match, full_names=True),
             group_name=gname,
             minutes_to_veda=self._minutes_to_veda(match),
             change_prompt=not locked,
@@ -561,7 +563,7 @@ class PredictionService:
         if self._veda_closed(match):
             gname = (self._groups.get_group(gid) or {}).get("name", gid)
             return (
-                f"🔒 {self.format_match_title(match)}\n"
+                f"🔒 {self.format_match_title(match, full_names=True)}\n"
                 f"👥 {gname}\n\n"
                 "La veda está activa y no tenés predicción guardada para este partido.",
                 None,
@@ -692,7 +694,7 @@ class PredictionService:
         if self._veda_closed(match):
             gname = (self._groups.get_group(gid) or {}).get("name", gid)
             return (
-                f"🔒 {self.format_match_title(match)}\n"
+                f"🔒 {self.format_match_title(match, full_names=True)}\n"
                 f"👥 {gname}\n\n"
                 "La veda está activa. No podés iniciar una predicción nueva.",
                 None,
