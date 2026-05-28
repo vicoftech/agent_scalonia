@@ -22,7 +22,12 @@ _LAMBDA_DIR = os.path.join(_REPO_ROOT, "infrastructure", "lambdas", "telegram_we
 if _LAMBDA_DIR not in sys.path:
     sys.path.insert(0, _LAMBDA_DIR)
 
-from bot_commands import ADMIN_COMMANDS, commands_for_user  # noqa: E402
+from bot_commands import (  # noqa: E402
+    ADMIN_MENU_EXTRA,
+    USER_MENU_COMMANDS,
+    commands_for_user,
+    sync_commands_for_chat,
+)
 
 TG_API = "https://api.telegram.org"
 SECRET_ID = os.environ.get("TELEGRAM_SECRET_ID", "SCALONIA_TELEGRAM_BOT_TOKEN")
@@ -37,11 +42,11 @@ def _token_from_secrets(profile: str | None, region: str) -> str:
     return sess.client("secretsmanager").get_secret_value(SecretId=SECRET_ID)["SecretString"]
 
 
-def _set_commands(token: str, commands: list[dict], scope: dict) -> dict:
-    body = json.dumps({"commands": commands, "scope": scope}).encode()
+def _api(token: str, method: str, body: dict) -> dict:
+    payload = json.dumps(body).encode()
     req = urllib.request.Request(
-        f"{TG_API}/bot{token}/setMyCommands",
-        data=body,
+        f"{TG_API}/bot{token}/{method}",
+        data=payload,
         headers={"Content-Type": "application/json"},
         method="POST",
     )
@@ -58,7 +63,13 @@ def main() -> None:
         "--admin-chat-id",
         type=int,
         default=0,
-        help="Chat id del admin para menú con trivia_admin y admin_grupos",
+        help="Chat id del admin para menú extendido (scope chat)",
+    )
+    p.add_argument(
+        "--user-chat-id",
+        type=int,
+        default=0,
+        help="Chat id de un usuario común para borrar menú admin viejo (deleteMyCommands)",
     )
     args = p.parse_args()
 
@@ -66,31 +77,35 @@ def main() -> None:
     if not token:
         token = _token_from_secrets(args.profile or None, args.region)
 
-    default_cmds = commands_for_user(is_admin=False)
-    data = _set_commands(token, default_cmds, {"type": "all_private_chats"})
+    public_cmds = commands_for_user(is_admin=False)
+    data = _api(
+        token,
+        "setMyCommands",
+        {"commands": public_cmds, "scope": {"type": "all_private_chats"}},
+    )
     if not data.get("ok"):
-        raise SystemExit(f"setMyCommands (default) falló: {data}")
+        raise SystemExit(f"setMyCommands (global) falló: {data}")
 
-    print(f"OK — menú global ({len(default_cmds)} comandos):")
-    for c in default_cmds:
+    print(f"OK — menú global usuario ({len(public_cmds)} comandos):")
+    for c in public_cmds:
         print(f"  /{c['command']} — {c['description']}")
 
     if args.admin_chat_id:
+        sync_commands_for_chat(token, int(args.admin_chat_id), is_admin=True)
         admin_cmds = commands_for_user(is_admin=True)
-        data2 = _set_commands(
-            token,
-            admin_cmds,
-            {"type": "chat", "chat_id": int(args.admin_chat_id)},
-        )
-        if not data2.get("ok"):
-            raise SystemExit(f"setMyCommands (admin chat) falló: {data2}")
-        admin_only = {x["command"] for x in ADMIN_COMMANDS}
+        admin_only = {x["command"] for x in ADMIN_MENU_EXTRA}
         print(f"\nOK — menú admin chat {args.admin_chat_id} ({len(admin_cmds)} comandos):")
         for c in admin_cmds:
-            suffix = " (admin)" if c["command"] in admin_only else ""
+            suffix = " [ADMIN]" if c["command"] in admin_only else ""
             print(f"  /{c['command']} — {c['description']}{suffix}")
 
-    print("\nEn Telegram: cerrá y reabrí el chat con el bot (o /help) para refrescar el menú /.")
+    if args.user_chat_id:
+        sync_commands_for_chat(token, int(args.user_chat_id), is_admin=False)
+        print(f"\nOK — menú usuario chat {args.user_chat_id} (scope chat borrado → menú global)")
+
+    print("\nEn Telegram: cerrá y reabrí el chat con el bot para ver el menú / actualizado.")
+    print(f"Versión menú: v{os.environ.get('BOT_COMMANDS_VERSION', '8')}")
+    print(f"Comandos usuario: {len(USER_MENU_COMMANDS)} | extra admin: {len(ADMIN_MENU_EXTRA)}")
 
 
 if __name__ == "__main__":

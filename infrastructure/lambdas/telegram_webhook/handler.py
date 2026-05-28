@@ -347,7 +347,7 @@ def handler(event: dict, context) -> dict:
         token = _get_token()
 
         if text.startswith("/start"):
-            from bot_commands import register_bot_commands
+            from bot_commands import sync_commands_for_chat
             from start_handler import handle_start_command
 
             platform_id_hash_start = hashlib.sha256(str(chat_id).encode()).hexdigest()
@@ -356,9 +356,9 @@ def handler(event: dict, context) -> dict:
             _prof_start = _UserDAOStart().get_by_platform_hash(
                 "TELEGRAM", platform_id_hash_start
             )
-            register_bot_commands(
+            sync_commands_for_chat(
                 token,
-                chat_id=chat_id,
+                int(chat_id),
                 is_admin=bool(_prof_start and _prof_start.get("is_admin")),
             )
             start_result = handle_start_command(chat_id, text)
@@ -435,11 +435,9 @@ def handler(event: dict, context) -> dict:
             text = mapped
 
         if user_id and profile and text.startswith("/"):
-            from shortcut_commands import should_refresh_bot_menu
+            from bot_commands import command_triggers_menu_sync, refresh_commands_for_chat
 
-            if should_refresh_bot_menu(text):
-                from bot_commands import refresh_commands_for_chat
-
+            if command_triggers_menu_sync(text):
                 refresh_commands_for_chat(
                     token,
                     int(chat_id),
