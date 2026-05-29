@@ -9,22 +9,44 @@ from src.dao.dynamo.brief_dao import MatchBriefDAO, TeamBriefDAO
 from src.dao.dynamo.match_dao import MatchDAO
 from src.services.team_flags import resolve_team_display_name
 
-_ACTIVE_STATUSES = frozenset({"SCHEDULED", "VEDA", "LIVE"})
+_ACTIVE_STATUSES = frozenset({"SCHEDULED", "VEDA", "LIVE", "FINISHED"})
+_REGENERATABLE = _ACTIVE_STATUSES
+
+
+def regenerate_finished_matches() -> bool:
+    """Si true, también regenera partidos FINISHED (no solo congelar)."""
+    return os.environ.get("BRIEF_REGENERATE_FINISHED", "true").lower() in (
+        "1",
+        "true",
+        "yes",
+    )
+
+
+def brief_match_phases() -> frozenset[str] | None:
+    """Fases a incluir (ej. GROUP). Vacío = todas."""
+    raw = os.environ.get("BRIEF_MATCH_PHASES", "").strip().upper()
+    if not raw or raw in ("*", "ALL"):
+        return None
+    return frozenset(p.strip() for p in raw.split(",") if p.strip())
 
 
 def is_unplayed_match(match: dict[str, Any]) -> bool:
     status = (match.get("status") or "").upper()
-    if status == "FINISHED" or match.get("brief_frozen"):
+    if status == "FINISHED" and not regenerate_finished_matches():
         return False
-    return status in _ACTIVE_STATUSES
+    return status in _REGENERATABLE
 
 
 def should_regenerate_match_brief(match: dict[str, Any]) -> bool:
-    if match.get("brief_frozen") or (match.get("status") or "").upper() == "FINISHED":
+    status = (match.get("status") or "").upper()
+    phases = brief_match_phases()
+    if phases is not None and (match.get("phase") or "").upper() not in phases:
         return False
-    if (match.get("status") or "").upper() not in _ACTIVE_STATUSES:
+    if status == "FINISHED":
+        return regenerate_finished_matches()
+    if status not in _ACTIVE_STATUSES:
         return False
-    return is_unplayed_match(match)
+    return True
 
 
 def _brief_enabled() -> bool:

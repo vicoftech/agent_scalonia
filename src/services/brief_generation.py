@@ -58,6 +58,12 @@ def match_brief_agent_prompt(
     match: dict,
     home_brief: dict,
     away_brief: dict,
+    *,
+    context_chars: int = 1800,
 ) -> str:
-    base = match_brief_prompt(match, home_brief, away_brief)
+    home = match.get("home_team", "")
+    away = match.get("away_team", "")
+    trimmed_home = {**home_brief, "brief_markdown": (home_brief.get("brief_markdown") or "")[:context_chars]}
+    trimmed_away = {**away_brief, "brief_markdown": (away_brief.get("brief_markdown") or "")[:context_chars]}
+    base = match_brief_prompt(match, trimmed_home, trimmed_away)
     return f"{base}\n\n{_NO_TOOLS}"

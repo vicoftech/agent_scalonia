@@ -203,15 +203,13 @@ class BriefOrchestrator:
 
     def _process_match(self, match: dict[str, Any]) -> str:
         match_id = str(match.get("match_id", ""))
-        status = (match.get("status") or "").upper()
-        existing = self._match_briefs.get_current(match_id)
-
-        if status == "FINISHED" or (existing and existing.get("brief_frozen")):
-            if existing and not existing.get("brief_frozen"):
-                self._match_briefs.freeze(match_id)
-            return "frozen"
-
         if not should_regenerate_match_brief(match):
+            logger.debug(
+                "skip match brief %s status=%s phase=%s",
+                match_id[:8],
+                match.get("status"),
+                match.get("phase"),
+            )
             return "skipped"
 
         home = (match.get("home_team") or "").upper()
@@ -229,29 +227,44 @@ class BriefOrchestrator:
         if not home_brief or not away_brief:
             return "skipped"
 
-        session_id = _agent_session_id(f"brief-match-{match_id[:16]}")
-        try:
-            raw = self._invoke(
-                match_brief_agent_prompt(match, home_brief, away_brief), session_id
+        last_raw = ""
+        for attempt in range(2):
+            session_id = _agent_session_id(
+                f"brief-match-{match_id[:12]}-a{attempt}"
             )
-            data = extract_json_object(raw)
-            normalized = normalize_match_brief(data, match_id=match_id, match=match)
-            line = normalized.get("ia_prediction_line") or ""
-            if not line.startswith("Dado el análisis previo me inclino por"):
-                home_name = resolve_team_display_name(home)
-                normalized["ia_prediction_line"] = (
-                    f"Dado el análisis previo me inclino por {home_name} como ganador del partido."
+            try:
+                raw = self._invoke(
+                    match_brief_agent_prompt(match, home_brief, away_brief),
+                    session_id,
                 )
-            normalized["team_brief_refs"] = {
-                "home": f"TEAM_BRIEF#{home}",
-                "away": f"TEAM_BRIEF#{away}",
-                "generated_at": home_brief.get("generated_at"),
-            }
-            self._match_briefs.put_current(match_id, normalized)
-            return "generated"
-        except Exception:
-            logger.exception("generate_match_brief failed match=%s", match_id[:8])
-            return "failed"
+                last_raw = raw
+                data = extract_json_object(raw)
+                normalized = normalize_match_brief(data, match_id=match_id, match=match)
+                line = normalized.get("ia_prediction_line") or ""
+                if not line.startswith("Dado el análisis previo me inclino por"):
+                    home_name = resolve_team_display_name(home)
+                    normalized["ia_prediction_line"] = (
+                        f"Dado el análisis previo me inclino por {home_name} "
+                        "como ganador del partido."
+                    )
+                normalized["team_brief_refs"] = {
+                    "home": f"TEAM_BRIEF#{home}",
+                    "away": f"TEAM_BRIEF#{away}",
+                    "generated_at": home_brief.get("generated_at"),
+                }
+                normalized["brief_frozen"] = False
+                self._match_briefs.put_current(match_id, normalized)
+                return "generated"
+            except Exception as exc:
+                logger.warning(
+                    "generate_match_brief attempt=%s match=%s err=%s preview=%s",
+                    attempt + 1,
+                    match_id[:8],
+                    exc,
+                    (last_raw or "")[:240].replace("\n", " "),
+                )
+        logger.exception("generate_match_brief failed match=%s", match_id[:8])
+        return "failed"
 
 
 def run_daily_brief_job(

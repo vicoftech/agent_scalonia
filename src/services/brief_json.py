@@ -20,6 +20,11 @@ def extract_json_object(text: str) -> dict[str, Any]:
         end = raw.rfind("```")
         if start >= 0 and end > start:
             raw = raw[start + 7 : end].strip()
+    elif "```" in raw:
+        start = raw.find("```")
+        end = raw.rfind("```")
+        if start >= 0 and end > start:
+            raw = raw[start + 3 : end].strip()
     else:
         start = raw.find("{")
         end = raw.rfind("}")

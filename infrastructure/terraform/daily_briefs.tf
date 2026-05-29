@@ -164,6 +164,7 @@ resource "aws_lambda_function" "daily_brief_orchestrator" {
         AGENTCORE_RUNTIME_ARN       = aws_bedrockagentcore_agent_runtime.prode.agent_runtime_arn
         AGENTCORE_RUNTIME_QUALIFIER = aws_bedrockagentcore_agent_runtime_endpoint.live.name
         BRIEF_CONCURRENCY           = "5"
+        BRIEF_REGENERATE_FINISHED   = "true"
       },
       module.kb.kb_query_lambda_name != "" ? {
         KB_QUERY_LAMBDA_NAME = module.kb.kb_query_lambda_name

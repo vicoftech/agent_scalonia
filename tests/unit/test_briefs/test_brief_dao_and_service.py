@@ -29,7 +29,12 @@ def test_truncate_markdown():
 
 
 def test_should_regenerate_skips_finished():
+    import os
+
+    os.environ["BRIEF_REGENERATE_FINISHED"] = "false"
     assert not should_regenerate_match_brief({"status": "FINISHED"})
+    os.environ["BRIEF_REGENERATE_FINISHED"] = "true"
+    assert should_regenerate_match_brief({"status": "FINISHED"})
     assert should_regenerate_match_brief({"status": "SCHEDULED"})
 
 
