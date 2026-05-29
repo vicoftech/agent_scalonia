@@ -55,7 +55,55 @@ def _read_stream(response: Any) -> str:
     else:
         body = stream.read().decode("utf-8", errors="replace") if hasattr(stream, "read") else str(stream)
 
-    return body.strip()
+    return _parse_agent_body(body)
+
+
+def _delta_text_from_ndjson(body: str) -> str:
+    """Extrae texto del stream AgentCore (contentBlockDelta)."""
+    parts: list[str] = []
+    for line in (body or "").splitlines():
+        line = line.strip()
+        if not line.startswith("{"):
+            continue
+        try:
+            ev = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(ev, dict):
+            continue
+        nested = ev.get("event")
+        if not isinstance(nested, dict):
+            continue
+        block = nested.get("contentBlockDelta")
+        if not isinstance(block, dict):
+            continue
+        delta = block.get("delta")
+        if not isinstance(delta, dict):
+            continue
+        text = delta.get("text")
+        if isinstance(text, str) and text:
+            parts.append(text)
+    return "".join(parts)
+
+
+def _parse_agent_body(body: str) -> str:
+    raw = (body or "").strip()
+    if not raw:
+        return ""
+    delta_joined = _delta_text_from_ndjson(raw)
+    if delta_joined.strip():
+        return delta_joined.strip()
+    try:
+        from stream_parse import parse_agent_stream_payload
+
+        parsed = parse_agent_stream_payload(raw, friendly_error=lambda r: str(r))
+        if parsed.strip():
+            return parsed.strip()
+    except ImportError:
+        pass
+    except Exception:
+        logger.exception("stream parse failed, using raw body")
+    return raw
 
 
 def make_invoke_agent(

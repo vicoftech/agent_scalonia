@@ -155,15 +155,23 @@ resource "aws_lambda_function" "daily_brief_orchestrator" {
   source_code_hash = local.daily_brief_hash
 
   environment {
-    variables = {
-      ENV                         = var.env
-      BRIEF_TABLE                 = aws_dynamodb_table.prode_brief[0].name
-      DYNAMODB_TABLE              = module.prode_table.dynamodb_table_id
-      ENABLE_DAILY_BRIEFS         = "true"
-      AGENTCORE_RUNTIME_ARN       = aws_bedrockagentcore_agent_runtime.prode.agent_runtime_arn
-      AGENTCORE_RUNTIME_QUALIFIER = aws_bedrockagentcore_agent_runtime_endpoint.live.name
-      BRIEF_CONCURRENCY           = "5"
-    }
+    variables = merge(
+      {
+        ENV                         = var.env
+        BRIEF_TABLE                 = aws_dynamodb_table.prode_brief[0].name
+        DYNAMODB_TABLE              = module.prode_table.dynamodb_table_id
+        ENABLE_DAILY_BRIEFS         = "true"
+        AGENTCORE_RUNTIME_ARN       = aws_bedrockagentcore_agent_runtime.prode.agent_runtime_arn
+        AGENTCORE_RUNTIME_QUALIFIER = aws_bedrockagentcore_agent_runtime_endpoint.live.name
+        BRIEF_CONCURRENCY           = "5"
+      },
+      module.kb.kb_query_lambda_name != "" ? {
+        KB_QUERY_LAMBDA_NAME = module.kb.kb_query_lambda_name
+      } : {},
+      var.tavily_secret_arn != "" ? {
+        TAVILY_SECRET_ARN = var.tavily_secret_arn
+      } : {},
+    )
   }
 
   depends_on = [null_resource.daily_brief_package]

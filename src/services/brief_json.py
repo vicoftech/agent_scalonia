@@ -12,18 +12,44 @@ def extract_json_object(text: str) -> dict[str, Any]:
     raw = (text or "").strip()
     if not raw:
         raise ValueError("empty agent response")
-    fence = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", raw, re.DOTALL | re.IGNORECASE)
+    fence = re.search(r"```(?:json)?\s*(\{.*\})\s*```", raw, re.DOTALL | re.IGNORECASE)
     if fence:
         raw = fence.group(1)
+    elif "```json" in raw:
+        start = raw.find("```json")
+        end = raw.rfind("```")
+        if start >= 0 and end > start:
+            raw = raw[start + 7 : end].strip()
     else:
         start = raw.find("{")
         end = raw.rfind("}")
         if start >= 0 and end > start:
             raw = raw[start : end + 1]
-    data = json.loads(raw)
-    if not isinstance(data, dict):
-        raise ValueError("expected JSON object")
-    return data
+    try:
+        data = json.loads(raw)
+        if isinstance(data, dict):
+            return data
+    except json.JSONDecodeError:
+        pass
+    decoder = json.JSONDecoder()
+    pos = 0
+    while pos < len(raw):
+        while pos < len(raw) and raw[pos].isspace():
+            pos += 1
+        if pos >= len(raw) or raw[pos] != "{":
+            break
+        try:
+            obj, idx = decoder.raw_decode(raw, pos)
+            if isinstance(obj, dict) and (
+                "team_code" in obj or "match_id" in obj or "brief_markdown" in obj
+            ):
+                return obj
+            pos += idx
+        except json.JSONDecodeError:
+            pos = raw.find("{", pos + 1)
+            if pos == -1:
+                break
+    raise ValueError("no JSON object found in agent response")
 
 
 def truncate_markdown(text: str, *, limit: int = MAX_BRIEF_MARKDOWN) -> str:

@@ -19,7 +19,11 @@ from src.services.brief_json import (
     normalize_match_brief,
     normalize_team_brief,
 )
-from src.services.brief_prompts import match_brief_prompt, team_brief_prompt
+from src.services.brief_generation import (
+    fetch_team_context,
+    match_brief_agent_prompt,
+    team_brief_agent_prompt,
+)
 from src.services.match_brief_service import should_regenerate_match_brief
 from src.services.team_flags import resolve_team_display_name
 
@@ -30,6 +34,14 @@ DISPLAY_TZ = timezone(timedelta(hours=-3))
 
 def _today_job_date() -> str:
     return datetime.now(DISPLAY_TZ).date().isoformat()
+
+
+def _agent_session_id(prefix: str) -> str:
+    """AgentCore exige runtimeSessionId con longitud >= 33."""
+    sid = f"{prefix}-{uuid.uuid4().hex}"
+    if len(sid) < 33:
+        sid = f"{prefix}-{uuid.uuid4().hex}-{uuid.uuid4().hex[:8]}"
+    return sid[:64]
 
 
 def _enabled() -> bool:
@@ -128,8 +140,9 @@ class BriefOrchestrator:
     def _generate_team(self, team_code: str) -> bool:
         code = team_code.strip().upper()
         name = resolve_team_display_name(code)
-        session_id = f"brief-team-{code}-{uuid.uuid4().hex[:8]}"
-        prompt = team_brief_prompt(code)
+        session_id = _agent_session_id(f"brief-team-{code}")
+        context = fetch_team_context(code)
+        prompt = team_brief_agent_prompt(code, context=context)
         try:
             raw = self._invoke(prompt, session_id)
             data = extract_json_object(raw)
@@ -197,9 +210,11 @@ class BriefOrchestrator:
         if not home_brief or not away_brief:
             return "skipped"
 
-        session_id = f"brief-match-{match_id[:12]}-{uuid.uuid4().hex[:6]}"
+        session_id = _agent_session_id(f"brief-match-{match_id[:16]}")
         try:
-            raw = self._invoke(match_brief_prompt(match, home_brief, away_brief), session_id)
+            raw = self._invoke(
+                match_brief_agent_prompt(match, home_brief, away_brief), session_id
+            )
             data = extract_json_object(raw)
             normalized = normalize_match_brief(data, match_id=match_id, match=match)
             line = normalized.get("ia_prediction_line") or ""
