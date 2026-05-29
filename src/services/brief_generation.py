@@ -15,9 +15,14 @@ _NO_TOOLS = (
 )
 
 
-def _trim(text: str, limit: int = 14000) -> str:
+def _team_context_limit() -> int:
+    return int(os.environ.get("BRIEF_TEAM_CONTEXT_CHARS", "8000"))
+
+
+def _trim(text: str, limit: int | None = None) -> str:
+    cap = limit if limit is not None else _team_context_limit()
     t = (text or "").strip()
-    return t[:limit] if len(t) > limit else t
+    return t[:cap] if len(t) > cap else t
 
 
 def fetch_team_context(team_code: str) -> str:

@@ -3,7 +3,7 @@
 | Campo | Valor |
 |-------|--------|
 | **SPEC-ID** | SPEC-2026-046 |
-| **Estado** | **Especificado** — pendiente implementación |
+| **Estado** | **Implementado** |
 | **Sprint** | Sprint 3–4 |
 | **Depende de** | SPEC-011 (Telegram), SPEC-018 (usuarios ACTIVE), grupo `GLOBAL`, fixture `MATCH#`, `web_search_tool` / AgentCore (curación) |
 | **Referencia UX** | Canal tipo **Pulso IA** (imagen + titular + resumen + metadatos + hashtags + botones inline) |

@@ -90,6 +90,34 @@ def _send_message(
             break
 
 
+def _send_photo(
+    chat_id: int,
+    photo: str,
+    caption: str,
+    token: str,
+    *,
+    reply_markup: dict | None = None,
+) -> None:
+    """sendPhoto con caption HTML — SPEC-2026-046."""
+    cap = caption[:1024] if len(caption) > 1024 else caption
+    body: dict[str, Any] = {
+        "chat_id": chat_id,
+        "photo": photo,
+        "caption": cap,
+        "parse_mode": "HTML",
+    }
+    if reply_markup:
+        body["reply_markup"] = reply_markup
+    for attempt in range(3):
+        code, j = _post_json(f"{TG_API}/bot{token}/sendPhoto", body)
+        if code == 429:
+            time.sleep(float(j.get("parameters", {}).get("retry_after", 2)))
+            continue
+        if code >= 400:
+            logger.warning("sendPhoto failed code=%s desc=%s", code, j.get("description"))
+        break
+
+
 def _friendly_agent_error(reason: str) -> str:
     low = reason.lower()
     if "model identifier is invalid" in low:
@@ -197,6 +225,31 @@ def _handle_callback_query(callback: dict, ok: dict) -> dict:
 
         token = _get_token()
 
+        if data.startswith("news:"):
+            cb_id = callback.get("id")
+            if data.startswith("news:like:"):
+                from news_callbacks import handle_news_callback
+
+                handle_news_callback(
+                    user_id,
+                    data,
+                    callback_query_id=cb_id,
+                    chat_id=int(chat_id),
+                    message=callback.get("message") or {},
+                )
+            else:
+                from news_commands import handle_news_admin_callback
+
+                result = handle_news_admin_callback(
+                    user_id,
+                    data,
+                    callback_query_id=cb_id,
+                )
+                if result:
+                    reply, markup = result
+                    if reply:
+                        _send_message(chat_id, reply, token, reply_markup=markup)
+            return ok
         if data.startswith("trv:"):
             from trivia_commands import handle_trivia_callback
 
@@ -557,6 +610,16 @@ def handler(event: dict, context) -> dict:
                 return ok
         except Exception:
             logger.exception("daily_trivia_prefetch failed")
+
+        try:
+            from news_commands import handle_news_command
+
+            news_reply, news_markup = handle_news_command(user_id, text)
+            if news_reply:
+                _send_message(chat_id, news_reply, token, reply_markup=news_markup)
+                return ok
+        except Exception:
+            logger.exception("news_commands failed")
 
         try:
             from trivia_commands import handle_trivia_command

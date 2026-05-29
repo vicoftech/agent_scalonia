@@ -179,6 +179,12 @@ resource "aws_lambda_function" "telegram_webhook" {
         BRIEF_TABLE         = aws_dynamodb_table.prode_brief[0].name
         ENABLE_DAILY_BRIEFS = "true"
       } : {},
+      var.enable_world_cup_news ? {
+        ENABLE_WORLD_CUP_NEWS  = "true"
+        NEWS_REDIRECT_BASE_URL = trimsuffix(aws_apigatewayv2_stage.default.invoke_url, "/")
+        NEWS_REDIRECT_SECRET   = random_password.news_redirect_secret[0].result
+        TAVILY_SECRET_ARN      = var.tavily_secret_arn
+      } : {},
     )
   }
 

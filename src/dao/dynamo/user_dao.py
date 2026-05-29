@@ -273,6 +273,31 @@ class UserDAO:
             targets.append({"user_id": uid, "tg_chat_id": int(chat_id)})
         return targets
 
+    def list_news_delivery_targets(self) -> list[dict[str, Any]]:
+        """ACTIVE + Telegram + notificaciones — SPEC-2026-046."""
+        targets: list[dict[str, Any]] = []
+        scan_kwargs: dict[str, Any] = {
+            "FilterExpression": (
+                Attr("sort_key").eq("PROFILE")
+                & Attr("status").eq("ACTIVE")
+                & Attr("tg_chat_id").exists()
+            ),
+            "ProjectionExpression": "user_id, tg_chat_id, notifications_enabled",
+        }
+        while True:
+            resp = self._table.scan(**scan_kwargs)
+            for item in resp.get("Items", []):
+                if item.get("notifications_enabled") is False:
+                    continue
+                chat_id = item.get("tg_chat_id")
+                uid = item.get("user_id")
+                if uid and chat_id is not None:
+                    targets.append({"user_id": uid, "tg_chat_id": int(chat_id)})
+            if not resp.get("LastEvaluatedKey"):
+                break
+            scan_kwargs["ExclusiveStartKey"] = resp["LastEvaluatedKey"]
+        return targets
+
     def get_answered_question_fingerprints(self, user_id: str) -> set[str]:
         profile = self.get_profile(user_id) or {}
         raw = profile.get("trivia_answered_fps") or []

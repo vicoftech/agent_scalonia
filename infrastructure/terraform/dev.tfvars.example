@@ -76,6 +76,7 @@ tavily_secret_arn = "arn:aws:secretsmanager:us-east-1:ACCOUNT_ID:secret:prode-mu
 
 # SPEC-045 — briefs diarios 09:00 ART (48 selecciones + partidos sin jugar)
 # enable_daily_briefs = true
+# enable_world_cup_news = true   # noticias Telegram 11/17 ART + LIVE poller + redirect
 # Tras apply: python3 scripts/run_daily_briefs.py --env dev --team MEX --match <uuid> --force
 
 # SPEC-032 — schedules por partido (trivia, reminders, veda, result, scoring)

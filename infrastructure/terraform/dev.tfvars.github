@@ -1,9 +1,3 @@
-# =============================================================================
-# Plantilla DEV_TFVARS para GitHub Actions (secret: DEV_TFVARS)
-# NO commitear con secretos reales si cambiás ARNs — este archivo es referencia.
-# Copiar contenido → Settings → Secrets → Environment "development" → DEV_TFVARS
-# =============================================================================
-
 env                       = "dev"
 aws_region                = "us-east-1"
 aws_profile               = ""
@@ -28,10 +22,12 @@ enable_result_queues    = true
 enable_result_collector = true
 enable_match_schedules  = true
 
-# SPEC-041 — ciclo comprimido ~4.5 min (solo dev; no usar en prod)
 enable_match_lifecycle_sandbox = true
 
 enable_invitation_notify_queue = false
+
+enable_daily_briefs   = true
+enable_world_cup_news = true
 
 rds_proxy_endpoint            = "aurora-pg-asap-dev.cluster-cgxq84qu0b72.us-east-1.rds.amazonaws.com"
 db_name                       = "postgres"

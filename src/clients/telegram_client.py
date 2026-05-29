@@ -134,3 +134,36 @@ def send_telegram_message(
             raise RuntimeError(f"Telegram sendMessage failed code={code}: {desc}")
         else:
             raise RuntimeError("Telegram sendMessage failed after retries")
+
+
+def send_telegram_photo(
+    chat_id: int,
+    photo: str,
+    caption: str,
+    token: str,
+    *,
+    reply_markup: dict[str, Any] | None = None,
+) -> None:
+    """sendPhoto con caption HTML — SPEC-2026-046."""
+    cap = caption[:1024] if len(caption) > 1024 else caption
+    body: dict[str, Any] = {
+        "chat_id": int(chat_id),
+        "photo": photo,
+        "caption": cap,
+        "parse_mode": "HTML",
+    }
+    if reply_markup:
+        body["reply_markup"] = reply_markup
+    for attempt in range(3):
+        try:
+            code, resp = _post_json(f"{TG_API}/bot{token}/sendPhoto", body)
+        except httpx.HTTPError as exc:
+            raise RuntimeError(f"Telegram HTTP error: {exc}") from exc
+        if code == 200 and resp.get("ok"):
+            return
+        if code == 429:
+            time.sleep(float(resp.get("parameters", {}).get("retry_after", 2)))
+            continue
+        desc = resp.get("description", resp)
+        raise RuntimeError(f"Telegram sendPhoto failed code={code}: {desc}")
+    raise RuntimeError("Telegram sendPhoto failed after retries")
