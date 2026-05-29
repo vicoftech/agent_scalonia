@@ -123,6 +123,14 @@ data "aws_iam_policy_document" "world_cup_news_inline" {
       resources = [var.tavily_secret_arn]
     }
   }
+
+  statement {
+    sid = "BedrockNewsTranslate"
+    actions = [
+      "bedrock:InvokeModel",
+    ]
+    resources = ["*"]
+  }
 }
 
 resource "aws_iam_role_policy" "world_cup_news" {

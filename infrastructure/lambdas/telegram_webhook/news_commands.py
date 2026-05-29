@@ -108,22 +108,28 @@ def _local_today_iso() -> str:
     return datetime.now(DISPLAY_TZ).date().isoformat()
 
 
-def _exclude_hashes_for_admin(user_id: str, *, refresh: bool = False) -> set[str]:
+def _exclude_for_admin(user_id: str, *, refresh: bool = False) -> tuple[set[str], set[str]]:
     from src.dao.dynamo.news_dao import NewsDAO
     from src.dao.dynamo.user_dao import UserDAO
+    from src.services.news_curation_service import headline_fingerprint
 
     run_date = _local_today_iso()
-    exclude = {
-        n.get("url_hash")
-        for n in NewsDAO().list_published_on_date(run_date)
-        if n.get("url_hash")
+    items = NewsDAO().list_published_on_date(run_date)
+    url_hashes = {n.get("url_hash") for n in items if n.get("url_hash")}
+    headline_fps = {
+        headline_fingerprint(str(n.get("headline") or ""))
+        for n in items
+        if n.get("headline")
     }
     if refresh:
         profile = UserDAO().get_profile(user_id) or {}
         draft = _get_draft(profile)
-        if draft and draft.get("url_hash"):
-            exclude.add(draft["url_hash"])
-    return exclude
+        if draft:
+            if draft.get("url_hash"):
+                url_hashes.add(draft["url_hash"])
+            if draft.get("headline"):
+                headline_fps.add(headline_fingerprint(str(draft["headline"])))
+    return url_hashes, headline_fps
 
 
 def _curate_admin_draft(user_id: str, *, refresh: bool = False) -> tuple[str, dict | None]:
@@ -137,8 +143,11 @@ def _curate_admin_draft(user_id: str, *, refresh: bool = False) -> tuple[str, di
             "Usá /noticia https://… o pegá el texto de la noticia.",
             None,
         )
-    exclude = _exclude_hashes_for_admin(user_id, refresh=refresh)
-    curated = NewsCurationService().curate_fresh(exclude_url_hashes=exclude)
+    exclude_urls, exclude_fps = _exclude_for_admin(user_id, refresh=refresh)
+    curated = NewsCurationService().curate_fresh(
+        exclude_url_hashes=exclude_urls,
+        exclude_headline_fps=exclude_fps,
+    )
     if not curated:
         return (
             "No encontré una noticia nueva en fuentes confiables.\n"

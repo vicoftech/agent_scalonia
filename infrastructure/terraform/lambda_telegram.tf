@@ -21,6 +21,8 @@ locals {
     "${local.telegram_repo_root}/src/fixtures/${f}" if !endswith(f, "/") && !strcontains(f, "__pycache__")],
     [for f in sort(fileset("${local.telegram_repo_root}/src/jobs", "**")) :
     "${local.telegram_repo_root}/src/jobs/${f}" if !endswith(f, "/") && !strcontains(f, "__pycache__")],
+    [for f in sort(fileset("${local.telegram_repo_root}/src/clients", "**")) :
+    "${local.telegram_repo_root}/src/clients/${f}" if !endswith(f, "/") && !strcontains(f, "__pycache__")],
   )
   telegram_webhook_py_files = sort(fileset("${local.telegram_lambda_dir}", "*.py"))
   telegram_lambda_hash = sha256(join("", concat(
@@ -122,6 +124,17 @@ data "aws_iam_policy_document" "telegram_webhook_inline" {
       aws_bedrockagentcore_agent_runtime.prode.agent_runtime_arn,
       aws_bedrockagentcore_agent_runtime_endpoint.live.agent_runtime_endpoint_arn,
     ]
+  }
+
+  dynamic "statement" {
+    for_each = var.enable_world_cup_news ? [1] : []
+    content {
+      sid = "BedrockNewsTranslate"
+      actions = [
+        "bedrock:InvokeModel",
+      ]
+      resources = ["*"]
+    }
   }
 
   dynamic "statement" {

@@ -143,10 +143,19 @@ class WorldCupNewsService:
         run_date: str,
         force: bool,
     ) -> dict[str, Any]:
-        exclude = {n.get("url_hash") for n in self._news.list_published_on_date(run_date) if n.get("url_hash")}
+        from src.services.news_curation_service import headline_fingerprint
+
+        published = self._news.list_published_on_date(run_date)
+        exclude_urls = {n.get("url_hash") for n in published if n.get("url_hash")}
+        exclude_fps = {
+            headline_fingerprint(str(n.get("headline") or ""))
+            for n in published
+            if n.get("headline")
+        }
         curated = self._curation.curate_for_slot(
             slot,
-            exclude_url_hashes=exclude,
+            exclude_url_hashes=exclude_urls,
+            exclude_headline_fps=exclude_fps,
             run_date=run_date,
         )
         if not curated:

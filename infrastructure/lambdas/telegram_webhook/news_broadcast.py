@@ -1,10 +1,8 @@
-"""Re-export broadcast para handler Telegram — SPEC-2026-046."""
+"""Broadcast noticias vía webhook Telegram — SPEC-2026-046."""
 from __future__ import annotations
 
 from collections.abc import Callable
 from typing import Any
-
-from src.services.news_broadcast import broadcast_news_to_targets
 
 
 def broadcast_news_message(
@@ -47,4 +45,4 @@ def broadcast_news_message(
     return sent, max(0, len(delivery_targets) - sent)
 
 
-__all__ = ["broadcast_news_message", "broadcast_news_to_targets"]
+__all__ = ["broadcast_news_message"]
