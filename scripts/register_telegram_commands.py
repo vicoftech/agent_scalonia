@@ -43,15 +43,12 @@ def _token_from_secrets(profile: str | None, region: str) -> str:
 
 
 def _api(token: str, method: str, body: dict) -> dict:
-    payload = json.dumps(body).encode()
-    req = urllib.request.Request(
-        f"{TG_API}/bot{token}/{method}",
-        data=payload,
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
-    with urllib.request.urlopen(req, timeout=15) as resp:
-        return json.loads(resp.read().decode())
+    from bot_commands import _post_telegram_api
+
+    code, resp = _post_telegram_api(token, method, body)
+    if code != 200 or not resp.get("ok"):
+        raise RuntimeError(f"{method} failed ({code}): {resp}")
+    return resp
 
 
 def main() -> None:

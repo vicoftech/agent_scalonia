@@ -4,7 +4,7 @@ Telegram solo acepta nombres con a-z, 0-9 y _. Los handlers aceptan
 también guiones (/crear-grupo) por compatibilidad.
 
 Menú público (botón /): atajos del teclado + start, help, trivia.
-Menú admin: scope chat_member + chat (con language_code es) para clientes en español.
+Menú admin: scope chat + language_code es (clientes en español).
 Comandos fuera del menú (/predecir, /invitar, …) siguen activos si se escriben.
 """
 from __future__ import annotations
@@ -85,18 +85,41 @@ def command_triggers_menu_sync(text: str) -> bool:
 
 
 def _post_telegram_api(token: str, method: str, body: dict) -> tuple[int, dict]:
-    from handler import TG_API, _post_json
+    """HTTP a Telegram; no importa handler (evita env vars en scripts locales)."""
+    import json
+    import ssl
+    import urllib.error
+    import urllib.request
 
-    return _post_json(f"{TG_API}/bot{token}/{method}", body, timeout=10)
+    tg_api = "https://api.telegram.org"
+    payload = json.dumps(body).encode()
+    req = urllib.request.Request(
+        f"{tg_api}/bot{token}/{method}",
+        data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        import certifi
+
+        ctx = ssl.create_default_context(cafile=certifi.where())
+    except ImportError:
+        ctx = ssl.create_default_context()
+    try:
+        with urllib.request.urlopen(req, timeout=10, context=ctx) as resp:
+            return resp.status, json.loads(resp.read().decode())
+    except urllib.error.HTTPError as e:
+        raw = e.read().decode() if e.fp else "{}"
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError:
+            data = {"ok": False, "description": raw}
+        return e.code, data
 
 
 def _private_chat_scopes(chat_id: int) -> list[dict[str, Any]]:
-    """Scopes para un chat privado usuario↔bot (chat_id = user_id)."""
-    cid = int(chat_id)
-    return [
-        {"type": "chat_member", "chat_id": cid, "user_id": cid},
-        {"type": "chat", "chat_id": cid},
-    ]
+    """Scope chat en DM con el bot (chat_member no aplica en privados)."""
+    return [{"type": "chat", "chat_id": int(chat_id)}]
 
 
 def _set_commands_for_scope(
