@@ -129,9 +129,9 @@ data "aws_iam_policy_document" "telegram_webhook_inline" {
   dynamic "statement" {
     for_each = var.enable_world_cup_news ? [1] : []
     content {
-      sid = "BedrockNewsTranslate"
+      sid = "NewsTranslate"
       actions = [
-        "bedrock:InvokeModel",
+        "translate:TranslateText",
       ]
       resources = ["*"]
     }

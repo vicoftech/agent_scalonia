@@ -93,3 +93,7 @@ def test_looks_english_and_translate():
     assert h == "Sorteo del Mundial 2026"
     assert "FIFA" in s
     set_translate_fn(None)
+
+
+def test_looks_english_fifa_headline():
+    assert looks_english("FIFA World Cup 2026: Everything you need to know")

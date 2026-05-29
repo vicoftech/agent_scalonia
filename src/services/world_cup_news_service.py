@@ -177,14 +177,20 @@ class WorldCupNewsService:
         )
 
     def publish_admin(self, admin_user_id: str, draft: dict[str, Any]) -> dict[str, Any]:
+        from src.services.news_translation import translate_if_english
+
         news_id = str(uuid.uuid4())
         url = (draft.get("article_url") or "").strip()
         if not url:
             raise ValueError("article_url required")
+        headline, summary = translate_if_english(
+            str(draft.get("headline") or "Noticia"),
+            str(draft.get("summary") or ""),
+        )
         item = {
             "news_id": news_id,
-            "headline": draft.get("headline") or "Noticia",
-            "summary": draft.get("summary") or "",
+            "headline": headline,
+            "summary": summary,
             "article_url": url,
             "url_hash": draft.get("url_hash"),
             "image_url": draft.get("image_url") or _fallback_image(),

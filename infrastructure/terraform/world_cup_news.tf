@@ -125,9 +125,9 @@ data "aws_iam_policy_document" "world_cup_news_inline" {
   }
 
   statement {
-    sid = "BedrockNewsTranslate"
+    sid = "NewsTranslate"
     actions = [
-      "bedrock:InvokeModel",
+      "translate:TranslateText",
     ]
     resources = ["*"]
   }

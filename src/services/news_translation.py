@@ -1,28 +1,26 @@
 """Traducción ES de titular/resumen para noticias en inglés — SPEC-2026-046."""
 from __future__ import annotations
 
-import json
 import logging
-import os
 import re
-from typing import Any, Callable
+from typing import Callable
 
 logger = logging.getLogger(__name__)
 
-_TRANSLATE_MODEL = os.environ.get(
-    "BEDROCK_NEWS_TRANSLATE_MODEL_ID",
-    "us.anthropic.claude-3-5-haiku-20241022-v1:0",
-)
-_REGION = os.environ.get("AWS_REGION", "us-east-1")
+_REGION = __import__("os").environ.get("AWS_REGION", "us-east-1")
 
 _translate_fn: Callable[[str, str], tuple[str, str] | None] | None = None
 
 _SPANISH_MARKERS = re.compile(
-    r"\b(el|la|los|las|del|al|una|uno|que|con|por|para|selección|seleccion|mundial|partido|gol|goles)\b",
+    r"\b(el|la|los|las|del|al|de|en|que|con|por|para|una|uno|selección|seleccion|mundial|partido|gol|goles|anunció|anuncio|convocatoria)\b",
     re.I,
 )
 _ENGLISH_MARKERS = re.compile(
-    r"\b(the|and|for|with|will|has|have|team|teams|cup|world|match|goal|goals|squad|injury|preview)\b",
+    r"\b(the|and|for|with|will|has|have|team|teams|cup|world|match|goal|goals|squad|injury|preview|draw|group|groups|roster|announced|schedule)\b",
+    re.I,
+)
+_ENGLISH_TOPIC = re.compile(
+    r"\b(FIFA|World Cup|draw|squad|roster|injury|preview|matchday|knockout|group stage)\b",
     re.I,
 )
 
@@ -38,79 +36,52 @@ def looks_english(text: str) -> bool:
         return False
     if re.search(r"[áéíóúñ¿¡]", blob, re.I):
         return False
-    es = len(_SPANISH_MARKERS.findall(blob))
+    if _SPANISH_MARKERS.search(blob):
+        return False
     en = len(_ENGLISH_MARKERS.findall(blob))
-    if en >= 2 and en > es:
+    if en >= 1:
+        return True
+    if _ENGLISH_TOPIC.search(blob):
         return True
     letters = re.findall(r"[a-zA-Z]", blob)
     if not letters:
         return False
     ascii_ratio = sum(1 for c in letters if ord(c) < 128) / len(letters)
-    return ascii_ratio > 0.98 and en >= 1 and es == 0
+    return ascii_ratio > 0.98 and not _SPANISH_MARKERS.search(blob)
 
 
-def _extract_json(text: str) -> dict[str, Any] | None:
-    text = (text or "").strip()
-    if text.startswith("{"):
-        try:
-            return json.loads(text)
-        except json.JSONDecodeError:
-            pass
-    m = re.search(r"\{.*\}", text, re.DOTALL)
-    if m:
-        try:
-            return json.loads(m.group(0))
-        except json.JSONDecodeError:
-            return None
-    return None
-
-
-def _bedrock_translate(headline: str, summary: str) -> tuple[str, str] | None:
+def _aws_translate_text(text: str) -> str | None:
     import boto3
 
-    prompt = (
-        "Traducí al español rioplatense solo el titular y el resumen de esta noticia del Mundial 2026.\n"
-        "No inventes datos. Respondé SOLO JSON:\n"
-        '{"headline":"...","summary":"..."}\n\n'
-        f"TITULAR:\n{headline}\n\nRESUMEN:\n{summary}"
-    )
+    chunk = (text or "").strip()
+    if not chunk:
+        return None
     try:
-        client = boto3.client("bedrock-runtime", region_name=_REGION)
-        resp = client.invoke_model(
-            modelId=_TRANSLATE_MODEL,
-            body=json.dumps(
-                {
-                    "anthropic_version": "bedrock-2023-05-31",
-                    "max_tokens": 512,
-                    "temperature": 0,
-                    "messages": [{"role": "user", "content": prompt}],
-                }
-            ),
+        client = boto3.client("translate", region_name=_REGION)
+        resp = client.translate_text(
+            Text=chunk[:4500],
+            SourceLanguageCode="auto",
+            TargetLanguageCode="es",
         )
-        body = json.loads(resp["body"].read())
-        text = body.get("content", [{}])[0].get("text", "")
-        data = _extract_json(text)
-        if not data:
-            return None
-        h = str(data.get("headline") or "").strip()
-        s = str(data.get("summary") or "").strip()
-        if h and s:
-            return h, s
+        out = (resp.get("TranslatedText") or "").strip()
+        return out or None
     except Exception:
-        logger.exception("news translate bedrock failed")
-    return None
+        logger.exception("news translate aws failed")
+        return None
 
 
 def translate_if_english(headline: str, summary: str) -> tuple[str, str]:
-    """Traduce titular y resumen si el texto parece inglés; si falla, devuelve original."""
+    """Traduce titular y resumen si el texto parece inglés (Amazon Translate)."""
     h, s = (headline or "").strip(), (summary or "").strip()
-    if not looks_english(f"{h} {s}"):
+    blob = f"{h} {s}".strip()
+    if not blob or not looks_english(blob):
         return h, s
     if _translate_fn:
         out = _translate_fn(h, s)
         if out:
             return out
-    out = _bedrock_translate(h, s)
-    if out:
-        return out
+    th = _aws_translate_text(h)
+    ts = _aws_translate_text(s) if s else th
+    if th:
+        return th, ts or th
     return h, s

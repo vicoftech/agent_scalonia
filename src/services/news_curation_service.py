@@ -224,20 +224,20 @@ class NewsCurationService:
         content = (row.get("content") or "").strip()
         if len(title) < 12:
             return None
-        headline, summary = _finalize_text_fields(title, _normalize_summary(content))
+        summary = _normalize_summary(content)
         domain = domain_from_url(url)
         return {
-            "headline": headline,
+            "headline": title,
             "summary": summary,
             "article_url": url,
             "url_hash": url_hash(url),
-            "headline_fp": headline_fingerprint(headline),
+            "headline_fp": headline_fingerprint(title),
             "image_url": row.get("image") or row.get("og_image") or "",
             "category": "Mundial 2026",
-            "subcategory": _pick_subcategory(headline, summary),
+            "subcategory": _pick_subcategory(title, summary),
             "source_label": _source_label(domain),
             "relevance_score": _score_candidate(
-                headline,
+                title,
                 summary,
                 url,
                 slot=slot,
@@ -316,6 +316,10 @@ class NewsCurationService:
             reverse=True,
         )
         best = candidates[0]
+        best["headline"], best["summary"] = _finalize_text_fields(
+            best["headline"], best["summary"]
+        )
+        best["subcategory"] = _pick_subcategory(best["headline"], best["summary"])
         best.pop("headline_fp", None)
         if run_date:
             best["run_date"] = run_date
