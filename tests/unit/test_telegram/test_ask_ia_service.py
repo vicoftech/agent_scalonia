@@ -176,3 +176,52 @@ def test_admin_grant_requires_admin():
     with patch("src.services.auth_service.AuthService") as auth:
         auth.return_value.is_admin_global.return_value = False
         assert "administrador" in svc.admin_grant("u1", "toti", 5).lower()
+
+
+def test_admin_grant_notifies_recipient():
+    from unittest.mock import patch
+
+    store = {
+        "user_id": "u2",
+        "alias": "vic",
+        "status": "ACTIVE",
+        "ai_bonus_credits": 0,
+        "ai_daily_remaining": 5,
+        "ai_credits_reset_date": datetime.now(DISPLAY_TZ).date().isoformat(),
+        "tg_chat_id": 999888777,
+    }
+    svc = _svc(profile_store=store)
+    with (
+        patch("src.services.auth_service.AuthService") as auth,
+        patch("src.clients.telegram_client.send_telegram_message") as send,
+        patch("src.clients.telegram_client.get_bot_token", return_value="tok"),
+    ):
+        auth.return_value.is_admin_global.return_value = True
+        msg = svc.admin_grant("admin1", "vic", 10)
+    assert "notificó" in msg.lower()
+    send.assert_called_once()
+    body = send.call_args[0][1]
+    assert "+10" in body
+    assert "999888777" == str(send.call_args[0][0])
+
+
+def test_admin_grant_skips_notify_without_chat_id():
+    from unittest.mock import patch
+
+    store = {
+        "user_id": "u2",
+        "alias": "vic",
+        "status": "ACTIVE",
+        "ai_bonus_credits": 0,
+        "ai_daily_remaining": 5,
+        "ai_credits_reset_date": datetime.now(DISPLAY_TZ).date().isoformat(),
+    }
+    svc = _svc(profile_store=store)
+    with (
+        patch("src.services.auth_service.AuthService") as auth,
+        patch("src.clients.telegram_client.send_telegram_message") as send,
+    ):
+        auth.return_value.is_admin_global.return_value = True
+        msg = svc.admin_grant("admin1", "vic", 3)
+    send.assert_not_called()
+    assert "/start" in msg

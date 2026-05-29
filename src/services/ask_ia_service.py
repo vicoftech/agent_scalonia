@@ -1,6 +1,7 @@
 """Ask IA — créditos diarios, sesión AgentCore, upgrade por comprobante (SPEC-2026-043)."""
 from __future__ import annotations
 
+import logging
 import os
 import uuid
 from collections.abc import Callable
@@ -9,6 +10,8 @@ from typing import Any
 
 from src.dao.dynamo.ia_purchase_dao import IaPurchaseDAO
 from src.dao.dynamo.user_dao import UserDAO
+
+logger = logging.getLogger(__name__)
 
 DISPLAY_TZ = timezone(timedelta(hours=-3))
 
@@ -322,6 +325,36 @@ class AskIaService:
             f"Usá /ask_ia cuando quieras."
         )
 
+    def _notify_bonus_grant(
+        self, profile: dict[str, Any], amount: int, total: int
+    ) -> bool:
+        if profile.get("notifications_enabled") is False:
+            return False
+        chat_id = profile.get("tg_chat_id")
+        if chat_id is None:
+            return False
+        alias = (profile.get("alias") or "jugador").strip()
+        if amount >= 0:
+            credit_line = f"Te acreditamos +{amount} consultas Ask IA"
+        else:
+            credit_line = f"Se ajustaron {amount} consultas Ask IA en tu cuenta"
+        text = (
+            f"🎁 {credit_line} (@{alias}).\n"
+            f"Total disponible: {total}.\n"
+            "Usá /ask_ia cuando quieras."
+        )
+        try:
+            from src.clients.telegram_client import get_bot_token, send_telegram_message
+
+            send_telegram_message(int(chat_id), text, get_bot_token())
+            return True
+        except Exception:
+            logger.exception(
+                "ask_ia grant notify failed user=%s",
+                str(profile.get("user_id", ""))[:8],
+            )
+            return False
+
     def admin_grant(self, admin_id: str, alias: str, amount: int) -> str:
         from src.services.auth_service import AuthService
 
@@ -340,7 +373,15 @@ class AskIaService:
         self._users.update_profile(uid, ai_bonus_credits=bonus)
         profile = self.ensure_daily_reset(uid)
         total = self.credits_available(profile)
-        return (
-            f"✅ +{amount} consultas bonus para @{profile.get('alias', alias)}.\n"
-            f"Total disponible: {total}."
-        )
+        sign = "+" if amount >= 0 else ""
+        lines = [
+            f"✅ {sign}{amount} consultas bonus para @{profile.get('alias', alias)}.",
+            f"Total disponible: {total}.",
+        ]
+        if self._notify_bonus_grant(profile, int(amount), total):
+            lines.append("📲 Se notificó al usuario por Telegram.")
+        elif profile.get("tg_chat_id") is None:
+            lines.append(
+                "⚠️ Sin chat de Telegram registrado: el usuario debe enviar /start al bot."
+            )
+        return "\n".join(lines)
