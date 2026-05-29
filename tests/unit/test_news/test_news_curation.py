@@ -7,7 +7,12 @@ from src.services.news_curation_service import (
     NewsCurationService,
     headline_fingerprint,
 )
-from src.services.news_translation import looks_english, set_translate_fn, translate_if_english
+from src.services.news_translation import (
+    looks_english,
+    set_translate_fn,
+    should_translate,
+    translate_if_english,
+)
 
 
 def test_headline_fingerprint_stable():
@@ -40,7 +45,7 @@ def test_curate_fresh_merges_queries_and_picks_tier1():
         patch("src.services.news_curation_service._search_tavily", return_value=rows),
         patch(
             "src.services.news_curation_service.translate_if_english",
-            side_effect=lambda h, s: (h, s),
+            side_effect=lambda h, s, **_: (h, s),
         ),
     ):
         out = svc.curate_fresh()
@@ -79,6 +84,18 @@ def test_curate_fresh_skips_duplicate_headline_fp():
 def test_curate_fresh_returns_none_without_tavily():
     with patch("src.services.news_curation_service.is_tavily_configured", return_value=False):
         assert NewsCurationService().curate_fresh() is None
+
+
+def test_should_translate_fifa_url_even_with_mixed_summary():
+    assert should_translate(
+        "World Cup 2026 draw sets groups",
+        "https://www.fifa.com/en/articles/world-cup-draw",
+    )
+    # Resumen con palabras sueltas en español no debe bloquear (solo mira titular)
+    assert should_translate(
+        "FIFA World Cup 2026 groups confirmed",
+        "https://www.fifa.com/en/news",
+    )
 
 
 def test_looks_english_and_translate():

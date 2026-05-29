@@ -194,8 +194,10 @@ def _is_excluded(
     return fp in exclude_headline_fps
 
 
-def _finalize_text_fields(headline: str, summary: str) -> tuple[str, str]:
-    return translate_if_english(headline, summary)
+def _finalize_text_fields(
+    headline: str, summary: str, *, article_url: str = ""
+) -> tuple[str, str]:
+    return translate_if_english(headline, summary, article_url=article_url)
 
 
 class NewsCurationService:
@@ -317,7 +319,9 @@ class NewsCurationService:
         )
         best = candidates[0]
         best["headline"], best["summary"] = _finalize_text_fields(
-            best["headline"], best["summary"]
+            best["headline"],
+            best["summary"],
+            article_url=best.get("article_url") or "",
         )
         best["subcategory"] = _pick_subcategory(best["headline"], best["summary"])
         best.pop("headline_fp", None)
@@ -386,7 +390,9 @@ class NewsCurationService:
         if not title:
             return None
         raw_summary = (desc_m.group(1) if desc_m else "").strip() or title
-        headline, summary = _finalize_text_fields(title, _normalize_summary(raw_summary))
+        headline, summary = _finalize_text_fields(
+            title, _normalize_summary(raw_summary), article_url=url
+        )
         parsed = urlparse(url)
         domain = parsed.netloc.lower().removeprefix("www.")
         return {

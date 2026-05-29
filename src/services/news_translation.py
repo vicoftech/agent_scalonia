@@ -6,29 +6,40 @@ import logging
 import os
 import re
 from typing import Any, Callable
+from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
 
 _REGION = os.environ.get("AWS_REGION", "us-east-1")
-# Nova Lite: rápido, no Anthropic (cuenta reseller/dev).
-_TRANSLATE_MODEL = os.environ.get(
-    "BEDROCK_NEWS_TRANSLATE_MODEL_ID",
-    "us.amazon.nova-lite-v1:0",
-)
+_TRANSLATE_MODELS = [
+    m.strip()
+    for m in os.environ.get(
+        "BEDROCK_NEWS_TRANSLATE_MODEL_ID",
+        "us.amazon.nova-lite-v1:0,amazon.nova-lite-v1:0",
+    ).split(",")
+    if m.strip()
+]
 
 _translate_fn: Callable[[str, str], tuple[str, str] | None] | None = None
 
-_SPANISH_MARKERS = re.compile(
-    r"\b(el|la|los|las|del|al|de|en|que|con|por|para|una|uno|selección|seleccion|mundial|partido|gol|goles|anunció|anuncio|convocatoria)\b",
-    re.I,
-)
 _ENGLISH_MARKERS = re.compile(
-    r"\b(the|and|for|with|will|has|have|team|teams|cup|world|match|goal|goals|squad|injury|preview|draw|group|groups|roster|announced|schedule)\b",
+    r"\b(the|and|for|with|will|has|have|team|teams|cup|world|match|goal|goals|squad|injury|preview|draw|group|groups|roster|announced|schedule|confirmed|everything)\b",
     re.I,
 )
 _ENGLISH_TOPIC = re.compile(
     r"\b(FIFA|World Cup|draw|squad|roster|injury|preview|matchday|knockout|group stage)\b",
     re.I,
+)
+_ENGLISH_SOURCE_HINTS = (
+    "fifa.com",
+    "uefa.com",
+    "bbc.com",
+    "bbc.co.uk",
+    "goal.com",
+    "reuters.com",
+    "theguardian.com",
+    "skysports.com",
+    "espn.com/",
 )
 
 
@@ -37,24 +48,41 @@ def set_translate_fn(fn: Callable[[str, str], tuple[str, str] | None] | None) ->
     _translate_fn = fn
 
 
-def looks_english(text: str) -> bool:
-    blob = (text or "").strip()
-    if not blob:
-        return False
-    if re.search(r"[áéíóúñ¿¡]", blob, re.I):
-        return False
-    if _SPANISH_MARKERS.search(blob):
-        return False
-    en = len(_ENGLISH_MARKERS.findall(blob))
-    if en >= 1:
+def _headline_is_spanish(headline: str) -> bool:
+    h = (headline or "").strip()
+    if not h:
         return True
-    if _ENGLISH_TOPIC.search(blob):
+    if re.search(r"[áéíóúñ¿¡]", h):
         return True
-    letters = re.findall(r"[a-zA-Z]", blob)
+    if re.match(
+        r"^(el|la|los|las|argentina|selección|seleccion|mundial|convocatoria|plantel)\b",
+        h,
+        re.I,
+    ):
+        return True
+    return False
+
+
+def should_translate(headline: str, article_url: str = "") -> bool:
+    """Decisión solo por titular + fuente (no mezclar resumen de Tavily)."""
+    h = (headline or "").strip()
+    if not h or _headline_is_spanish(h):
+        return False
+    url = (article_url or "").lower()
+    if any(hint in url for hint in _ENGLISH_SOURCE_HINTS):
+        return True
+    if _ENGLISH_MARKERS.search(h) or _ENGLISH_TOPIC.search(h):
+        return True
+    letters = [c for c in h if c.isalpha()]
     if not letters:
         return False
-    ascii_ratio = sum(1 for c in letters if ord(c) < 128) / len(letters)
-    return ascii_ratio > 0.98 and not _SPANISH_MARKERS.search(blob)
+    return sum(1 for c in letters if ord(c) < 128) / len(letters) > 0.95
+
+
+def looks_english(text: str) -> bool:
+    """Compat tests — usa solo la primera línea (titular)."""
+    first = (text or "").strip().split("\n", 1)[0]
+    return should_translate(first)
 
 
 def _extract_json(text: str) -> dict[str, Any] | None:
@@ -93,31 +121,45 @@ def _bedrock_translate(headline: str, summary: str) -> tuple[str, str] | None:
         f"TITULAR:\n{headline}\n\nRESUMEN:\n{summary}"
     )
     client = boto3.client("bedrock-runtime", region_name=_REGION)
-    try:
-        resp = client.converse(
-            modelId=_TRANSLATE_MODEL,
-            messages=[{"role": "user", "content": [{"text": prompt}]}],
-            inferenceConfig={"maxTokens": 700, "temperature": 0},
-        )
-        data = _extract_json(_response_text(resp))
-        if not data:
-            logger.warning("news translate: no JSON in bedrock response model=%s", _TRANSLATE_MODEL)
-            return None
-        h = str(data.get("headline") or "").strip()
-        s = str(data.get("summary") or "").strip()
-        if h and s:
-            logger.info("news translate ok model=%s", _TRANSLATE_MODEL)
-            return h, s
-    except Exception:
-        logger.exception("news translate bedrock failed model=%s", _TRANSLATE_MODEL)
+    last_err: Exception | None = None
+    for model_id in _TRANSLATE_MODELS:
+        try:
+            resp = client.converse(
+                modelId=model_id,
+                messages=[{"role": "user", "content": [{"text": prompt}]}],
+                inferenceConfig={"maxTokens": 700, "temperature": 0},
+            )
+            raw = _response_text(resp)
+            data = _extract_json(raw)
+            if not data:
+                logger.warning(
+                    "news translate: no JSON model=%s raw=%s",
+                    model_id,
+                    raw[:200],
+                )
+                continue
+            h = str(data.get("headline") or "").strip()
+            s = str(data.get("summary") or "").strip()
+            if h and s:
+                logger.info("news translate ok model=%s", model_id)
+                return h, s
+        except Exception as exc:
+            last_err = exc
+            logger.warning("news translate failed model=%s err=%s", model_id, exc)
+    if last_err:
+        logger.exception("news translate bedrock exhausted models")
     return None
 
 
-def translate_if_english(headline: str, summary: str) -> tuple[str, str]:
-    """Traduce titular y resumen si el texto parece inglés (Bedrock Nova)."""
+def translate_if_english(
+    headline: str,
+    summary: str,
+    *,
+    article_url: str = "",
+) -> tuple[str, str]:
+    """Traduce titular y resumen si corresponde (Bedrock Nova)."""
     h, s = (headline or "").strip(), (summary or "").strip()
-    blob = f"{h} {s}".strip()
-    if not blob or not looks_english(blob):
+    if not should_translate(h, article_url):
         return h, s
     if _translate_fn:
         out = _translate_fn(h, s)
@@ -126,4 +168,12 @@ def translate_if_english(headline: str, summary: str) -> tuple[str, str]:
     out = _bedrock_translate(h, s)
     if out:
         return out
+    logger.warning("news translate skipped: bedrock returned nothing headline=%s", h[:80])
     return h, s
+
+
+def domain_from_url(url: str) -> str:
+    try:
+        return urlparse(url).netloc.lower().removeprefix("www.")
+    except Exception:
+        return ""

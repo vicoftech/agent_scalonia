@@ -154,6 +154,15 @@ def _curate_admin_draft(user_id: str, *, refresh: bool = False) -> tuple[str, di
             "Probá 🔄 Otra, /noticia con una URL, o pegá el texto.",
             _preview_keyboard() if refresh else None,
         )
+    from src.services.news_translation import translate_if_english
+
+    url = curated.get("article_url") or ""
+    h, s = translate_if_english(
+        str(curated.get("headline") or ""),
+        str(curated.get("summary") or ""),
+        article_url=url,
+    )
+    curated = {**curated, "headline": h, "summary": s}
     _save_draft(user_id, curated)
     caption = format_news_caption({**curated, "source_type": "ADMIN"}, include_footer=True)
     prefix = "🔎 Otra sugerida" if refresh else "🔎 Noticia sugerida"

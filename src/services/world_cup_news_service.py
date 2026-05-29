@@ -186,6 +186,7 @@ class WorldCupNewsService:
         headline, summary = translate_if_english(
             str(draft.get("headline") or "Noticia"),
             str(draft.get("summary") or ""),
+            article_url=url,
         )
         item = {
             "news_id": news_id,
