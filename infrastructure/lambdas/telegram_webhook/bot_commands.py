@@ -31,15 +31,15 @@ USER_MENU_COMMANDS: list[dict[str, str]] = SHORTCUT_COMMANDS + [
 ]
 
 ADMIN_MENU_EXTRA: list[dict[str, str]] = [
+    {
+        "command": "ia_otorgar",
+        "description": "Admin: sumar consultas Ask IA (alias cantidad)",
+    },
     {"command": "trivia_admin", "description": "Admin: trivia experto para todos"},
     {"command": "admin_grupos", "description": "Admin: panel de grupos"},
     {
         "command": "crear_grupo_para",
         "description": "Admin: crear grupo para un alias",
-    },
-    {
-        "command": "ia_otorgar",
-        "description": "Admin: otorgar consultas IA bonus",
     },
 ]
 
@@ -47,7 +47,7 @@ ADMIN_MENU_EXTRA: list[dict[str, str]] = [
 MENU_COMMANDS = USER_MENU_COMMANDS
 ADMIN_COMMANDS = ADMIN_MENU_EXTRA
 
-_COMMANDS_VERSION = os.environ.get("BOT_COMMANDS_VERSION", "8")
+_COMMANDS_VERSION = os.environ.get("BOT_COMMANDS_VERSION", "9")
 
 # Comandos con handler activo pero NO en el menú / (solo /help)
 ACTIVE_UNLISTED_COMMANDS: tuple[str, ...] = (
@@ -219,10 +219,10 @@ El agente IA solo responde dentro de /ask_ia (no texto libre suelto)."""
 
 HELP_ADMIN_EXTRA = """
 Comandos admin (solo en tu menú / si sos admin global):
+/ia_otorgar <alias> <cantidad> — Sumar consultas Ask IA bonus (ej. /ia_otorgar toti 10)
 /trivia_admin [tema] — Trivia experto a todos
 /admin_grupos — Panel de grupos
-/crear_grupo_para <alias> — Crear grupo para otro usuario
-/ia_otorgar <alias> <cantidad> — Consultas IA bonus extra"""
+/crear_grupo_para <alias> — Crear grupo para otro usuario"""
 
 
 def send_main_reply_keyboard(chat_id: int, token: str, *, hint: str | None = None) -> None:

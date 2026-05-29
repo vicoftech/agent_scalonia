@@ -39,6 +39,8 @@ def test_public_menu_has_no_admin_or_legacy():
 
 def test_admin_menu_includes_admin_commands():
     admin = {c["command"] for c in commands_for_user(is_admin=True)}
+    admin_list = commands_for_user(is_admin=True)
+    assert admin_list[len(USER_MENU_COMMANDS)]["command"] == "ia_otorgar"
     assert "trivia_admin" in admin
     assert "admin_grupos" in admin
     assert "ia_otorgar" in admin

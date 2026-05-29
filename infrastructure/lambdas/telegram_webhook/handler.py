@@ -597,6 +597,17 @@ def handler(event: dict, context) -> dict:
             return ok
 
         try:
+            from ask_ia_commands import handle_ask_ia_command
+
+            ia_cmd = handle_ask_ia_command(user_id, text)
+            if ia_cmd:
+                ia_cmd_text, ia_cmd_markup = ia_cmd
+                _send_message(chat_id, ia_cmd_text, token, reply_markup=ia_cmd_markup)
+                return ok
+        except Exception:
+            logger.exception("ask_ia_commands failed")
+
+        try:
             from invitation_commands import handle_invitation_command
 
             invite_reply = handle_invitation_command(user_id, text)

@@ -158,6 +158,17 @@ def test_purchase_cooldown_blocks_second():
     assert "24 h" in msg
 
 
+def test_ia_otorgar_usage_without_args():
+    from infrastructure.lambdas.telegram_webhook.ask_ia_commands import (
+        handle_ask_ia_command,
+    )
+
+    text, kb = handle_ask_ia_command("u1", "/ia_otorgar")
+    assert text is not None
+    assert "ia_otorgar" in text.lower()
+    assert kb is None
+
+
 def test_admin_grant_requires_admin():
     from unittest.mock import patch
 

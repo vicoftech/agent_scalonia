@@ -13,6 +13,13 @@ _IA_OTORGAR = re.compile(
     r"^/ia[_-]otorgar(?:@[\w_]+)?\s+(\S+)\s+(-?\d+)\s*$",
     re.IGNORECASE,
 )
+_IA_OTORGAR_USAGE = re.compile(r"^/ia[_-]otorgar(?:@[\w_]+)?\s*$", re.IGNORECASE)
+
+IA_OTORGAR_USAGE_TEXT = (
+    "Uso: /ia_otorgar <alias> <cantidad>\n"
+    "Ejemplo: /ia_otorgar toti 10\n"
+    "La cantidad puede ser negativa para quitar consultas bonus."
+)
 _RESULTADOS = re.compile(r"^/resultados(?:@[\w_]+)?\s*$", re.IGNORECASE)
 _CANCEL = re.compile(r"^/(?:cancel|cancelar)(?:@[\w_]+)?\s*$", re.IGNORECASE)
 
@@ -38,6 +45,9 @@ def handle_ask_ia_command(user_id: str, text: str) -> tuple[str, dict | None] | 
                 "No pude iniciar Ask IA. Intentá de nuevo en un minuto.",
                 None,
             )
+
+    if _IA_OTORGAR_USAGE.match(stripped):
+        return IA_OTORGAR_USAGE_TEXT, None
 
     m = _IA_OTORGAR.match(stripped)
     if m:
