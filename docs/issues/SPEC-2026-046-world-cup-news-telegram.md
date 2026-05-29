@@ -317,16 +317,17 @@ Solo `is_admin_global(user_id)`.
 
 | Comando | Descripción |
 |---------|-------------|
-| `/noticia` | Wizard: URL o pegar texto → preview → confirmar → broadcast |
+| `/noticia` | Sin args: busca noticia al momento (Tavily) → preview; con URL/texto → preview → broadcast |
 | `/noticia_publicar` | Atajo si el borrador ya está en sesión |
 | `/noticias_hoy` | Lista `news_id`, slots, likes/reads (admin) |
 
 **Flujo `/noticia`:**
 
-1. Admin envía URL → fetch OG (título, imagen, descripción) o texto libre.
-2. Bot muestra preview estilo §6 + botones `[✅ Publicar]` `[✏️ Editar]` `[Cancelar]`.
-3. Al publicar: `source_type=ADMIN`, **sin** `automated_slot`, `PutItem NEWS#`, broadcast a todos los targets.
-4. Confirmación al admin con `sent_count`, `news_id`.
+1. Sin argumentos → `NewsCurationService.curate_fresh()` (Tavily, fuentes whitelist); excluye URLs ya publicadas hoy.
+2. Con URL → fetch OG (título, imagen, descripción) o texto libre.
+3. Bot muestra preview estilo §6 + botones `[✅ Publicar]` `[🔄 Otra]` `[✏️ Editar]` `[Cancelar]`.
+4. Al publicar: `source_type=ADMIN`, **sin** `automated_slot`, `PutItem NEWS#`, broadcast a todos los targets.
+5. Confirmación al admin con `sent_count`, `news_id`.
 
 **Distinción visual:** prefijo en titular opcional `📌` para admin (configurable).
 

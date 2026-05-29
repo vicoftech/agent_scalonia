@@ -33,7 +33,20 @@ SLOT_QUERIES = {
     "EVENING": "site:ole.com.ar Mundial 2026 selección argentina noticias",
     "PRE_MATCHDAY": "Mundial 2026 partidos hoy noticias site:espn.com.ar",
     "POST_MATCHDAY": "Mundial 2026 resultados análisis site:ole.com.ar",
+    "ADMIN": (
+        "Mundial Copa del Mundo 2026 noticias hoy selecciones argentina "
+        "convocatoria lesiones última hora"
+    ),
 }
+
+# Orden al buscar bajo demanda (/noticia sin URL)
+ADMIN_CURATE_SLOTS: tuple[str, ...] = (
+    "ADMIN",
+    "EVENING",
+    "MORNING",
+    "PRE_MATCHDAY",
+    "POST_MATCHDAY",
+)
 
 
 def _domain_allowed(url: str) -> bool:
@@ -152,6 +165,24 @@ class NewsCurationService:
         if run_date:
             best["run_date"] = run_date
         return best
+
+    def curate_fresh(
+        self,
+        *,
+        exclude_url_hashes: set[str] | None = None,
+        slots: tuple[str, ...] | None = None,
+    ) -> dict[str, Any] | None:
+        """Busca una noticia nueva (admin /noticia sin URL). Prueba varios queries."""
+        if not is_tavily_configured():
+            logger.warning("Tavily not configured — cannot curate_fresh")
+            return None
+        order = slots or ADMIN_CURATE_SLOTS
+        exclude = exclude_url_hashes or set()
+        for slot in order:
+            hit = self.curate_for_slot(slot, exclude_url_hashes=exclude)
+            if hit:
+                return hit
+        return None
 
     def fetch_og_article(self, url: str) -> dict[str, Any] | None:
         """Extracción simple para /noticia admin (título + descripción)."""

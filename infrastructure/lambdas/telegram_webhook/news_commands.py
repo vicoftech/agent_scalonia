@@ -38,9 +38,12 @@ def _preview_keyboard() -> dict[str, Any]:
         "inline_keyboard": [
             [
                 {"text": "✅ Publicar", "callback_data": "news:pub:confirm"},
-                {"text": "✏️ Editar", "callback_data": "news:pub:edit"},
+                {"text": "🔄 Otra", "callback_data": "news:pub:refresh"},
             ],
-            [{"text": "Cancelar", "callback_data": "news:pub:cancel"}],
+            [
+                {"text": "✏️ Editar", "callback_data": "news:pub:edit"},
+                {"text": "Cancelar", "callback_data": "news:pub:cancel"},
+            ],
         ]
     }
 
@@ -58,11 +61,7 @@ def handle_news_command(user_id: str, text: str) -> tuple[str | None, dict | Non
         return None, None
     arg = (m.group(1) or "").strip()
     if not arg:
-        return (
-            "📰 Enviá la URL del artículo o pegá el texto de la noticia.\n"
-            "Luego usá /noticia_publicar o el botón ✅ Publicar en la vista previa.",
-            None,
-        )
+        return _curate_admin_draft(user_id)
     url_m = _URL_RE.search(arg)
     if url_m:
         return _start_url_draft(user_id, url_m.group(0))
@@ -90,10 +89,62 @@ def handle_news_admin_callback(
         _save_draft(user_id, None)
         return "Publicación cancelada.", None
     if data == "news:pub:edit":
-        return "Reenviá la URL o el texto con /noticia …", None
+        return (
+            "Reenviá /noticia (busca sola), /noticia https://… o texto con /noticia …",
+            None,
+        )
+    if data == "news:pub:refresh":
+        return _curate_admin_draft(user_id, refresh=True)
     if data == "news:pub:confirm":
         return _publish_draft(user_id)
     return None, None
+
+
+def _exclude_hashes_for_admin(user_id: str, *, refresh: bool = False) -> set[str]:
+    from src.dao.dynamo.news_dao import NewsDAO
+    from src.dao.dynamo.user_dao import UserDAO
+    from src.jobs import world_cup_news_schedule as sched
+
+    run_date = sched.local_today_iso()
+    exclude = {
+        n.get("url_hash")
+        for n in NewsDAO().list_published_on_date(run_date)
+        if n.get("url_hash")
+    }
+    if refresh:
+        profile = UserDAO().get_profile(user_id) or {}
+        draft = _get_draft(profile)
+        if draft and draft.get("url_hash"):
+            exclude.add(draft["url_hash"])
+    return exclude
+
+
+def _curate_admin_draft(user_id: str, *, refresh: bool = False) -> tuple[str, dict | None]:
+    from src.services.news_curation_service import NewsCurationService
+    from src.services.news_telegram_format import format_news_caption
+    from src.web.tavily_search import is_tavily_configured
+
+    if not is_tavily_configured():
+        return (
+            "No hay búsqueda web configurada (Tavily). "
+            "Usá /noticia https://… o pegá el texto de la noticia.",
+            None,
+        )
+    exclude = _exclude_hashes_for_admin(user_id, refresh=refresh)
+    curated = NewsCurationService().curate_fresh(exclude_url_hashes=exclude)
+    if not curated:
+        return (
+            "No encontré una noticia nueva en fuentes confiables.\n"
+            "Probá 🔄 Otra, /noticia con una URL, o pegá el texto.",
+            _preview_keyboard() if refresh else None,
+        )
+    _save_draft(user_id, curated)
+    caption = format_news_caption({**curated, "source_type": "ADMIN"}, include_footer=True)
+    prefix = "🔎 Otra sugerida" if refresh else "🔎 Noticia sugerida"
+    return (
+        f"{prefix} (revisá antes de publicar):\n\n{caption}",
+        _preview_keyboard(),
+    )
 
 
 def _start_url_draft(user_id: str, url: str) -> tuple[str, dict | None]:
