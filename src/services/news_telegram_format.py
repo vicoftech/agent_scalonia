@@ -64,8 +64,9 @@ def build_news_keyboard(
     *,
     user_id: str,
     like_count: int,
+    article_url: str | None = None,
 ) -> dict[str, Any]:
-    read_url = build_read_url(news_id, user_id)
+    read_url = build_read_url(news_id, user_id, article_url=article_url)
     return {
         "inline_keyboard": [
             [

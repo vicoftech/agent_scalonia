@@ -22,6 +22,7 @@ def handler(event: dict, context) -> dict:
             caption=kwargs["caption"],
             image_url=kwargs["image_url"],
             like_count=kwargs["like_count"],
+            article_url=kwargs.get("article_url"),
         )
 
     svc = WorldCupNewsService(broadcast_fn=_broadcast)

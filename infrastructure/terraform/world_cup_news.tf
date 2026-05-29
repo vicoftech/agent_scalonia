@@ -153,8 +153,9 @@ resource "aws_lambda_function" "world_cup_news" {
         ENV                    = var.env
         ENABLE_WORLD_CUP_NEWS  = "true"
         TELEGRAM_SECRET_ARN    = var.telegram_secret_arn
-        NEWS_REDIRECT_BASE_URL = local.news_redirect_base_url
-        NEWS_REDIRECT_SECRET   = random_password.news_redirect_secret[0].result
+        NEWS_REDIRECT_BASE_URL  = local.news_redirect_base_url
+        NEWS_REDIRECT_SECRET    = random_password.news_redirect_secret[0].result
+        NEWS_REDIRECT_ENABLED   = "true"
       },
       var.tavily_secret_arn != "" ? { TAVILY_SECRET_ARN = var.tavily_secret_arn } : {},
     )

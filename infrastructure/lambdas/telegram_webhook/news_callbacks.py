@@ -34,7 +34,13 @@ def handle_news_callback(
             timeout=5,
         )
     if chat_id and message:
-        keyboard = build_news_keyboard(news_id, user_id=user_id, like_count=like_count)
+        article_url = (svc._news.get_details(news_id) or {}).get("article_url")
+        keyboard = build_news_keyboard(
+            news_id,
+            user_id=user_id,
+            like_count=like_count,
+            article_url=article_url,
+        )
         _post_json(
             f"https://api.telegram.org/bot{token}/editMessageReplyMarkup",
             {

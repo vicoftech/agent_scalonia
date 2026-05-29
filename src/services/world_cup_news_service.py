@@ -28,8 +28,17 @@ def _enabled() -> bool:
 def _fallback_image() -> str:
     return os.environ.get(
         "NEWS_FALLBACK_IMAGE_URL",
-        "https://upload.wikimedia.org/wikipedia/commons/thumb/6/6e/Football_%28soccer_ball%29.svg/240px-Football_%28soccer_ball%29.svg.png",
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/6/6e/Football_%28soccer_ball%29.svg/512px-Football_%28soccer_ball%29.svg.png",
     )
+
+
+def _sanitize_image_url(url: str | None) -> str:
+    u = (url or "").strip().lower()
+    if u.startswith("http") and any(
+        ext in u for ext in (".jpg", ".jpeg", ".png", ".webp", ".gif", ".svg")
+    ):
+        return url.strip()  # type: ignore[union-attr]
+    return _fallback_image()
 
 
 class WorldCupNewsService:
@@ -196,8 +205,7 @@ class WorldCupNewsService:
             from src.dao.dynamo.news_dao import url_hash as uh
 
             item["url_hash"] = uh(url)
-        if not item.get("image_url"):
-            item["image_url"] = _fallback_image()
+        item["image_url"] = _sanitize_image_url(item.get("image_url"))
         self._news.put_details(news_id, item)
         self._news.mark_url_published(url, news_id)
         caption = format_news_caption(item)
@@ -208,6 +216,7 @@ class WorldCupNewsService:
                 caption=caption,
                 image_url=item["image_url"],
                 like_count=0,
+                article_url=url,
             )
             self._news.set_broadcast_sent(news_id, sent)
         if job_name and ctrl_key:

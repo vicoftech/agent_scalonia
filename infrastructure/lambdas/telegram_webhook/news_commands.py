@@ -149,6 +149,7 @@ def _publish_draft(user_id: str) -> tuple[str, dict | None]:
                 caption=kwargs["caption"],
                 image_url=kwargs["image_url"],
                 like_count=kwargs["like_count"],
+                article_url=kwargs.get("article_url"),
                 token=_get_token(),
                 send_photo=_send_photo,
             )

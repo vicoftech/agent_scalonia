@@ -16,6 +16,7 @@ def broadcast_news_message(
     like_count: int,
     token: str,
     send_photo: Callable[..., None],
+    article_url: str | None = None,
 ) -> tuple[int, int]:
     """Compatibilidad con inyección send_photo del webhook."""
     sent = 0
@@ -26,7 +27,12 @@ def broadcast_news_message(
         user_id = target.get("user_id")
         if not chat_id or not user_id:
             continue
-        keyboard = build_news_keyboard(news_id, user_id=user_id, like_count=like_count)
+        keyboard = build_news_keyboard(
+            news_id,
+            user_id=user_id,
+            like_count=like_count,
+            article_url=article_url,
+        )
         try:
             send_photo(
                 int(chat_id),

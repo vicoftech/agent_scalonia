@@ -39,9 +39,30 @@ def decode_read_token(token: str, news_id: str) -> str | None:
         return None
 
 
-def build_read_url(news_id: str, user_id: str) -> str:
+def _tracking_enabled() -> bool:
+    """Solo si el redirect GET /news/r/ está desplegado (Terraform enable_world_cup_news)."""
+    return os.environ.get("NEWS_REDIRECT_ENABLED", "false").lower() in (
+        "1",
+        "true",
+        "yes",
+    )
+
+
+def build_read_url(
+    news_id: str,
+    user_id: str,
+    *,
+    article_url: str | None = None,
+) -> str:
+    """
+    URL del botón «Leer más».
+    Sin redirect desplegado → artículo directo (evita 404 en API Gateway).
+    """
+    direct = (article_url or "").strip()
+    if not _tracking_enabled():
+        return direct or "https://www.fifa.com"
     base = (os.environ.get("NEWS_REDIRECT_BASE_URL") or "").rstrip("/")
     if not base:
-        base = "https://example.com"
+        return direct or "https://www.fifa.com"
     token = encode_read_token(user_id, news_id)
     return f"{base}/news/r/{news_id}?t={token}"

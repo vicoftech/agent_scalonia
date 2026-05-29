@@ -20,9 +20,28 @@ def test_caption_escapes_html():
     assert "<b>" in cap
 
 
-def test_keyboard_has_read_and_like():
+def test_keyboard_direct_article_when_tracking_off():
+    os.environ["NEWS_REDIRECT_ENABLED"] = "false"
+    kb = build_news_keyboard(
+        "nid-1",
+        user_id="u1",
+        like_count=3,
+        article_url="https://www.ole.com.ar/nota-ejemplo",
+    )
+    row = kb["inline_keyboard"][0]
+    assert row[0]["url"] == "https://www.ole.com.ar/nota-ejemplo"
+    assert row[1]["callback_data"] == "news:like:nid-1"
+
+
+def test_keyboard_tracking_when_enabled():
+    os.environ["NEWS_REDIRECT_ENABLED"] = "true"
     os.environ["NEWS_REDIRECT_BASE_URL"] = "https://api.example.com"
-    kb = build_news_keyboard("nid-1", user_id="u1", like_count=3)
+    os.environ["NEWS_REDIRECT_SECRET"] = "test-secret-046"
+    kb = build_news_keyboard(
+        "nid-1",
+        user_id="u1",
+        like_count=3,
+        article_url="https://www.ole.com.ar/nota-ejemplo",
+    )
     row = kb["inline_keyboard"][0]
     assert row[0]["url"].startswith("https://api.example.com/news/r/nid-1")
-    assert row[1]["callback_data"] == "news:like:nid-1"

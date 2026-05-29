@@ -18,6 +18,7 @@ def broadcast_news_to_targets(
     caption: str,
     image_url: str,
     like_count: int = 0,
+    article_url: str | None = None,
     token: str | None = None,
 ) -> tuple[int, int]:
     tok = token or get_bot_token()
@@ -27,7 +28,12 @@ def broadcast_news_to_targets(
         user_id = target.get("user_id")
         if not chat_id or not user_id:
             continue
-        keyboard = build_news_keyboard(news_id, user_id=user_id, like_count=like_count)
+        keyboard = build_news_keyboard(
+            news_id,
+            user_id=user_id,
+            like_count=like_count,
+            article_url=article_url,
+        )
         try:
             send_telegram_photo(
                 int(chat_id),
