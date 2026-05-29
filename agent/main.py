@@ -102,6 +102,13 @@ También pueden usar /invitar [cupos] o /mis-invitaciones sin pasar por vos.
 Trivias: trivia_tool action=play para ronda personal (/trivia en Telegram con botones A-D).
 
 Las features de predicciones y rankings se habilitan sprint a sprint.
+
+BRIEF_GENERATION (solo si el mensaje incluye [BRIEF_GENERATION]):
+- Modo batch diario SPEC-2026-045: generá JSON válido según el schema pedido.
+- kb_retrieval_tool primero; web_search_tool con site:fifa.com para nómina/lesiones.
+- No inventes jugadores ni marcadores exactos.
+- ia_prediction_line debe empezar con: Dado el análisis previo me inclino por
+- Respondé solo el JSON (sin texto extra fuera del objeto).
 """.strip()
 
 SYSTEM_PROMPT = f"{_BASE_PROMPT}\n\n{ONBOARDING_SECTION}\n\n{TRIVIA_SECTION}\n\n{GUARDRAIL_SECTION}"

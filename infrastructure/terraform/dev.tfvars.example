@@ -74,6 +74,10 @@ tavily_secret_arn = "arn:aws:secretsmanager:us-east-1:ACCOUNT_ID:secret:prode-mu
 # enable_result_queues     = true   # colas + match_notify_dispatcher Lambda
 # enable_result_collector  = true   # schedule + recolectar resultados
 
+# SPEC-045 — briefs diarios 09:00 ART (48 selecciones + partidos sin jugar)
+# enable_daily_briefs = true
+# Tras apply: python3 scripts/run_daily_briefs.py --env dev --team MEX --match <uuid> --force
+
 # SPEC-032 — schedules por partido (trivia, reminders, veda, result, scoring)
 # enable_match_schedules   = true   # requiere enable_result_queues + enable_result_collector
 # Tras apply: terraform output match_schedule_lambda_arns

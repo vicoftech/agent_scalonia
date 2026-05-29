@@ -173,6 +173,11 @@ def format_prediction_brief(
     lines.append("")
     lines.append("── Extendida ──")
     lines.extend(extended_brief_lines(pred))
+    match_id = pred.get("match_id")
+    if match_id:
+        from src.services.match_brief_service import append_match_brief_context
+
+        append_match_brief_context(lines, str(match_id))
     if change_prompt:
         lines.append("")
         lines.append("¿Querés cambiarla?")

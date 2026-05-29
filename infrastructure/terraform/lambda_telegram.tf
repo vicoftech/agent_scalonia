@@ -121,6 +121,15 @@ data "aws_iam_policy_document" "telegram_webhook_inline" {
       aws_bedrockagentcore_agent_runtime_endpoint.live.agent_runtime_endpoint_arn,
     ]
   }
+
+  dynamic "statement" {
+    for_each = var.enable_daily_briefs ? [1] : []
+    content {
+      sid       = "BriefTableRead"
+      actions   = ["dynamodb:GetItem"]
+      resources = [aws_dynamodb_table.prode_brief[0].arn]
+    }
+  }
 }
 
 resource "aws_iam_role_policy" "telegram_webhook" {
@@ -165,6 +174,10 @@ resource "aws_lambda_function" "telegram_webhook" {
       } : {},
       var.tavily_secret_arn != "" ? {
         TAVILY_SECRET_ARN = var.tavily_secret_arn
+      } : {},
+      var.enable_daily_briefs ? {
+        BRIEF_TABLE         = aws_dynamodb_table.prode_brief[0].name
+        ENABLE_DAILY_BRIEFS = "true"
       } : {},
     )
   }

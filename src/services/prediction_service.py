@@ -741,7 +741,7 @@ class PredictionService:
         from src.services.prediction_rules import format_prediction_brief
 
         text = format_prediction_brief(
-            pred,
+            {**pred, "match_id": match.get("match_id")},
             match_title=self.format_match_title(match, full_names=True),
             group_name=gname,
             minutes_to_veda=self._minutes_to_veda(match),

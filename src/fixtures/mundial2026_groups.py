@@ -19,6 +19,15 @@ GROUP_TEAMS: dict[str, list[str]] = {
 }
 
 # Round-robin doble partido (4 equipos → 6 fechas)
+def all_world_cup_team_codes() -> list[str]:
+    """48 selecciones del Mundial 2026 (ISO3 únicos, orden alfabético)."""
+    seen: set[str] = set()
+    for teams in GROUP_TEAMS.values():
+        for code in teams:
+            seen.add(code.strip().upper())
+    return sorted(seen)
+
+
 ROUND_ROBIN_PAIRINGS: list[tuple[int, int]] = [
     (0, 1),
     (2, 3),

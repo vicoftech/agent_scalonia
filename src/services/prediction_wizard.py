@@ -89,6 +89,9 @@ def _header(svc: PredictionService, match: dict, group_id: str, step: str) -> st
     if step not in (STEP_SCORE, STEP_SCORE_CUSTOM, STEP_KO):
         lines.append("")
         lines.append(f"Cada acierto suma +1 pt · Podés saltar o terminar cuando quieras.")
+    from src.services.match_brief_service import append_match_brief_context
+
+    append_match_brief_context(lines, str(match.get("match_id", "")))
     return "\n".join(lines)
 
 

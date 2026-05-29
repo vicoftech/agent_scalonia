@@ -3,7 +3,7 @@
 | Campo | Valor |
 |-------|--------|
 | **SPEC-ID** | SPEC-2026-045 |
-| **Estado** | **Especificado** — pendiente implementación |
+| **Estado** | **Implementado** (MVP) — `enable_daily_briefs` en Terraform |
 | **Sprint** | Sprint 3–4 (IA operativa + predicciones) |
 | **Depende de** | AgentCore + `kb_retrieval_tool` / `web_search_tool`, fixture (`MATCH#`), SPEC-021 (wizard predicción) |
 | **Disparador único** | EventBridge **diario 09:00 Buenos Aires** — **sin** jobs post-partido ni hooks en scoring |
