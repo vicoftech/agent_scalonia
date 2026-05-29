@@ -88,13 +88,18 @@ def handle_shortcut_command(
     text = (text or "").strip()
 
     if _MENU.match(text):
-        return (
+        from bot_commands import admin_menu_hint
+        from src.services.auth_service import AuthService
+
+        base = (
             "✅ Menú actualizado (botón / y teclado de abajo).\n\n"
             "Usá /help para la lista completa.\n"
             "Atajos: ⏭️ Próximo · ⚽ Partidos · 🤖 Ask IA · "
-            "📊 Mi puntaje · 👥 Grupos · 📖 Reglas",
-            None,
+            "📊 Mi puntaje · 👥 Grupos · 📖 Reglas"
         )
+        if AuthService().is_admin_global(user_id):
+            base += f"\n\n{admin_menu_hint()}"
+        return base, None
 
     if _REGLAS.match(text):
         from bot_commands import handle_reglas_command

@@ -84,17 +84,29 @@ def test_help_admin_only_for_global_admin():
 @patch("infrastructure.lambdas.telegram_webhook.bot_commands.register_global_commands")
 @patch("infrastructure.lambdas.telegram_webhook.bot_commands.delete_chat_commands")
 @patch("infrastructure.lambdas.telegram_webhook.bot_commands._set_commands_for_scope")
-def test_sync_admin_sets_chat_scope(mock_set, mock_delete, mock_global):
+def test_sync_admin_sets_chat_member_and_spanish(mock_set, mock_delete, mock_global):
     from infrastructure.lambdas.telegram_webhook.bot_commands import sync_commands_for_chat
 
     mock_set.return_value = True
     sync_commands_for_chat("token", 12345, is_admin=True)
     mock_global.assert_called_once()
     mock_delete.assert_not_called()
-    assert mock_set.call_count == 1
-    scope = mock_set.call_args[0][2]
-    assert scope["type"] == "chat"
-    assert scope["chat_id"] == 12345
+    scopes = [c.args[2] for c in mock_set.call_args_list]
+    assert any(s.get("type") == "chat_member" for s in scopes)
+    assert any(s.get("type") == "chat" for s in scopes)
+    spanish = [
+        c
+        for c in mock_set.call_args_list
+        if c.kwargs.get("language_code") == "es"
+        and c.args[2].get("type") in ("chat", "chat_member")
+    ]
+    assert len(spanish) >= 2
+    admin_names: set[str] = set()
+    for c in mock_set.call_args_list:
+        cmds = c.args[1]
+        if isinstance(cmds, list) and len(cmds) > len(USER_MENU_COMMANDS):
+            admin_names.update(x["command"] for x in cmds)
+    assert "ia_otorgar" in admin_names
 
 
 @patch("infrastructure.lambdas.telegram_webhook.bot_commands.register_global_commands")

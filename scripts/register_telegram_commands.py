@@ -77,14 +77,10 @@ def main() -> None:
     if not token:
         token = _token_from_secrets(args.profile or None, args.region)
 
+    from bot_commands import register_global_commands
+
+    register_global_commands(token)
     public_cmds = commands_for_user(is_admin=False)
-    data = _api(
-        token,
-        "setMyCommands",
-        {"commands": public_cmds, "scope": {"type": "all_private_chats"}},
-    )
-    if not data.get("ok"):
-        raise SystemExit(f"setMyCommands (global) falló: {data}")
 
     print(f"OK — menú global usuario ({len(public_cmds)} comandos):")
     for c in public_cmds:
@@ -104,7 +100,7 @@ def main() -> None:
         print(f"\nOK — menú usuario chat {args.user_chat_id} (scope chat borrado → menú global)")
 
     print("\nEn Telegram: cerrá y reabrí el chat con el bot para ver el menú / actualizado.")
-    print(f"Versión menú: v{os.environ.get('BOT_COMMANDS_VERSION', '8')}")
+    print(f"Versión menú: v{os.environ.get('BOT_COMMANDS_VERSION', '10')}")
     print(f"Comandos usuario: {len(USER_MENU_COMMANDS)} | extra admin: {len(ADMIN_MENU_EXTRA)}")
 
 

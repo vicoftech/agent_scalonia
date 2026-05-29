@@ -463,10 +463,6 @@ def handler(event: dict, context) -> dict:
             if shortcut_reply:
                 stext, smarkup = shortcut_reply
                 _send_message(chat_id, stext, token, reply_markup=smarkup)
-                if text.strip().lower().startswith("/menu"):
-                    from bot_commands import send_main_reply_keyboard
-
-                    send_main_reply_keyboard(int(chat_id), token)
                 return ok
         except Exception:
             logger.exception("shortcut_commands failed")

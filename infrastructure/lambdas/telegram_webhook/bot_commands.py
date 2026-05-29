@@ -4,13 +4,14 @@ Telegram solo acepta nombres con a-z, 0-9 y _. Los handlers aceptan
 también guiones (/crear-grupo) por compatibilidad.
 
 Menú público (botón /): atajos del teclado + start, help, trivia.
-Menú admin: scope «chat» del admin (mismos + trivia_admin, admin_grupos, etc.).
+Menú admin: scope chat_member + chat (con language_code es) para clientes en español.
 Comandos fuera del menú (/predecir, /invitar, …) siguen activos si se escriben.
 """
 from __future__ import annotations
 
 import logging
 import os
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +34,7 @@ USER_MENU_COMMANDS: list[dict[str, str]] = SHORTCUT_COMMANDS + [
 ADMIN_MENU_EXTRA: list[dict[str, str]] = [
     {
         "command": "ia_otorgar",
-        "description": "Admin: sumar consultas Ask IA (alias cantidad)",
+        "description": "Sumar consultas Ask IA: alias y cantidad",
     },
     {"command": "trivia_admin", "description": "Admin: trivia experto para todos"},
     {"command": "admin_grupos", "description": "Admin: panel de grupos"},
@@ -43,35 +44,11 @@ ADMIN_MENU_EXTRA: list[dict[str, str]] = [
     },
 ]
 
-# Retrocompatibilidad con tests/docs
 MENU_COMMANDS = USER_MENU_COMMANDS
 ADMIN_COMMANDS = ADMIN_MENU_EXTRA
 
-_COMMANDS_VERSION = os.environ.get("BOT_COMMANDS_VERSION", "9")
-
-# Comandos con handler activo pero NO en el menú / (solo /help)
-ACTIVE_UNLISTED_COMMANDS: tuple[str, ...] = (
-    "predecir",
-    "completo",
-    "next",
-    "crear_grupo",
-    "editar_grupo",
-    "miembros",
-    "invitar",
-    "mis_invitaciones",
-    "unirme",
-    "revocar",
-    "agregar_miembro",
-    "trivia_grupo",
-    "cancel",
-    "cancelar",
-)
-
-# Obsoletos: no deben aparecer en setMyCommands (forzar sync si el usuario los escribe)
-DEPRECATED_COMMANDS: frozenset[str] = frozenset({
-    "resultados",
-    "mi_ranking",
-})
+_COMMANDS_VERSION = os.environ.get("BOT_COMMANDS_VERSION", "10")
+_MENU_LANGUAGE = os.environ.get("BOT_COMMANDS_LANGUAGE", "es")
 
 
 def commands_for_user(*, is_admin: bool = False) -> list[dict[str, str]]:
@@ -85,6 +62,13 @@ def commands_for_user(*, is_admin: bool = False) -> list[dict[str, str]]:
             seen.add(name)
             out.append(cmd)
     return out
+
+
+# Obsoletos: no deben aparecer en setMyCommands
+DEPRECATED_COMMANDS: frozenset[str] = frozenset({
+    "resultados",
+    "mi_ranking",
+})
 
 
 def command_triggers_menu_sync(text: str) -> bool:
@@ -106,35 +90,92 @@ def _post_telegram_api(token: str, method: str, body: dict) -> tuple[int, dict]:
     return _post_json(f"{TG_API}/bot{token}/{method}", body, timeout=10)
 
 
-def _set_commands_for_scope(token: str, commands: list[dict], scope: dict) -> bool:
-    code, resp = _post_telegram_api(
-        token, "setMyCommands", {"commands": commands, "scope": scope}
-    )
+def _private_chat_scopes(chat_id: int) -> list[dict[str, Any]]:
+    """Scopes para un chat privado usuario↔bot (chat_id = user_id)."""
+    cid = int(chat_id)
+    return [
+        {"type": "chat_member", "chat_id": cid, "user_id": cid},
+        {"type": "chat", "chat_id": cid},
+    ]
+
+
+def _set_commands_for_scope(
+    token: str,
+    commands: list[dict],
+    scope: dict,
+    *,
+    language_code: str | None = None,
+) -> bool:
+    body: dict[str, Any] = {"commands": commands, "scope": scope}
+    if language_code:
+        body["language_code"] = language_code
+    code, resp = _post_telegram_api(token, "setMyCommands", body)
     if code != 200 or not resp.get("ok"):
         logger.warning(
-            "setMyCommands scope=%s failed code=%s resp=%s", scope, code, resp
+            "setMyCommands scope=%s lang=%s failed code=%s resp=%s",
+            scope,
+            language_code or "-",
+            code,
+            resp,
         )
         return False
     return True
 
 
-def delete_chat_commands(token: str, chat_id: int) -> None:
-    """Quita menú custom del chat; el usuario vuelve al menú global público."""
-    code, resp = _post_telegram_api(
-        token,
-        "deleteMyCommands",
-        {"scope": {"type": "chat", "chat_id": int(chat_id)}},
-    )
+def _delete_commands_for_scope(
+    token: str, scope: dict, *, language_code: str | None = None
+) -> None:
+    body: dict[str, Any] = {"scope": scope}
+    if language_code:
+        body["language_code"] = language_code
+    code, resp = _post_telegram_api(token, "deleteMyCommands", body)
     if code != 200 or not resp.get("ok"):
         logger.warning(
-            "deleteMyCommands chat=%s failed code=%s resp=%s", chat_id, code, resp
+            "deleteMyCommands scope=%s lang=%s failed code=%s resp=%s",
+            scope,
+            language_code or "-",
+            code,
+            resp,
         )
-    else:
-        logger.info("deleteMyCommands chat=%s ok", chat_id)
+
+
+def delete_chat_commands(token: str, chat_id: int) -> None:
+    """Quita menús custom del chat; vuelve al menú global público."""
+    for scope in _private_chat_scopes(chat_id):
+        _delete_commands_for_scope(token, scope)
+        _delete_commands_for_scope(token, scope, language_code=_MENU_LANGUAGE)
+    logger.info("deleteMyCommands chat=%s ok", chat_id)
+
+
+def _set_admin_chat_commands(token: str, chat_id: int, commands: list[dict]) -> bool:
+    """
+    Menú admin en chat privado.
+
+    Telegram en español usa language_code=es; sin eso el menú global (9 cmds)
+    pisa el scope chat y no aparecen ia_otorgar ni otros admin.
+    """
+    ok = False
+    names = [c["command"] for c in commands]
+    for scope in _private_chat_scopes(chat_id):
+        if _set_commands_for_scope(token, commands, scope):
+            ok = True
+        if _set_commands_for_scope(
+            token, commands, scope, language_code=_MENU_LANGUAGE
+        ):
+            ok = True
+    if ok:
+        logger.info(
+            "admin menu chat=%s v=%s cmds=%s includes_ia_otorgar=%s",
+            chat_id,
+            _COMMANDS_VERSION,
+            len(commands),
+            "ia_otorgar" in names,
+        )
+    return ok
 
 
 def register_global_commands(token: str) -> None:
-    """Menú / para todos los chats privados (sin comandos admin)."""
+    """Menú / público para todos los chats privados."""
     public_cmds = commands_for_user(is_admin=False)
     for scope in ({"type": "default"}, {"type": "all_private_chats"}):
         if _set_commands_for_scope(token, public_cmds, scope):
@@ -145,40 +186,22 @@ def register_global_commands(token: str) -> None:
                 len(public_cmds),
             )
 
-    _post_telegram_api(
+    _set_commands_for_scope(
         token,
-        "setMyCommands",
-        {
-            "commands": public_cmds,
-            "scope": {"type": "all_private_chats"},
-            "language_code": "es",
-        },
+        public_cmds,
+        {"type": "all_private_chats"},
+        language_code=_MENU_LANGUAGE,
     )
 
 
 def sync_commands_for_chat(
     token: str, chat_id: int, *, is_admin: bool = False
 ) -> None:
-    """
-    - Siempre actualiza menú global (público).
-    - Admin: menú extendido solo en su chat.
-    - Usuario común: borra menú custom del chat (evita ver comandos admin viejos).
-    """
     register_global_commands(token)
 
     if is_admin:
         admin_cmds = commands_for_user(is_admin=True)
-        if _set_commands_for_scope(
-            token,
-            admin_cmds,
-            {"type": "chat", "chat_id": int(chat_id)},
-        ):
-            logger.info(
-                "setMyCommands admin chat=%s ok v=%s (%s cmds)",
-                chat_id,
-                _COMMANDS_VERSION,
-                len(admin_cmds),
-            )
+        _set_admin_chat_commands(token, chat_id, admin_cmds)
     else:
         delete_chat_commands(token, chat_id)
 
@@ -189,7 +212,6 @@ def register_bot_commands(
     chat_id: int | None = None,
     is_admin: bool = False,
 ) -> None:
-    """Compat: delega en sync_commands_for_chat."""
     if chat_id is not None:
         sync_commands_for_chat(token, int(chat_id), is_admin=is_admin)
     else:
@@ -218,15 +240,27 @@ También podés escribir (no están en el menú /):
 El agente IA solo responde dentro de /ask_ia (no texto libre suelto)."""
 
 HELP_ADMIN_EXTRA = """
-Comandos admin (solo en tu menú / si sos admin global):
-/ia_otorgar <alias> <cantidad> — Sumar consultas Ask IA bonus (ej. /ia_otorgar toti 10)
+Comandos admin (en tu menú /):
+/ia_otorgar <alias> <cantidad> — Sumar consultas Ask IA (ej. /ia_otorgar toti 10)
 /trivia_admin [tema] — Trivia experto a todos
 /admin_grupos — Panel de grupos
-/crear_grupo_para <alias> — Crear grupo para otro usuario"""
+/crear_grupo_para <alias> — Crear grupo para otro usuario
+
+Si no ves /ia_otorgar en el menú, mandá /menu para refrescar."""
+
+
+def admin_menu_hint() -> str:
+    return (
+        "👑 Menú admin actualizado.\n\n"
+        "Comandos extra en el botón /:\n"
+        "· /ia_otorgar — sumar consultas Ask IA\n"
+        "· /trivia_admin — trivia experto\n"
+        "· /admin_grupos — panel grupos\n"
+        "· /crear_grupo_para — grupo para otro alias"
+    )
 
 
 def send_main_reply_keyboard(chat_id: int, token: str, *, hint: str | None = None) -> None:
-    """Teclado fijo bajo el input (Partidos, Grupos, etc.)."""
     from handler import TG_API, _post_json
     from telegram_keyboards import main_reply_keyboard
 
@@ -245,9 +279,9 @@ def send_main_reply_keyboard(chat_id: int, token: str, *, hint: str | None = Non
 def refresh_commands_for_chat(
     token: str, chat_id: int, *, is_admin: bool = False
 ) -> None:
-    """Actualiza menú / (global + scope chat) y teclado fijo."""
     sync_commands_for_chat(token, chat_id, is_admin=is_admin)
-    send_main_reply_keyboard(chat_id, token)
+    hint = admin_menu_hint() if is_admin else None
+    send_main_reply_keyboard(chat_id, token, hint=hint)
 
 
 def rules_message() -> str:
@@ -275,6 +309,5 @@ def handle_help_command(user_id: str) -> str | None:
     return help_message(is_admin=is_admin)
 
 
-# Retrocompat tests
 def should_refresh_bot_menu(text: str) -> bool:
     return command_triggers_menu_sync(text)
