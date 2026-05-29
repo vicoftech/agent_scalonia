@@ -100,12 +100,19 @@ def handle_news_admin_callback(
     return None, None
 
 
+def _local_today_iso() -> str:
+    from datetime import datetime
+
+    from src.services.match_service import DISPLAY_TZ
+
+    return datetime.now(DISPLAY_TZ).date().isoformat()
+
+
 def _exclude_hashes_for_admin(user_id: str, *, refresh: bool = False) -> set[str]:
     from src.dao.dynamo.news_dao import NewsDAO
     from src.dao.dynamo.user_dao import UserDAO
-    from src.jobs import world_cup_news_schedule as sched
 
-    run_date = sched.local_today_iso()
+    run_date = _local_today_iso()
     exclude = {
         n.get("url_hash")
         for n in NewsDAO().list_published_on_date(run_date)

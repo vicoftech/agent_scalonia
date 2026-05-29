@@ -611,6 +611,12 @@ def handler(event: dict, context) -> dict:
         except Exception:
             logger.exception("daily_trivia_prefetch failed")
 
+        _news_cmd = (text or "").strip().lower().split()[0].split("@")[0]
+        _is_news_admin_cmd = _news_cmd in (
+            "/noticia",
+            "/noticia_publicar",
+            "/noticias_hoy",
+        )
         try:
             from news_commands import handle_news_command
 
@@ -620,6 +626,22 @@ def handler(event: dict, context) -> dict:
                 return ok
         except Exception:
             logger.exception("news_commands failed")
+            if _is_news_admin_cmd:
+                _send_message(
+                    chat_id,
+                    "No pude procesar el comando de noticias. "
+                    "Probá /noticia https://… o reintentá en un minuto.",
+                    token,
+                )
+                return ok
+        if _is_news_admin_cmd:
+            _send_message(
+                chat_id,
+                "No pude procesar /noticia. Revisá que seas admin global "
+                "y que el bot esté actualizado (último deploy).",
+                token,
+            )
+            return ok
 
         try:
             from trivia_commands import handle_trivia_command

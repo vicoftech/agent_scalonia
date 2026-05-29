@@ -42,6 +42,8 @@ ADMIN_MENU_EXTRA: list[dict[str, str]] = [
         "command": "crear_grupo_para",
         "description": "Admin: crear grupo para un alias",
     },
+    {"command": "noticia", "description": "Admin: buscar/publicar noticia"},
+    {"command": "noticias_hoy", "description": "Admin: noticias enviadas hoy"},
 ]
 
 MENU_COMMANDS = USER_MENU_COMMANDS
@@ -268,6 +270,9 @@ Comandos admin (en tu menú /):
 /trivia_admin [tema] — Trivia experto a todos
 /admin_grupos — Panel de grupos
 /crear_grupo_para <alias> — Crear grupo para otro usuario
+/noticia — Buscar noticia (Tavily) o publicar con URL/texto
+/noticia_publicar — Publicar borrador
+/noticias_hoy — Listado del día
 
 Si no ves /ia_otorgar en el menú, mandá /menu para refrescar."""
 
@@ -279,7 +284,9 @@ def admin_menu_hint() -> str:
         "· /ia_otorgar — sumar consultas Ask IA\n"
         "· /trivia_admin — trivia experto\n"
         "· /admin_grupos — panel grupos\n"
-        "· /crear_grupo_para — grupo para otro alias"
+        "· /crear_grupo_para — grupo para otro alias\n"
+        "· /noticia — noticias admin\n"
+        "· /noticias_hoy — enviadas hoy"
     )
 
 

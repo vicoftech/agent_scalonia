@@ -19,6 +19,8 @@ locals {
     "${local.telegram_repo_root}/src/web/${f}" if !endswith(f, "/") && !strcontains(f, "__pycache__")],
     [for f in sort(fileset("${local.telegram_repo_root}/src/fixtures", "**")) :
     "${local.telegram_repo_root}/src/fixtures/${f}" if !endswith(f, "/") && !strcontains(f, "__pycache__")],
+    [for f in sort(fileset("${local.telegram_repo_root}/src/jobs", "**")) :
+    "${local.telegram_repo_root}/src/jobs/${f}" if !endswith(f, "/") && !strcontains(f, "__pycache__")],
   )
   telegram_webhook_py_files = sort(fileset("${local.telegram_lambda_dir}", "*.py"))
   telegram_lambda_hash = sha256(join("", concat(
