@@ -1,13 +1,20 @@
 """Traducción ES de titular/resumen para noticias en inglés — SPEC-2026-046."""
 from __future__ import annotations
 
+import json
 import logging
+import os
 import re
-from typing import Callable
+from typing import Any, Callable
 
 logger = logging.getLogger(__name__)
 
-_REGION = __import__("os").environ.get("AWS_REGION", "us-east-1")
+_REGION = os.environ.get("AWS_REGION", "us-east-1")
+# Nova Lite: rápido, no Anthropic (cuenta reseller/dev).
+_TRANSLATE_MODEL = os.environ.get(
+    "BEDROCK_NEWS_TRANSLATE_MODEL_ID",
+    "us.amazon.nova-lite-v1:0",
+)
 
 _translate_fn: Callable[[str, str], tuple[str, str] | None] | None = None
 
@@ -50,28 +57,64 @@ def looks_english(text: str) -> bool:
     return ascii_ratio > 0.98 and not _SPANISH_MARKERS.search(blob)
 
 
-def _aws_translate_text(text: str) -> str | None:
+def _extract_json(text: str) -> dict[str, Any] | None:
+    text = (text or "").strip()
+    if text.startswith("{"):
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            pass
+    m = re.search(r"\{.*\}", text, re.DOTALL)
+    if m:
+        try:
+            return json.loads(m.group(0))
+        except json.JSONDecodeError:
+            return None
+    return None
+
+
+def _response_text(payload: dict[str, Any]) -> str:
+    out = payload.get("output") or {}
+    msg = out.get("message") or {}
+    parts: list[str] = []
+    for block in msg.get("content") or []:
+        if isinstance(block, dict) and block.get("text"):
+            parts.append(str(block["text"]))
+    return "".join(parts).strip()
+
+
+def _bedrock_translate(headline: str, summary: str) -> tuple[str, str] | None:
     import boto3
 
-    chunk = (text or "").strip()
-    if not chunk:
-        return None
+    prompt = (
+        "Traducí al español rioplatense el titular y el resumen de esta noticia del Mundial 2026.\n"
+        "No inventes datos ni agregues información.\n"
+        'Respondé SOLO JSON válido: {"headline":"...","summary":"..."}\n\n'
+        f"TITULAR:\n{headline}\n\nRESUMEN:\n{summary}"
+    )
+    client = boto3.client("bedrock-runtime", region_name=_REGION)
     try:
-        client = boto3.client("translate", region_name=_REGION)
-        resp = client.translate_text(
-            Text=chunk[:4500],
-            SourceLanguageCode="auto",
-            TargetLanguageCode="es",
+        resp = client.converse(
+            modelId=_TRANSLATE_MODEL,
+            messages=[{"role": "user", "content": [{"text": prompt}]}],
+            inferenceConfig={"maxTokens": 700, "temperature": 0},
         )
-        out = (resp.get("TranslatedText") or "").strip()
-        return out or None
+        data = _extract_json(_response_text(resp))
+        if not data:
+            logger.warning("news translate: no JSON in bedrock response model=%s", _TRANSLATE_MODEL)
+            return None
+        h = str(data.get("headline") or "").strip()
+        s = str(data.get("summary") or "").strip()
+        if h and s:
+            logger.info("news translate ok model=%s", _TRANSLATE_MODEL)
+            return h, s
     except Exception:
-        logger.exception("news translate aws failed")
-        return None
+        logger.exception("news translate bedrock failed model=%s", _TRANSLATE_MODEL)
+    return None
 
 
 def translate_if_english(headline: str, summary: str) -> tuple[str, str]:
-    """Traduce titular y resumen si el texto parece inglés (Amazon Translate)."""
+    """Traduce titular y resumen si el texto parece inglés (Bedrock Nova)."""
     h, s = (headline or "").strip(), (summary or "").strip()
     blob = f"{h} {s}".strip()
     if not blob or not looks_english(blob):
@@ -80,8 +123,7 @@ def translate_if_english(headline: str, summary: str) -> tuple[str, str]:
         out = _translate_fn(h, s)
         if out:
             return out
-    th = _aws_translate_text(h)
-    ts = _aws_translate_text(s) if s else th
-    if th:
-        return th, ts or th
+    out = _bedrock_translate(h, s)
+    if out:
+        return out
     return h, s

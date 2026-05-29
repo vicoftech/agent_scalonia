@@ -129,11 +129,19 @@ data "aws_iam_policy_document" "telegram_webhook_inline" {
   dynamic "statement" {
     for_each = var.enable_world_cup_news ? [1] : []
     content {
-      sid = "NewsTranslate"
+      sid = "BedrockNewsTranslate"
       actions = [
-        "translate:TranslateText",
+        "bedrock:InvokeModel",
+        "bedrock:Converse",
       ]
-      resources = ["*"]
+      resources = [
+        "arn:aws:bedrock:${var.aws_region}::foundation-model/amazon.nova*",
+        "arn:aws:bedrock:${var.aws_region}::foundation-model/us.amazon.nova*",
+        "arn:aws:bedrock:${var.aws_region}::foundation-model/mistral*",
+        "arn:aws:bedrock:${var.aws_region}::foundation-model/us.mistral*",
+        "arn:aws:bedrock:${var.aws_region}::foundation-model/meta.llama*",
+        "arn:aws:bedrock:${var.aws_region}::foundation-model/us.meta.llama*",
+      ]
     }
   }
 
@@ -195,11 +203,12 @@ resource "aws_lambda_function" "telegram_webhook" {
         ENABLE_DAILY_BRIEFS = "true"
       } : {},
       var.enable_world_cup_news ? {
-        ENABLE_WORLD_CUP_NEWS   = "true"
-        NEWS_REDIRECT_BASE_URL  = trimsuffix(aws_apigatewayv2_stage.default.invoke_url, "/")
-        NEWS_REDIRECT_SECRET    = random_password.news_redirect_secret[0].result
-        NEWS_REDIRECT_ENABLED   = "true"
-        TAVILY_SECRET_ARN       = var.tavily_secret_arn
+        ENABLE_WORLD_CUP_NEWS            = "true"
+        NEWS_REDIRECT_BASE_URL           = trimsuffix(aws_apigatewayv2_stage.default.invoke_url, "/")
+        NEWS_REDIRECT_SECRET             = random_password.news_redirect_secret[0].result
+        NEWS_REDIRECT_ENABLED            = "true"
+        TAVILY_SECRET_ARN                = var.tavily_secret_arn
+        BEDROCK_NEWS_TRANSLATE_MODEL_ID  = "us.amazon.nova-lite-v1:0"
       } : {},
     )
   }
