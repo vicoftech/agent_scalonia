@@ -74,10 +74,12 @@ class AskIaService:
         purchases: IaPurchaseDAO | None = None,
         *,
         invoke_agent: Callable[[str, str, str], str] | None = None,
+        telegram_notify: Callable[[int, str], None] | None = None,
     ):
         self._users = users or UserDAO()
         self._purchases = purchases or IaPurchaseDAO()
         self._invoke_agent = invoke_agent
+        self._telegram_notify = telegram_notify
         self.daily_free = _env_int("IA_DAILY_FREE_CREDITS", 5)
         self.pack_bonus = _env_int("IA_PACK_BONUS_CREDITS", 20)
         self.min_pack_ars = _env_int("IA_MIN_PACK_ARS", 6999)
@@ -344,9 +346,15 @@ class AskIaService:
             "Usá /ask_ia cuando quieras."
         )
         try:
-            from src.clients.telegram_client import get_bot_token, send_telegram_message
+            if self._telegram_notify is not None:
+                self._telegram_notify(int(chat_id), text)
+            else:
+                from src.clients.telegram_client import (
+                    get_bot_token,
+                    send_telegram_message,
+                )
 
-            send_telegram_message(int(chat_id), text, get_bot_token())
+                send_telegram_message(int(chat_id), text, get_bot_token())
             return True
         except Exception:
             logger.exception(
@@ -383,5 +391,9 @@ class AskIaService:
         elif profile.get("tg_chat_id") is None:
             lines.append(
                 "⚠️ Sin chat de Telegram registrado: el usuario debe enviar /start al bot."
+            )
+        else:
+            lines.append(
+                "⚠️ No se pudo enviar la notificación por Telegram (revisá CloudWatch)."
             )
         return "\n".join(lines)

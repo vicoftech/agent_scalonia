@@ -32,8 +32,14 @@ def _svc(**kwargs) -> AskIaService:
 
     purchases = MagicMock()
     invoke = kwargs.get("invoke_agent") or MagicMock(return_value="Respuesta del agente sobre el Mundial.")
+    telegram_notify = kwargs.get("telegram_notify")
 
-    return AskIaService(users=users, purchases=purchases, invoke_agent=invoke)
+    return AskIaService(
+        users=users,
+        purchases=purchases,
+        invoke_agent=invoke,
+        telegram_notify=telegram_notify,
+    )
 
 
 def test_ensure_daily_reset_repone_cupo():
@@ -190,19 +196,19 @@ def test_admin_grant_notifies_recipient():
         "ai_credits_reset_date": datetime.now(DISPLAY_TZ).date().isoformat(),
         "tg_chat_id": 999888777,
     }
-    svc = _svc(profile_store=store)
-    with (
-        patch("src.services.auth_service.AuthService") as auth,
-        patch("src.clients.telegram_client.send_telegram_message") as send,
-        patch("src.clients.telegram_client.get_bot_token", return_value="tok"),
-    ):
+    sent: list[tuple[int, str]] = []
+
+    def notify(cid: int, text: str) -> None:
+        sent.append((cid, text))
+
+    svc = _svc(profile_store=store, telegram_notify=notify)
+    with patch("src.services.auth_service.AuthService") as auth:
         auth.return_value.is_admin_global.return_value = True
         msg = svc.admin_grant("admin1", "vic", 10)
     assert "notificó" in msg.lower()
-    send.assert_called_once()
-    body = send.call_args[0][1]
-    assert "+10" in body
-    assert "999888777" == str(send.call_args[0][0])
+    assert len(sent) == 1
+    assert sent[0][0] == 999888777
+    assert "+10" in sent[0][1]
 
 
 def test_admin_grant_skips_notify_without_chat_id():
