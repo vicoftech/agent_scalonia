@@ -2,33 +2,24 @@ env                       = "dev"
 aws_region                = "us-east-1"
 aws_profile               = ""
 aurora_cluster_identifier = "aurora-pg-asap-dev"
-
 terraform_state_bucket     = "prode-terraform-state-615216531593"
 terraform_state_lock_table = "prode-terraform-state-lock"
 terraform_state_key        = "prode/terraform.tfstate"
-
 project_name          = "prode-mundial"
 telegram_secret_arn   = "arn:aws:secretsmanager:us-east-1:615216531593:secret:SCALONIA_TELEGRAM_BOT_TOKEN-JkUUHh"
 telegram_bot_username = "scalonia_bot"
 tavily_secret_arn     = "arn:aws:secretsmanager:us-east-1:615216531593:secret:prode-mundial/dev/tavily-api-key-N45thZ"
-
 bedrock_model_id = "us.mistral.pixtral-large-2502-v1:0"
-
 enable_github_oidc         = true
 github_repository          = "vicoftech/agent_scalonia"
 github_actions_environment = "development"
-
 enable_result_queues    = true
 enable_result_collector = true
 enable_match_schedules  = true
-
 enable_match_lifecycle_sandbox = true
-
 enable_invitation_notify_queue = false
-
 enable_daily_briefs   = true
 enable_world_cup_news = true
-
 rds_proxy_endpoint            = "aurora-pg-asap-dev.cluster-cgxq84qu0b72.us-east-1.rds.amazonaws.com"
 db_name                       = "postgres"
 aurora_sync_secret_arn        = "arn:aws:secretsmanager:us-east-1:615216531593:secret:prode-mundial/dev/aurora-sync-60iepS"
