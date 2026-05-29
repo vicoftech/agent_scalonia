@@ -130,14 +130,19 @@ data "aws_iam_policy_document" "world_cup_news_inline" {
       "bedrock:InvokeModel",
       "bedrock:Converse",
     ]
-    resources = [
-      "arn:aws:bedrock:${var.aws_region}::foundation-model/amazon.nova*",
-      "arn:aws:bedrock:${var.aws_region}::foundation-model/us.amazon.nova*",
-      "arn:aws:bedrock:${var.aws_region}::foundation-model/mistral*",
-      "arn:aws:bedrock:${var.aws_region}::foundation-model/us.mistral*",
-      "arn:aws:bedrock:${var.aws_region}::foundation-model/meta.llama*",
-      "arn:aws:bedrock:${var.aws_region}::foundation-model/us.meta.llama*",
-    ]
+    resources = concat(
+      [
+        "arn:aws:bedrock:${var.aws_region}::foundation-model/amazon.nova*",
+        "arn:aws:bedrock:${var.aws_region}::foundation-model/us.amazon.nova*",
+        "arn:aws:bedrock:${var.aws_region}::foundation-model/mistral*",
+        "arn:aws:bedrock:${var.aws_region}::foundation-model/us.mistral*",
+        "arn:aws:bedrock:${var.aws_region}::foundation-model/meta.llama*",
+        "arn:aws:bedrock:${var.aws_region}::foundation-model/us.meta.llama*",
+      ],
+      [
+        "arn:aws:bedrock:${var.aws_region}:${data.aws_caller_identity.current.account_id}:inference-profile/*",
+      ],
+    )
   }
 }
 
