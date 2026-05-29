@@ -76,6 +76,7 @@ class BriefOrchestrator:
         *,
         team_filter: str | None = None,
         match_filter: str | None = None,
+        matches_only: bool = False,
         force: bool = False,
     ) -> dict[str, Any]:
         if not _enabled():
@@ -87,11 +88,12 @@ class BriefOrchestrator:
             and not self._overwrite
             and not team_filter
             and not match_filter
+            and not matches_only
             and self._job_ctrl.is_processed("daily_team_brief", run_date)
         ):
             return {"status": "SKIPPED", "reason": "already_processed", "run_date": run_date}
 
-        if match_filter and not team_filter:
+        if matches_only or (match_filter and not team_filter):
             self._strict_team_run = False
             team_stats = {"generated": 0, "failed": 0, "skipped_phase": True}
         else:
@@ -100,7 +102,7 @@ class BriefOrchestrator:
 
         match_stats = self._run_match_phase(match_filter=match_filter)
 
-        if not team_filter and not match_filter:
+        if not team_filter and not match_filter and not matches_only:
             self._job_ctrl.mark_processed(
                 "daily_team_brief",
                 run_date,
@@ -155,11 +157,14 @@ class BriefOrchestrator:
 
     def _run_match_phase(self, *, match_filter: str | None) -> dict[str, int]:
         generated = skipped = frozen = failed = 0
-        for match in self._matches.list_matches():
-            mid = match.get("match_id", "")
-            if match_filter and mid != match_filter:
-                continue
-            result = self._process_match(match)
+        matches = self._matches.list_matches()
+        if match_filter:
+            matches = [m for m in matches if m.get("match_id") == match_filter]
+
+        workers = 1 if match_filter else min(3, self._concurrency)
+
+        def _tally(result: str) -> None:
+            nonlocal generated, skipped, frozen, failed
             if result == "generated":
                 generated += 1
             elif result == "frozen":
@@ -168,6 +173,20 @@ class BriefOrchestrator:
                 failed += 1
             else:
                 skipped += 1
+
+        if workers <= 1:
+            for match in matches:
+                _tally(self._process_match(match))
+        else:
+            with ThreadPoolExecutor(max_workers=workers) as pool:
+                futures = {pool.submit(self._process_match, m): m for m in matches}
+                for fut in as_completed(futures):
+                    try:
+                        _tally(fut.result())
+                    except Exception:
+                        mid = futures[fut].get("match_id", "")[:8]
+                        logger.exception("match brief worker failed match=%s", mid)
+                        failed += 1
         logger.info(
             "match briefs generated=%s skipped=%s frozen=%s failed=%s",
             generated,
@@ -239,11 +258,13 @@ def run_daily_brief_job(
     *,
     team: str | None = None,
     match_id: str | None = None,
+    matches_only: bool = False,
     force: bool = False,
     invoke_agent: Callable[[str, str], str] | None = None,
 ) -> dict[str, Any]:
     return BriefOrchestrator(invoke_agent=invoke_agent, overwrite=force).run(
         team_filter=team,
         match_filter=match_id,
+        matches_only=matches_only,
         force=force,
     )

@@ -26,6 +26,11 @@ def main() -> None:
     p.add_argument("--env", default="dev")
     p.add_argument("--team", default="", help="ISO3 (ej. MEX)")
     p.add_argument("--match", default="", help="match_uuid")
+    p.add_argument(
+        "--matches-only",
+        action="store_true",
+        help="Solo MATCH_BRIEF (usa TEAM_BRIEF ya guardados)",
+    )
     p.add_argument("--force", action="store_true")
     args = p.parse_args()
 
@@ -57,6 +62,7 @@ def main() -> None:
     result = run_daily_brief_job(
         team=args.team.upper() if args.team else None,
         match_id=args.match or None,
+        matches_only=args.matches_only,
         force=args.force,
     )
     print(json.dumps(result, indent=2, ensure_ascii=False))

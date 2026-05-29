@@ -20,5 +20,9 @@ def handler(event: dict, context) -> dict:
 
     from src.services.brief_orchestrator import run_daily_brief_job
 
-    result = run_daily_brief_job()
+    result = run_daily_brief_job(
+        match_id=(event or {}).get("match_id") or None,
+        matches_only=bool((event or {}).get("matches_only")),
+        force=bool((event or {}).get("force")),
+    )
     return {"statusCode": 200, "body": result}
