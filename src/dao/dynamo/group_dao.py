@@ -41,12 +41,19 @@ class GroupDAO:
         group = self.get_group(group_id)
         if group and group.get("member_count") is not None:
             return int(group["member_count"])
-        resp = self._table.query(
-            IndexName="GSI-3-group-members",
-            KeyConditionExpression=Key("group_id").eq(group_id),
-            Select="COUNT",
-        )
-        return int(resp.get("Count", 0))
+        total = 0
+        kwargs: dict[str, Any] = {
+            "KeyConditionExpression": Key("partition_key").eq(f"GROUP#{group_id}")
+            & Key("sort_key").begins_with("MEMBER#"),
+            "Select": "COUNT",
+        }
+        while True:
+            resp = self._table.query(**kwargs)
+            total += int(resp.get("Count", 0))
+            if not resp.get("LastEvaluatedKey"):
+                break
+            kwargs["ExclusiveStartKey"] = resp["LastEvaluatedKey"]
+        return total
 
     def is_member(self, group_id: str, user_id: str) -> bool:
         return self.get_member(group_id, user_id) is not None
@@ -61,30 +68,30 @@ class GroupDAO:
         return resp.get("Item")
 
     def list_member_user_ids(self, group_id: str) -> list[str]:
-        """Miembros del grupo. GSI-3 con fallback a query por PK (datos legacy)."""
-        try:
-            resp = self._table.query(
-                IndexName="GSI-3-group-members",
-                KeyConditionExpression=Key("group_id").eq(str(group_id)),
-                ProjectionExpression="user_id",
-            )
-            ids = [i["user_id"] for i in resp.get("Items", []) if i.get("user_id")]
-            if ids:
-                return ids
-        except Exception:
-            pass
-        resp = self._table.query(
-            KeyConditionExpression=Key("partition_key").eq(f"GROUP#{group_id}")
-            & Key("sort_key").begins_with("MEMBER#"),
-            ProjectionExpression="user_id, sort_key",
-        )
+        """Miembros del grupo vía PK GROUP#…/MEMBER#… (no GSI-3: incluye predicciones)."""
         out: list[str] = []
-        for item in resp.get("Items", []):
-            uid = item.get("user_id")
-            if not uid and item.get("sort_key", "").startswith("MEMBER#"):
-                uid = item["sort_key"].split("#", 1)[1]
-            if uid:
-                out.append(str(uid))
+        seen: set[str] = set()
+        kwargs: dict[str, Any] = {
+            "KeyConditionExpression": Key("partition_key").eq(f"GROUP#{group_id}")
+            & Key("sort_key").begins_with("MEMBER#"),
+            "ProjectionExpression": "user_id, sort_key",
+        }
+        while True:
+            resp = self._table.query(**kwargs)
+            for item in resp.get("Items", []):
+                uid = item.get("user_id")
+                if not uid and item.get("sort_key", "").startswith("MEMBER#"):
+                    uid = item["sort_key"].split("#", 1)[1]
+                if not uid:
+                    continue
+                uid = str(uid)
+                if uid in seen:
+                    continue
+                seen.add(uid)
+                out.append(uid)
+            if not resp.get("LastEvaluatedKey"):
+                break
+            kwargs["ExclusiveStartKey"] = resp["LastEvaluatedKey"]
         return out
 
     def add_member(self, group_id: str, user_id: str, *, increment_count: bool = True) -> None:

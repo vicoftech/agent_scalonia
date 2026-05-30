@@ -65,16 +65,19 @@ class PredictionDAO:
     def list_user_predictions(
         self, user_id: str, *, group_id: str | None = None, status: str | None = None
     ) -> list[dict[str, Any]]:
-        filt = Attr("sort_key").begins_with("PRED#")
+        key_cond = Key("partition_key").eq(f"USER#{user_id}") & Key("sort_key").begins_with(
+            "PRED#"
+        )
+        filt: Any | None = None
         if group_id:
-            filt = filt & Attr("group_id").eq(group_id)
+            filt = Attr("group_id").eq(group_id)
         if status:
-            filt = filt & Attr("status").eq(status)
+            status_filt = Attr("status").eq(status)
+            filt = status_filt if filt is None else filt & status_filt
         items: list[dict[str, Any]] = []
-        kwargs: dict[str, Any] = {
-            "KeyConditionExpression": Key("partition_key").eq(f"USER#{user_id}"),
-            "FilterExpression": filt,
-        }
+        kwargs: dict[str, Any] = {"KeyConditionExpression": key_cond}
+        if filt is not None:
+            kwargs["FilterExpression"] = filt
         while True:
             resp = self._table.query(**kwargs)
             items.extend(resp.get("Items", []))

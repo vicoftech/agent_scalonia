@@ -306,16 +306,6 @@ class TriviaDAO:
         return None
 
     def list_group_member_user_ids(self, group_id: str) -> list[str]:
-        ids: list[str] = []
-        kwargs: dict[str, Any] = {
-            "IndexName": "GSI-3-group-members",
-            "KeyConditionExpression": Key("group_id").eq(group_id),
-            "ProjectionExpression": "user_id",
-        }
-        while True:
-            resp = self._table.query(**kwargs)
-            ids.extend(r["user_id"] for r in resp.get("Items", []) if r.get("user_id"))
-            if not resp.get("LastEvaluatedKey"):
-                break
-            kwargs["ExclusiveStartKey"] = resp["LastEvaluatedKey"]
-        return ids
+        from src.dao.dynamo.group_dao import GroupDAO
+
+        return GroupDAO(self._table.name).list_member_user_ids(group_id)

@@ -30,7 +30,13 @@ def format_ranking_message(
 ) -> str:
     rows = list(ranking.get("rows") or [])
     group_name = str(ranking.get("group_name") or "Grupo")
-    lines = [f"🏆 Ranking — {group_name}", ""]
+    title = "🌍 Ranking Global" if ranking.get("is_global") else f"🏆 Ranking — {group_name}"
+    lines = [title, ""]
+
+    if not rows:
+        lines.append("Todavía no hay puntos en este grupo.")
+        lines.append("Cuando se puntúen partidos, vas a ver la tabla acá.")
+        return "\n".join(lines)
 
     start = page * page_size
     end = start + page_size

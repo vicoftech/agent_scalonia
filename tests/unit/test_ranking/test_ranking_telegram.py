@@ -67,3 +67,14 @@ def test_format_ranking_marks_viewer_and_footer():
     assert "🏆 Ranking — Scaloneta" in text
     assert "👉 #3 vos — 12 pts" in text
     assert "Actualizado tras cada partido puntuado." in text
+
+
+def test_format_ranking_global_title():
+    ranking = {
+        "group_name": "Global",
+        "is_global": True,
+        "rows": [{"position": 1, "alias": "toti", "points": 0, "is_viewer": True}],
+    }
+    text = format_ranking_message(ranking)
+    assert "🌍 Ranking Global" in text
+    assert "👉 #1 vos — 0 pts" in text
