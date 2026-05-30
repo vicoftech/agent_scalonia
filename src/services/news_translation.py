@@ -11,12 +11,11 @@ from urllib.parse import urlparse
 logger = logging.getLogger(__name__)
 
 _REGION = os.environ.get("AWS_REGION", "us-east-1")
+# amazon.* = modelo regional en us-east-1. us.amazon.* = inference profile (puede rutear a us-west-2).
+_DEFAULT_MODELS = "amazon.nova-lite-v1:0,us.amazon.nova-lite-v1:0"
 _TRANSLATE_MODELS = [
     m.strip()
-    for m in os.environ.get(
-        "BEDROCK_NEWS_TRANSLATE_MODEL_ID",
-        "us.amazon.nova-lite-v1:0,amazon.nova-lite-v1:0",
-    ).split(",")
+    for m in os.environ.get("BEDROCK_NEWS_TRANSLATE_MODEL_ID", _DEFAULT_MODELS).split(",")
     if m.strip()
 ]
 
@@ -80,13 +79,16 @@ def should_translate(headline: str, article_url: str = "") -> bool:
 
 
 def looks_english(text: str) -> bool:
-    """Compat tests — usa solo la primera línea (titular)."""
     first = (text or "").strip().split("\n", 1)[0]
     return should_translate(first)
 
 
 def _extract_json(text: str) -> dict[str, Any] | None:
     text = (text or "").strip()
+    if "```" in text:
+        fenced = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL | re.I)
+        if fenced:
+            text = fenced.group(1).strip()
     if text.startswith("{"):
         try:
             return json.loads(text)
@@ -98,6 +100,24 @@ def _extract_json(text: str) -> dict[str, Any] | None:
             return json.loads(m.group(0))
         except json.JSONDecodeError:
             return None
+    return None
+
+
+def _fields_from_json(data: dict[str, Any]) -> tuple[str, str] | None:
+    h = str(
+        data.get("headline")
+        or data.get("titular")
+        or data.get("title")
+        or ""
+    ).strip()
+    s = str(
+        data.get("summary")
+        or data.get("resumen")
+        or data.get("description")
+        or ""
+    ).strip()
+    if h and s:
+        return h, s
     return None
 
 
@@ -117,7 +137,7 @@ def _bedrock_translate(headline: str, summary: str) -> tuple[str, str] | None:
     prompt = (
         "Traducí al español rioplatense el titular y el resumen de esta noticia del Mundial 2026.\n"
         "No inventes datos ni agregues información.\n"
-        'Respondé SOLO JSON válido: {"headline":"...","summary":"..."}\n\n'
+        'Respondé SOLO JSON válido con claves exactas: {"headline":"...","summary":"..."}\n\n'
         f"TITULAR:\n{headline}\n\nRESUMEN:\n{summary}"
     )
     client = boto3.client("bedrock-runtime", region_name=_REGION)
@@ -138,16 +158,15 @@ def _bedrock_translate(headline: str, summary: str) -> tuple[str, str] | None:
                     raw[:200],
                 )
                 continue
-            h = str(data.get("headline") or "").strip()
-            s = str(data.get("summary") or "").strip()
-            if h and s:
+            fields = _fields_from_json(data)
+            if fields:
                 logger.info("news translate ok model=%s", model_id)
-                return h, s
+                return fields
         except Exception as exc:
             last_err = exc
             logger.warning("news translate failed model=%s err=%s", model_id, exc)
     if last_err:
-        logger.exception("news translate bedrock exhausted models")
+        logger.error("news translate bedrock exhausted models last_err=%s", last_err)
     return None
 
 
@@ -157,9 +176,10 @@ def translate_if_english(
     *,
     article_url: str = "",
 ) -> tuple[str, str]:
-    """Traduce titular y resumen si corresponde (Bedrock Nova)."""
+    """Traduce titular y resumen si corresponde (Bedrock Nova regional)."""
     h, s = (headline or "").strip(), (summary or "").strip()
     if not should_translate(h, article_url):
+        logger.debug("news translate skip should_translate=false headline=%s", h[:60])
         return h, s
     if _translate_fn:
         out = _translate_fn(h, s)

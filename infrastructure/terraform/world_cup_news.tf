@@ -132,15 +132,15 @@ data "aws_iam_policy_document" "world_cup_news_inline" {
     ]
     resources = concat(
       [
-        "arn:aws:bedrock:${var.aws_region}::foundation-model/amazon.nova*",
-        "arn:aws:bedrock:${var.aws_region}::foundation-model/us.amazon.nova*",
-        "arn:aws:bedrock:${var.aws_region}::foundation-model/mistral*",
-        "arn:aws:bedrock:${var.aws_region}::foundation-model/us.mistral*",
-        "arn:aws:bedrock:${var.aws_region}::foundation-model/meta.llama*",
-        "arn:aws:bedrock:${var.aws_region}::foundation-model/us.meta.llama*",
+        "arn:aws:bedrock:*::foundation-model/amazon.nova*",
+        "arn:aws:bedrock:*::foundation-model/us.amazon.nova*",
+        "arn:aws:bedrock:*::foundation-model/mistral*",
+        "arn:aws:bedrock:*::foundation-model/us.mistral*",
+        "arn:aws:bedrock:*::foundation-model/meta.llama*",
+        "arn:aws:bedrock:*::foundation-model/us.meta.llama*",
       ],
       [
-        "arn:aws:bedrock:${var.aws_region}:${data.aws_caller_identity.current.account_id}:inference-profile/*",
+        "arn:aws:bedrock:*:${data.aws_caller_identity.current.account_id}:inference-profile/*",
       ],
     )
   }
@@ -179,7 +179,7 @@ resource "aws_lambda_function" "world_cup_news" {
         NEWS_REDIRECT_ENABLED   = "true"
       },
       var.tavily_secret_arn != "" ? { TAVILY_SECRET_ARN = var.tavily_secret_arn } : {},
-      { BEDROCK_NEWS_TRANSLATE_MODEL_ID = "us.amazon.nova-lite-v1:0" },
+      { BEDROCK_NEWS_TRANSLATE_MODEL_ID = "amazon.nova-lite-v1:0" },
     )
   }
 

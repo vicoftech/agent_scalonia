@@ -48,10 +48,21 @@ def _preview_keyboard() -> dict[str, Any]:
     }
 
 
+def _matches_news_command(text: str) -> bool:
+    stripped = (text or "").strip()
+    return bool(
+        _NOTICIAS_HOY.match(stripped)
+        or _NOTICIA_PUBLICAR.match(stripped)
+        or _NOTICIA.match(stripped)
+    )
+
+
 def handle_news_command(user_id: str, text: str) -> tuple[str | None, dict | None]:
+    stripped = (text or "").strip()
+    if not _matches_news_command(stripped):
+        return None, None
     if not _admin_only(user_id):
         return "Solo administradores pueden publicar noticias.", None
-    stripped = (text or "").strip()
     if _NOTICIAS_HOY.match(stripped):
         return _format_today_list(), None
     if _NOTICIA_PUBLICAR.match(stripped):
