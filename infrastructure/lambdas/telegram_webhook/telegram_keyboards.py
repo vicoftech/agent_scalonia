@@ -6,7 +6,7 @@ REPLY_BUTTON_TO_COMMAND: dict[str, str] = {
     "⏭️ próximo": "/proximo",
     "⚽ partidos": "/partidos",
     "🤖 ask ia": "/ask_ia",
-    "📊 mi puntaje": "/mi_puntuacion",
+    "🏆 mi ranking": "/mi_ranking",
     "👥 grupos": "/grupos",
     "📖 reglas": "/reglas",
 }
@@ -22,7 +22,7 @@ def main_reply_keyboard() -> dict:
             ],
             [
                 {"text": "🤖 Ask IA"},
-                {"text": "📊 Mi puntaje"},
+                {"text": "🏆 Mi ranking"},
             ],
             [
                 {"text": "👥 Grupos"},

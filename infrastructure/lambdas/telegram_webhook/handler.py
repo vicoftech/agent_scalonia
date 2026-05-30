@@ -338,6 +338,30 @@ def _handle_callback_query(callback: dict, ok: dict) -> dict:
                     token,
                 )
             return ok
+        elif data.startswith("rnk:"):
+            cb_id = callback.get("id")
+            if cb_id:
+                _post_json(
+                    f"{TG_API}/bot{token}/answerCallbackQuery",
+                    {"callback_query_id": cb_id},
+                    timeout=5,
+                )
+            from ranking_callbacks import handle_ranking_callback
+
+            try:
+                result = handle_ranking_callback(user_id, data)
+                if result:
+                    reply, markup = result
+                    if reply:
+                        _send_message(chat_id, reply, token, reply_markup=markup)
+            except Exception:
+                logger.exception("ranking_callback failed data=%s", data[:60])
+                _send_message(
+                    chat_id,
+                    "No pude cargar el ranking. Probá de nuevo con /mi_ranking.",
+                    token,
+                )
+            return ok
         elif data.startswith("ia:"):
             cb_id = callback.get("id")
             if cb_id:

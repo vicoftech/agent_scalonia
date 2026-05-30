@@ -20,7 +20,7 @@ SHORTCUT_COMMANDS: list[dict[str, str]] = [
     {"command": "proximo", "description": "Próximos partidos del fixture"},
     {"command": "partidos", "description": "Partidos del Mundial y predecir"},
     {"command": "ask_ia", "description": "Consultá al agente IA (5/día gratis)"},
-    {"command": "mi_puntuacion", "description": "Tu puntaje y predicciones"},
+    {"command": "mi_ranking", "description": "Ranking por grupo"},
     {"command": "grupos", "description": "Ver y administrar tus grupos"},
     {"command": "reglas", "description": "Cómo predecir y puntuar"},
 ]
@@ -69,7 +69,7 @@ def commands_for_user(*, is_admin: bool = False) -> list[dict[str, str]]:
 # Obsoletos: no deben aparecer en setMyCommands
 DEPRECATED_COMMANDS: frozenset[str] = frozenset({
     "resultados",
-    "mi_ranking",
+    "mi_puntuacion",
 })
 
 
@@ -249,7 +249,7 @@ Menú / (botón al lado del input):
 /proximo — Próximos partidos
 /partidos — Fixture y predecir
 /ask_ia — Consultas al agente IA (5/día gratis)
-/mi_puntuacion — Tu puntaje
+/mi_ranking — Ranking por grupo
 /grupos — Tus grupos
 /reglas — Cómo predecir y puntuar
 /start — Registro o bienvenida

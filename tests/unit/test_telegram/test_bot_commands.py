@@ -20,7 +20,7 @@ def test_shortcuts_are_first_in_menu():
         "proximo",
         "partidos",
         "ask_ia",
-        "mi_puntuacion",
+        "mi_ranking",
         "grupos",
         "reglas",
     ]

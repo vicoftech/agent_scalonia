@@ -8,7 +8,6 @@ from src.dao.dynamo.prediction_dao import PredictionDAO
 from src.dao.dynamo.user_dao import UserDAO
 from src.services.match_service import MatchService
 
-_MI_PUNTUACION = re.compile(r"^/mi[_-]puntuacion(?:@[\w_]+)?\s*$", re.IGNORECASE)
 _PROXIMO = re.compile(r"^/proximo(?:@[\w_]+)?\s*$", re.IGNORECASE)
 _REGLAS = re.compile(r"^/reglas(?:@[\w_]+)?\s*$", re.IGNORECASE)
 _MENU = re.compile(r"^/menu(?:@[\w_]+)?\s*$", re.IGNORECASE)
@@ -95,7 +94,7 @@ def handle_shortcut_command(
             "✅ Menú actualizado (botón / y teclado de abajo).\n\n"
             "Usá /help para la lista completa.\n"
             "Atajos: ⏭️ Próximo · ⚽ Partidos · 🤖 Ask IA · "
-            "📊 Mi puntaje · 👥 Grupos · 📖 Reglas"
+            "🏆 Mi ranking · 👥 Grupos · 📖 Reglas"
         )
         if AuthService().is_admin_global(user_id):
             base += f"\n\n{admin_menu_hint()}"
@@ -114,8 +113,10 @@ def handle_shortcut_command(
         _clear_wizard(svc, user_id)
         return svc.list_proximo_view(user_id)
 
-    if _MI_PUNTUACION.match(text):
-        return format_mi_puntuacion(user_id), None
+    from ranking_commands import handle_mi_ranking_command, matches_mi_ranking_command
+
+    if matches_mi_ranking_command(text):
+        return handle_mi_ranking_command(user_id, text)
 
     from ask_ia_commands import handle_ask_ia_command
 
@@ -137,6 +138,8 @@ def should_refresh_bot_menu(text: str) -> bool:
         "/proximo",
         "/partidos",
         "/grupos",
+        "/mi_ranking",
+        "/mi-ranking",
         "/mi_puntuacion",
         "/mi-puntuacion",
         "/ask_ia",

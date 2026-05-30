@@ -49,13 +49,16 @@ class GroupDAO:
         return int(resp.get("Count", 0))
 
     def is_member(self, group_id: str, user_id: str) -> bool:
+        return self.get_member(group_id, user_id) is not None
+
+    def get_member(self, group_id: str, user_id: str) -> dict[str, Any] | None:
         resp = self._table.get_item(
             Key={
                 "partition_key": f"GROUP#{group_id}",
                 "sort_key": f"MEMBER#{user_id}",
             },
         )
-        return "Item" in resp
+        return resp.get("Item")
 
     def list_member_user_ids(self, group_id: str) -> list[str]:
         """Miembros del grupo. GSI-3 con fallback a query por PK (datos legacy)."""
