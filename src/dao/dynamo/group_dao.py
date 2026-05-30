@@ -131,17 +131,33 @@ class GroupDAO:
 
     def get_owner_group_id(self, owner_user_id: str) -> str | None:
         """Primer grupo privado cuyo owner_id coincide (FREE tiene como máximo uno)."""
-        resp = self._table.scan(
-            FilterExpression=(
+        owned = self.list_owned_group_ids(owner_user_id)
+        return owned[0] if owned else None
+
+    def list_owned_group_ids(self, owner_user_id: str) -> list[str]:
+        """Grupos privados ACTIVE cuyo owner_id coincide."""
+        ids: list[str] = []
+        scan_kwargs: dict[str, Any] = {
+            "FilterExpression": (
                 Attr("sort_key").eq("DETAILS")
                 & Attr("owner_id").eq(owner_user_id)
                 & Attr("is_global").ne(True)
                 & Attr("status").ne(_GROUP_STATUS_DELETED)
             ),
-            ProjectionExpression="group_id",
-        )
-        items = resp.get("Items", [])
-        return items[0]["group_id"] if items else None
+            "ProjectionExpression": "group_id, #n, created_at",
+            "ExpressionAttributeNames": {"#n": "name"},
+        }
+        while True:
+            resp = self._table.scan(**scan_kwargs)
+            for item in resp.get("Items", []):
+                gid = item.get("group_id")
+                if gid and gid not in ids:
+                    ids.append(str(gid))
+            if not resp.get("LastEvaluatedKey"):
+                break
+            scan_kwargs["ExclusiveStartKey"] = resp["LastEvaluatedKey"]
+        ids.sort()
+        return ids
 
     def list_group_ids_for_user(self, user_id: str) -> list[str]:
         """Grupos donde el usuario es miembro (incluye GLOBAL)."""

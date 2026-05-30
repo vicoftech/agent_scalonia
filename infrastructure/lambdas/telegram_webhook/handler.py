@@ -362,6 +362,30 @@ def _handle_callback_query(callback: dict, ok: dict) -> dict:
                     token,
                 )
             return ok
+        elif data.startswith("gup:"):
+            cb_id = callback.get("id")
+            if cb_id:
+                _post_json(
+                    f"{TG_API}/bot{token}/answerCallbackQuery",
+                    {"callback_query_id": cb_id},
+                    timeout=5,
+                )
+            from group_upgrade_commands import handle_group_upgrade_callback
+
+            try:
+                result = handle_group_upgrade_callback(user_id, data)
+                if result:
+                    reply, markup = result
+                    if reply:
+                        _send_message(chat_id, reply, token, reply_markup=markup)
+            except Exception:
+                logger.exception("group_upgrade_callback failed data=%s", data[:60])
+                _send_message(
+                    chat_id,
+                    "No pude procesar la ampliación. Probá /ampliar_plan.",
+                    token,
+                )
+            return ok
         elif data.startswith("ia:"):
             cb_id = callback.get("id")
             if cb_id:
@@ -477,6 +501,29 @@ def handler(event: dict, context) -> dict:
 
         photos = message.get("photo") or []
         document = message.get("document")
+        if user_id and profile and profile.get("group_upgrade_purchase_pending"):
+            if photos or document:
+                if photos:
+                    file_id = photos[-1].get("file_id", "")
+                else:
+                    file_id = document.get("file_id", "")
+                if file_id:
+                    from group_upgrade_commands import handle_group_upgrade_purchase_proof
+
+                    proof_reply = handle_group_upgrade_purchase_proof(
+                        user_id, file_id=file_id
+                    )
+                    if proof_reply:
+                        _send_message(chat_id, proof_reply, token)
+                return ok
+            if not text:
+                _send_message(
+                    chat_id,
+                    "Enviá el comprobante como foto o documento PDF en este chat.",
+                    token,
+                )
+                return ok
+
         if user_id and profile and profile.get("ai_purchase_pending"):
             if photos or document:
                 if photos:
@@ -565,6 +612,17 @@ def handler(event: dict, context) -> dict:
             if onb_text is not None:
                 _send_message(chat_id, onb_text, token, reply_markup=onb_markup)
                 return ok
+
+        try:
+            from group_upgrade_commands import handle_group_upgrade_command
+
+            gup_reply = handle_group_upgrade_command(user_id, text)
+            if gup_reply:
+                gup_text, gup_markup = gup_reply
+                _send_message(chat_id, gup_text, token, reply_markup=gup_markup)
+                return ok
+        except Exception:
+            logger.exception("group_upgrade_commands failed")
 
         try:
             from group_commands import handle_group_command

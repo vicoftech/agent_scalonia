@@ -63,9 +63,6 @@ def admin_group_menu_keyboard(group_id: str) -> dict:
 
 
 def limit_reached_keyboard() -> dict:
-    return {
-        "inline_keyboard": [
-            [{"text": "📩 Pedir al admin", "callback_data": "grp:req_admin"}],
-            [{"text": "Cancelar", "callback_data": "grp:cancel"}],
-        ],
-    }
+    from src.services.group_upgrade_telegram_ui import limit_reached_with_upgrade_keyboard
+
+    return limit_reached_with_upgrade_keyboard()

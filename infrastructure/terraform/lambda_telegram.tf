@@ -186,7 +186,7 @@ resource "aws_lambda_function" "telegram_webhook" {
         AGENTCORE_RUNTIME_QUALIFIER = aws_bedrockagentcore_agent_runtime_endpoint.live.name
         AGENT_RUNTIME_VERSION       = aws_bedrockagentcore_agent_runtime.prode.agent_runtime_version
         LOG_LEVEL                   = "INFO"
-        BOT_COMMANDS_VERSION        = "11"
+        BOT_COMMANDS_VERSION        = "12"
         TELEGRAM_SECRET_ID          = "SCALONIA_TELEGRAM_BOT_TOKEN"
         TELEGRAM_BOT_USERNAME       = var.telegram_bot_username
         INVITATION_NOTIFY_QUEUE_URL = var.enable_invitation_notify_queue ? aws_sqs_queue.invitation_exhausted[0].url : ""

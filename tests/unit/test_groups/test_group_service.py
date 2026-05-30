@@ -22,7 +22,7 @@ def test_validate_group_name_too_short():
 @patch("src.services.group_service.GroupDAO")
 @patch("src.services.group_service.UserDAO")
 def test_can_create_free_user_without_group(mock_user, mock_group):
-    mock_group.return_value.get_owner_group_id.return_value = None
+    mock_group.return_value.list_owned_group_ids.return_value = []
     mock_user.return_value.get_profile.return_value = {"is_admin": False}
     svc = GroupService(group_dao=mock_group.return_value, user_dao=mock_user.return_value)
     ok, _ = svc.can_create_group("u1")
@@ -32,13 +32,23 @@ def test_can_create_free_user_without_group(mock_user, mock_group):
 @patch("src.services.group_service.GroupDAO")
 @patch("src.services.group_service.UserDAO")
 def test_cannot_create_second_group_free(mock_user, mock_group):
-    mock_group.return_value.get_owner_group_id.return_value = "g1"
+    mock_group.return_value.list_owned_group_ids.return_value = ["g1"]
     mock_group.return_value.get_group.return_value = {"name": "Mi Grupo"}
-    mock_user.return_value.get_profile.return_value = {"is_admin": False}
+    mock_user.return_value.get_profile.return_value = {"is_admin": False, "extra_owned_group_slots": 0}
     svc = GroupService(group_dao=mock_group.return_value, user_dao=mock_user.return_value)
     ok, name = svc.can_create_group("u1")
     assert ok is False
     assert name == "Mi Grupo"
+
+
+@patch("src.services.group_service.GroupDAO")
+@patch("src.services.group_service.UserDAO")
+def test_can_create_with_extra_slot(mock_user, mock_group):
+    mock_group.return_value.list_owned_group_ids.return_value = ["g1"]
+    mock_user.return_value.get_profile.return_value = {"is_admin": False, "extra_owned_group_slots": 1}
+    svc = GroupService(group_dao=mock_group.return_value, user_dao=mock_user.return_value)
+    ok, _ = svc.can_create_group("u1")
+    assert ok is True
 
 
 @patch("src.services.group_service.UserDAO")

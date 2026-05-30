@@ -44,11 +44,16 @@ class GroupService:
         profile = self._users.get_profile(user_id) or {}
         if profile.get("is_admin"):
             return True, None
-        owned = self._groups.get_owner_group_id(user_id)
-        if owned:
-            group = self._groups.get_group(owned) or {}
-            return False, group.get("name", "tu grupo")
+        owned = self._groups.list_owned_group_ids(user_id)
+        max_allowed = self._max_owned_groups(profile)
+        if len(owned) >= max_allowed:
+            first = self._groups.get_group(owned[0]) or {}
+            return False, first.get("name", "tu grupo")
         return True, None
+
+    def _max_owned_groups(self, profile: dict) -> int:
+        extra = int(profile.get("extra_owned_group_slots") or 0)
+        return _FREE_MAX_OWNED_GROUPS + extra
 
     def format_groups_list(self, user_id: str) -> str:
         group_ids = self._groups.list_group_ids_for_user(user_id)
@@ -95,13 +100,15 @@ class GroupService:
     def start_create_group(self, user_id: str) -> tuple[str, dict | None]:
         ok, existing_name = self.can_create_group(user_id)
         if not ok:
-            from src.services.group_telegram_ui import limit_reached_keyboard
+            from src.services.group_upgrade_telegram_ui import (
+                limit_reached_with_upgrade_keyboard,
+            )
 
             return (
-                f'Ya tenés un grupo propio ("{existing_name}").\n'
-                "En el plan Free podés tener 1 grupo.\n"
+                f'Ya tenés el máximo de grupos propios ("{existing_name}").\n'
+                f"En el plan Free podés tener {self._max_owned_groups(self._users.get_profile(user_id) or {})}.\n"
                 "Para crear más:",
-                limit_reached_keyboard(),
+                limit_reached_with_upgrade_keyboard(),
             )
         self._clear_create_state(user_id)
         self._users.update_profile(user_id, group_create_step="awaiting_name")
@@ -145,9 +152,10 @@ class GroupService:
             max_members=max_members,
         )
         self._groups.add_member(GLOBAL_GROUP_ID, user_id)
+        owned_count = len(self._groups.list_owned_group_ids(user_id))
         self._users.update_profile(
             user_id,
-            groups_owned=1,
+            groups_owned=owned_count,
             group_create_step=None,
             group_draft_name=None,
         )

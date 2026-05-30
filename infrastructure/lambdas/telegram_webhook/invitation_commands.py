@@ -55,14 +55,39 @@ def handle_invitation_command(user_id: str, text: str) -> tuple[str, dict | None
                         )
                         return result["message"], None
                     except ValueError as exc:
-                        return str(exc), None
+                        msg = str(exc)
+                        if msg == "El grupo ya alcanzó el cupo de miembros" or _reason == "LIMIT_REACHED_INVITES":
+                            from src.services.group_upgrade_service import GroupUpgradeService
+
+                            g = groups.get_group(ctx_gid) or {}
+                            return GroupUpgradeService().member_limit_message(
+                                str(g.get("name") or "tu grupo"),
+                                int(g.get("max_members") or 5),
+                            )
+                        return msg, None
                 if not is_admin:
                     if slots is not None and max_uses > slots:
                         s = "slot" if slots == 1 else "slots"
                         d = "disponible" if slots == 1 else "disponibles"
+                        if slots <= 0:
+                            from src.services.group_upgrade_service import GroupUpgradeService
+
+                            g = groups.get_group(ctx_gid) or {}
+                            return GroupUpgradeService().member_limit_message(
+                                str(g.get("name") or "tu grupo"),
+                                int(g.get("max_members") or 5),
+                            )
                         return (
                             f"Solo tenés {slots} {s} {d} en tu grupo",
                             None,
+                        )
+                    if _reason == "LIMIT_REACHED_INVITES":
+                        from src.services.group_upgrade_service import GroupUpgradeService
+
+                        g = groups.get_group(ctx_gid) or {}
+                        return GroupUpgradeService().member_limit_message(
+                            str(g.get("name") or "tu grupo"),
+                            int(g.get("max_members") or 5),
                         )
                     return (
                         f"No podés invitar a este grupo ({_reason}).",
@@ -126,9 +151,11 @@ def handle_invitation_command(user_id: str, text: str) -> tuple[str, dict | None
             if code == "INVITATION_EXPIRED":
                 return "Esta invitación expiró (tenía 24hs). Pedí una nueva.", None
             if code == "LIMIT_REACHED_INVITES":
+                from src.services.group_upgrade_telegram_ui import member_limit_keyboard
+
                 return (
-                    "El grupo ya no tiene cupo. Pedile al admin que amplíe el límite.",
-                    None,
+                    "El grupo ya no tiene cupo.\nComprá +5 integrantes con una unidad:",
+                    member_limit_keyboard(),
                 )
             return str(exc), None
         name = result.get("group_name", "el grupo")

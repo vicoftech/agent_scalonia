@@ -44,6 +44,18 @@ ADMIN_MENU_EXTRA: list[dict[str, str]] = [
     },
     {"command": "noticia", "description": "Admin: buscar/publicar noticia"},
     {"command": "noticias_hoy", "description": "Admin: noticias enviadas hoy"},
+    {
+        "command": "grupo_otorgar_grupo",
+        "description": "Admin: slot de grupo extra por alias",
+    },
+    {
+        "command": "grupo_otorgar_cupos",
+        "description": "Admin: +5 miembros en grupo (alias g8 packs)",
+    },
+    {
+        "command": "grupo_ver_cuotas",
+        "description": "Admin: cuotas de grupos de un alias",
+    },
 ]
 
 MENU_COMMANDS = USER_MENU_COMMANDS
@@ -273,6 +285,9 @@ Comandos admin (en tu menú /):
 /noticia — Buscar noticia (Tavily) o publicar con URL/texto
 /noticia_publicar — Publicar borrador
 /noticias_hoy — Listado del día
+/grupo_otorgar_grupo <alias> [n] — Slot grupo extra
+/grupo_otorgar_cupos <alias> <grupo> <packs> — +5 miembros por pack
+/grupo_ver_cuotas <alias> — Cuotas y U pendientes
 
 Si no ves /ia_otorgar en el menú, mandá /menu para refrescar."""
 
