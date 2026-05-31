@@ -13,6 +13,9 @@ PTS_KO_PLAYOFF_PATH = 2  # acierta ET/penales + ganador si predijiste empate en 
 # Cada variable extendida Sí/No acertada
 PTS_EXTENDED_BOOL = 1
 
+# Veda de predicciones por partido (SPEC-032 / ADR-005)
+VEDA_MINUTES_BEFORE_KICKOFF = 5
+
 EXTENDED_FIELD_KEYS = (
     "has_red_card",
     "pred_goal_before_5min",

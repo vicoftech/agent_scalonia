@@ -45,6 +45,8 @@ def test_build_plans_skips_past_fire_times():
     suffixes = {p.suffix for p in plans}
     assert "trivia-pre" in suffixes
     assert "result" in suffixes
+    veda = next(p for p in plans if p.suffix == "veda")
+    assert veda.fire_at == kickoff - timedelta(minutes=5)
 
 
 def test_build_plans_empty_when_kickoff_past():

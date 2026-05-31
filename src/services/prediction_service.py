@@ -518,7 +518,9 @@ class PredictionService:
         kickoff = self._kickoff_or_none(match)
         if kickoff is None:
             return "—"
-        veda_at = kickoff - timedelta(minutes=30)
+        from src.services.prediction_rules import VEDA_MINUTES_BEFORE_KICKOFF
+
+        veda_at = kickoff - timedelta(minutes=VEDA_MINUTES_BEFORE_KICKOFF)
         delta = veda_at - datetime.now(timezone.utc)
         if delta.total_seconds() <= 0:
             return "cerrada"

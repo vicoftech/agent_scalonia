@@ -1,4 +1,4 @@
-"""Activa veda −30 min y notifica — SPEC-032 / ADR-005."""
+"""Activa veda −5 min y notifica — SPEC-032 / ADR-005."""
 from __future__ import annotations
 
 import logging

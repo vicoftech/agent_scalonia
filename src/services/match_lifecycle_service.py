@@ -13,6 +13,7 @@ from src.dao.dynamo.group_dao import GroupDAO
 from src.dao.dynamo.match_dao import MatchDAO
 from src.dao.dynamo.prediction_dao import PredictionDAO
 from src.dao.dynamo.user_dao import UserDAO
+from src.services.prediction_rules import VEDA_MINUTES_BEFORE_KICKOFF
 from src.services.prediction_service import PredictionService
 
 logger = logging.getLogger(__name__)
@@ -21,7 +22,7 @@ REMINDER_TEMPLATES: dict[int, str] = {
     1: (
         "⏰ Quedan ~60 min\n"
         "Todavía podés predecir {title}.\n"
-        "La veda cierra en ~30 min."
+        f"La veda cierra {VEDA_MINUTES_BEFORE_KICKOFF} min antes del kickoff."
     ),
     2: (
         "⚠️ Quedan ~30 min\n"

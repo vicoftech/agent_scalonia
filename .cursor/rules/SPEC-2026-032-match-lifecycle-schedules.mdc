@@ -18,7 +18,7 @@ Al **dar de alta** o **actualizar** `kickoff_utc` de un partido → provisionar 
 | 2 | Reminder #1 (sin pred.) | **−1 h** | `match_reminder_dispatcher` |
 | 3 | Reminder #2 (sin pred.) | **−30 min** | `match_reminder_dispatcher` |
 | 4 | Reminder #3 (sin pred.) | **−15 min** | `match_reminder_dispatcher` |
-| 5 | Veda | **−30 min** | `veda_activator` |
+| 5 | Veda | **−5 min** | `veda_activator` |
 | 6 | Resultados | **+110 min** | `result_collector` (`match_ended`) |
 | 7 | Scoring | Tras (6) | `scoring_processor` vía SQS `FINISH_MATCH` (+ catch-up opcional +120 min) |
 

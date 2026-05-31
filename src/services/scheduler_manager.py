@@ -20,6 +20,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+from src.services.prediction_rules import VEDA_MINUTES_BEFORE_KICKOFF
+
 logger = logging.getLogger(__name__)
 
 # (suffix, offset_minutos vs kickoff, event_type, env ARN key, extra payload)
@@ -28,7 +30,7 @@ SCHEDULE_SPECS: tuple[tuple[str, int, str, str, dict[str, Any]], ...] = (
     ("remind-60", -60, "MATCH_REMINDER", "LAMBDA_ARN_MATCH_REMINDER", {"reminder_tier": 1}),
     ("remind-30", -30, "MATCH_REMINDER", "LAMBDA_ARN_MATCH_REMINDER", {"reminder_tier": 2}),
     ("remind-15", -15, "MATCH_REMINDER", "LAMBDA_ARN_MATCH_REMINDER", {"reminder_tier": 3}),
-    ("veda", -30, "MATCH_VEDA", "LAMBDA_ARN_VEDA_ACTIVATOR", {}),
+    ("veda", -VEDA_MINUTES_BEFORE_KICKOFF, "MATCH_VEDA", "LAMBDA_ARN_VEDA_ACTIVATOR", {}),
     ("result", 110, "MATCH_RESULT", "LAMBDA_ARN_RESULT_COLLECTOR", {"trigger": "match_ended"}),
     (
         "scoring-catchup",
