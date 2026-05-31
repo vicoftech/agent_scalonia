@@ -151,6 +151,37 @@ def _send_document(
     return False
 
 
+def _copy_message(
+    to_chat_id: int,
+    from_chat_id: int,
+    message_id: int,
+    caption: str,
+    token: str,
+) -> bool:
+    """copyMessage — reenvío fiable de comprobantes al admin."""
+    cap = caption[:1024] if len(caption) > 1024 else caption
+    body: dict[str, Any] = {
+        "chat_id": to_chat_id,
+        "from_chat_id": from_chat_id,
+        "message_id": message_id,
+        "caption": cap,
+    }
+    for attempt in range(3):
+        code, j = _post_json(f"{TG_API}/bot{token}/copyMessage", body)
+        if code == 429:
+            time.sleep(float(j.get("parameters", {}).get("retry_after", 2)))
+            continue
+        if code >= 400:
+            logger.warning(
+                "copyMessage failed code=%s desc=%s",
+                code,
+                j.get("description"),
+            )
+            return False
+        return True
+    return False
+
+
 def _friendly_agent_error(reason: str) -> str:
     low = reason.lower()
     if "model identifier is invalid" in low:
@@ -570,7 +601,11 @@ def handler(event: dict, context) -> dict:
                     from group_upgrade_commands import handle_group_upgrade_purchase_proof
 
                     proof_reply = handle_group_upgrade_purchase_proof(
-                        user_id, file_id=file_id, file_kind=kind
+                        user_id,
+                        file_id=file_id,
+                        file_kind=kind,
+                        from_chat_id=int(chat_id),
+                        message_id=int(message.get("message_id") or 0) or None,
                     )
                     if proof_reply:
                         _send_message(chat_id, proof_reply, token)
@@ -595,7 +630,11 @@ def handler(event: dict, context) -> dict:
                     from ask_ia_commands import handle_ask_ia_purchase_proof
 
                     proof_reply = handle_ask_ia_purchase_proof(
-                        user_id, file_id=file_id, file_kind=kind
+                        user_id,
+                        file_id=file_id,
+                        file_kind=kind,
+                        from_chat_id=int(chat_id),
+                        message_id=int(message.get("message_id") or 0) or None,
                     )
                     if proof_reply:
                         _send_message(chat_id, proof_reply, token)

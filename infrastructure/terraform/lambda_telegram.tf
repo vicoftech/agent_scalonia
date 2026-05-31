@@ -189,6 +189,7 @@ resource "aws_lambda_function" "telegram_webhook" {
         BOT_COMMANDS_VERSION        = "13"
         TELEGRAM_SECRET_ID          = "SCALONIA_TELEGRAM_BOT_TOKEN"
         TELEGRAM_BOT_USERNAME       = var.telegram_bot_username
+        TELEGRAM_ADMIN_CHAT_IDS     = var.telegram_admin_chat_ids
         INVITATION_NOTIFY_QUEUE_URL = var.enable_invitation_notify_queue ? aws_sqs_queue.invitation_exhausted[0].url : ""
       },
       module.kb.kb_query_lambda_name != "" ? {

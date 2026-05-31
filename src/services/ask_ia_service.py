@@ -75,7 +75,7 @@ class AskIaService:
         *,
         invoke_agent: Callable[[str, str, str], str] | None = None,
         telegram_notify: Callable[[int, str], None] | None = None,
-        admin_proof_notify: Callable[[str, str, str], int] | None = None,
+        admin_proof_notify: Callable[..., int] | None = None,
     ):
         self._users = users or UserDAO()
         self._purchases = purchases or IaPurchaseDAO()
@@ -287,8 +287,33 @@ class AskIaService:
         delta = datetime.now(timezone.utc) - last.astimezone(timezone.utc)
         return delta < timedelta(hours=self.purchase_cooldown_h)
 
+    def _forward_proof_to_admin(
+        self,
+        *,
+        file_id: str,
+        file_kind: str,
+        caption: str,
+        from_chat_id: int | None = None,
+        message_id: int | None = None,
+    ) -> int:
+        if not self._admin_proof_notify:
+            return 0
+        return self._admin_proof_notify(
+            file_id,
+            file_kind,
+            caption,
+            from_chat_id=from_chat_id,
+            message_id=message_id,
+        )
+
     def handle_purchase_proof(
-        self, user_id: str, *, file_id: str, file_kind: str
+        self,
+        user_id: str,
+        *,
+        file_id: str,
+        file_kind: str,
+        from_chat_id: int | None = None,
+        message_id: int | None = None,
     ) -> str:
         from src.services.payment_proof_notify import (
             USER_RECEIPT_ACK,
@@ -302,10 +327,19 @@ class AskIaService:
                 "desde /ask_ia o el menú de créditos."
             )
 
+        caption = build_ask_ia_admin_caption(profile, amount_ars=self.min_pack_ars)
+
         if self._purchase_cooldown_active(profile):
+            self._forward_proof_to_admin(
+                file_id=file_id,
+                file_kind=file_kind,
+                caption=caption + "\n\n⚠️ Reenvío durante ventana de 24 h.",
+                from_chat_id=from_chat_id,
+                message_id=message_id,
+            )
             return (
                 "Ya enviaste un comprobante en las últimas 24 h.\n"
-                "Si pagaste de nuevo, el admin lo revisará en breve o contactanos con /help."
+                "Se lo reenviamos al admin por las dudas."
             )
 
         alias = (profile.get("alias") or "jugador").strip()
@@ -325,10 +359,13 @@ class AskIaService:
             ai_last_auto_purchase_at=now,
         )
 
-        caption = build_ask_ia_admin_caption(profile, amount_ars=self.min_pack_ars)
-        notified = 0
-        if self._admin_proof_notify:
-            notified = self._admin_proof_notify(file_id, file_kind, caption)
+        notified = self._forward_proof_to_admin(
+            file_id=file_id,
+            file_kind=file_kind,
+            caption=caption,
+            from_chat_id=from_chat_id,
+            message_id=message_id,
+        )
 
         msg = USER_RECEIPT_ACK
         if notified == 0:

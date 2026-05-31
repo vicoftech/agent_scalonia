@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from collections.abc import Callable
 from typing import Any
 
@@ -23,33 +24,81 @@ class PaymentProofNotifier:
         users: UserDAO | None = None,
         *,
         send_media: Callable[[int, str, str, str], bool] | None = None,
+        copy_message: Callable[[int, int, int, str], bool] | None = None,
         send_text: Callable[[int, str], None] | None = None,
     ):
         self._users = users or UserDAO()
         self._send_media = send_media
+        self._copy_message = copy_message
         self._send_text = send_text
 
-    def notify_admins(self, *, file_id: str, file_kind: str, caption: str) -> int:
-        if not self._send_media:
-            logger.warning("payment_proof notify skipped: no send_media configured")
+    def _admin_targets(self) -> list[dict[str, Any]]:
+        targets = self._users.list_admin_telegram_targets()
+        if targets:
+            return targets
+        raw = (os.environ.get("TELEGRAM_ADMIN_CHAT_IDS") or "").strip()
+        if not raw:
+            return []
+        out: list[dict[str, Any]] = []
+        for part in raw.split(","):
+            part = part.strip()
+            if part.isdigit():
+                out.append(
+                    {
+                        "user_id": "env-admin",
+                        "tg_chat_id": int(part),
+                        "alias": "admin",
+                    }
+                )
+        return out
+
+    def notify_admins(
+        self,
+        *,
+        file_id: str,
+        file_kind: str,
+        caption: str,
+        from_chat_id: int | None = None,
+        message_id: int | None = None,
+    ) -> int:
+        targets = self._admin_targets()
+        if not targets:
+            logger.warning("payment_proof notify skipped: no admin targets")
             return 0
+
         sent = 0
-        for admin in self._users.list_admin_telegram_targets():
+        for admin in targets:
             chat_id = int(admin["tg_chat_id"])
             try:
-                if self._send_media(chat_id, file_id, file_kind, caption):
+                ok = False
+                if (
+                    from_chat_id is not None
+                    and message_id is not None
+                    and self._copy_message is not None
+                ):
+                    ok = self._copy_message(chat_id, from_chat_id, message_id, caption)
+                if not ok and self._send_media is not None:
+                    ok = self._send_media(chat_id, file_id, file_kind, caption)
+                if ok:
                     sent += 1
+                else:
+                    logger.warning(
+                        "payment_proof media failed admin=%s file_kind=%s",
+                        str(admin.get("user_id", ""))[:8],
+                        file_kind,
+                    )
             except Exception:
                 logger.exception(
                     "payment_proof notify failed admin=%s",
                     str(admin.get("user_id", ""))[:8],
                 )
-        if sent == 0 and self._send_text:
+
+        if sent == 0 and self._send_text is not None:
             fallback = (
                 f"{caption}\n\n"
                 f"(No se pudo reenviar el archivo; file_id={file_id})"
             )
-            for admin in self._users.list_admin_telegram_targets():
+            for admin in targets:
                 try:
                     self._send_text(int(admin["tg_chat_id"]), fallback[:4096])
                     sent += 1

@@ -32,6 +32,12 @@ variable "telegram_bot_username" {
   description = "Username del bot sin @ — deep links t.me/<bot>?start=<invite_id>"
 }
 
+variable "telegram_admin_chat_ids" {
+  type        = string
+  default     = ""
+  description = "Chat IDs admin fallback para comprobantes (comma-separated). Dynamo is_admin tiene prioridad."
+}
+
 variable "terraform_state_bucket" {
   type        = string
   description = "Bucket S3 del backend remoto (bootstrap: prode-terraform-state-<account_id>)."

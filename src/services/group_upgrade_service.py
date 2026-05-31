@@ -26,7 +26,7 @@ class GroupUpgradeService:
         matches: MatchDAO | None = None,
         purchases: GroupUpgradeDAO | None = None,
         telegram_notify: Callable[[int, str], None] | None = None,
-        admin_proof_notify: Callable[[str, str, str], int] | None = None,
+        admin_proof_notify: Callable[..., int] | None = None,
     ):
         self._users = users or UserDAO()
         self._groups = groups or GroupDAO()
@@ -418,8 +418,33 @@ class GroupUpgradeService:
         delta = datetime.now(timezone.utc) - last.astimezone(timezone.utc)
         return delta < timedelta(hours=self.purchase_cooldown_h)
 
+    def _forward_proof_to_admin(
+        self,
+        *,
+        file_id: str,
+        file_kind: str,
+        caption: str,
+        from_chat_id: int | None = None,
+        message_id: int | None = None,
+    ) -> int:
+        if not self._admin_proof_notify:
+            return 0
+        return self._admin_proof_notify(
+            file_id,
+            file_kind,
+            caption,
+            from_chat_id=from_chat_id,
+            message_id=message_id,
+        )
+
     def handle_payment_proof(
-        self, user_id: str, *, file_id: str, file_kind: str = "photo"
+        self,
+        user_id: str,
+        *,
+        file_id: str,
+        file_kind: str = "photo",
+        from_chat_id: int | None = None,
+        message_id: int | None = None,
     ) -> str:
         from src.services.payment_proof_notify import (
             USER_RECEIPT_ACK,
@@ -430,18 +455,46 @@ class GroupUpgradeService:
         if not profile.get("group_upgrade_purchase_pending"):
             return "Para enviar un comprobante, primero usá /ampliar_plan y confirmá la cotización."
 
-        if self._purchase_cooldown_active(profile):
-            return (
-                "Ya enviaste un comprobante de ampliación en las últimas 24 h.\n"
-                "Si pagaste de nuevo, el admin lo revisará en breve."
-            )
-
-        if self._purchases.find_by_file_id(file_id):
-            return "Ese comprobante ya fue registrado."
-
         units = int(profile.get("group_upgrade_wizard_units") or 0)
         purchase_id = str(profile.get("group_upgrade_purchase_id") or "")
         amount_ars = int(profile.get("group_upgrade_quote_ars") or 0)
+        raw_alloc = profile.get("group_upgrade_alloc_draft") or "[]"
+        try:
+            allocation = json.loads(raw_alloc) if isinstance(raw_alloc, str) else raw_alloc
+        except json.JSONDecodeError:
+            allocation = []
+        alloc_summary = self._format_allocation_summary(allocation)
+        caption = build_group_upgrade_admin_caption(
+            profile,
+            units=units,
+            amount_ars=amount_ars,
+            allocation_summary=alloc_summary,
+            purchase_id=purchase_id,
+        )
+
+        if self._purchase_cooldown_active(profile):
+            self._forward_proof_to_admin(
+                file_id=file_id,
+                file_kind=file_kind,
+                caption=caption + "\n\n⚠️ Reenvío durante ventana de 24 h.",
+                from_chat_id=from_chat_id,
+                message_id=message_id,
+            )
+            return (
+                "Ya enviaste un comprobante de ampliación en las últimas 24 h.\n"
+                "Se lo reenviamos al admin por las dudas."
+            )
+
+        if self._purchases.find_by_file_id(file_id):
+            self._forward_proof_to_admin(
+                file_id=file_id,
+                file_kind=file_kind,
+                caption=caption + "\n\n⚠️ Comprobante duplicado (mismo archivo).",
+                from_chat_id=from_chat_id,
+                message_id=message_id,
+            )
+            return "Ese comprobante ya fue registrado."
+
         if units <= 0:
             return "No hay una compra en curso. Usá /ampliar_plan de nuevo."
 
@@ -455,23 +508,13 @@ class GroupUpgradeService:
             last_group_upgrade_purchase_at=now,
         )
 
-        raw_alloc = profile.get("group_upgrade_alloc_draft") or "[]"
-        try:
-            allocation = json.loads(raw_alloc) if isinstance(raw_alloc, str) else raw_alloc
-        except json.JSONDecodeError:
-            allocation = []
-
-        alloc_summary = self._format_allocation_summary(allocation)
-        caption = build_group_upgrade_admin_caption(
-            profile,
-            units=units,
-            amount_ars=amount_ars,
-            allocation_summary=alloc_summary,
-            purchase_id=purchase_id,
+        notified = self._forward_proof_to_admin(
+            file_id=file_id,
+            file_kind=file_kind,
+            caption=caption,
+            from_chat_id=from_chat_id,
+            message_id=message_id,
         )
-        notified = 0
-        if self._admin_proof_notify:
-            notified = self._admin_proof_notify(file_id, file_kind, caption)
 
         msg = USER_RECEIPT_ACK
         if notified == 0:

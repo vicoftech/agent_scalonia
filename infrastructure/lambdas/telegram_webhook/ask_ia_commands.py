@@ -90,7 +90,12 @@ def handle_ask_ia_pending_text(user_id: str, text: str) -> tuple[str, dict | Non
 
 
 def handle_ask_ia_purchase_proof(
-    user_id: str, *, file_id: str, file_kind: str
+    user_id: str,
+    *,
+    file_id: str,
+    file_kind: str,
+    from_chat_id: int | None = None,
+    message_id: int | None = None,
 ) -> str | None:
     from src.dao.dynamo.user_dao import UserDAO
 
@@ -98,7 +103,11 @@ def handle_ask_ia_purchase_proof(
     if not profile.get("ai_purchase_pending"):
         return None
     return _service().handle_purchase_proof(
-        user_id, file_id=file_id, file_kind=file_kind
+        user_id,
+        file_id=file_id,
+        file_kind=file_kind,
+        from_chat_id=from_chat_id,
+        message_id=message_id,
     )
 
 

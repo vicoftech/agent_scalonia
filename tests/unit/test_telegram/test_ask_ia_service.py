@@ -149,7 +149,7 @@ def test_purchase_proof_forwards_to_admin():
     }
     notified: list[tuple[str, str, str]] = []
 
-    def admin_notify(file_id: str, kind: str, caption: str) -> int:
+    def admin_notify(file_id: str, kind: str, caption: str, **kwargs) -> int:
         notified.append((file_id, kind, caption))
         return 1
 

@@ -91,8 +91,17 @@ def handle_group_upgrade_callback(user_id: str, data: str) -> tuple[str, dict | 
 
 
 def handle_group_upgrade_purchase_proof(
-    user_id: str, *, file_id: str, file_kind: str = "photo"
+    user_id: str,
+    *,
+    file_id: str,
+    file_kind: str = "photo",
+    from_chat_id: int | None = None,
+    message_id: int | None = None,
 ) -> str:
     return _service().handle_payment_proof(
-        user_id, file_id=file_id, file_kind=file_kind
+        user_id,
+        file_id=file_id,
+        file_kind=file_kind,
+        from_chat_id=from_chat_id,
+        message_id=message_id,
     )
