@@ -6,6 +6,7 @@ from unittest.mock import patch
 from src.services.trivia_kb_generator import (
     _question_references_match,
     generate_pre_match_question,
+    generate_question_from_context,
 )
 from src.services.trivia_question_bank import (
     pick_curated_for_match_strict,
@@ -75,3 +76,43 @@ def test_generate_pre_match_fixture_template_when_kb_empty():
             q = generate_pre_match_question(match)
     assert q["source"] == "fixture_template"
     assert "México" in q["question"] or "MEX" in q["question"]
+
+
+def test_generate_question_from_context_rejects_missing_team():
+    match = {"home_team": "ARG", "away_team": "MEX"}
+    with patch(
+        "src.services.trivia_kb_generator._bedrock_mcq_json",
+        return_value={
+            "question": "¿Quién ganó el Mundial 1998?",
+            "options": {"A": "Francia", "B": "Brasil", "C": "Italia", "D": "Alemania"},
+            "correct": "A",
+            "explanation": "Francia en casa.",
+        },
+    ):
+        q = generate_question_from_context(
+            context="x" * 100,
+            topic="pre_partido",
+            level="EXPERT",
+            match=match,
+        )
+    assert q is None
+
+
+def test_generate_question_from_context_general_topic():
+    with patch(
+        "src.services.trivia_kb_generator._bedrock_mcq_json",
+        return_value={
+            "question": "¿En qué año fue el primer Mundial?",
+            "options": {"A": "1930", "B": "1950", "C": "1966", "D": "1974"},
+            "correct": "A",
+            "explanation": "Uruguay 1930.",
+        },
+    ):
+        q = generate_question_from_context(
+            context="x" * 100,
+            topic="mundiales",
+            level="BASIC",
+        )
+    assert q is not None
+    assert q["source"] == "kb_bedrock"
+    assert q["level"] == "BASIC"

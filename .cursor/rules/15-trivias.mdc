@@ -7,6 +7,7 @@ alwaysApply: false
 # SPEC-2026-025 — Sistema de Trivias
 
 **SPEC-ID**: SPEC-2026-025 | **Sprint**: Sprint 3 | **Modo**: Humano (generación LLM) + IA-Assisted
+**Generación on-demand**: SPEC-2026-049 — `generate_question_from_context()` (KB/web → Bedrock); banco curado solo fallback
 **Dependencias**: SPEC-2026-017 (KB + web_search), SPEC-2026-018 (auth/grupos), SPEC-2026-019 (onboarding — football_knowledge)
 
 ---

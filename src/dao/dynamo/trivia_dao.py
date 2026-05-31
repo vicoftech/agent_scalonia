@@ -14,7 +14,7 @@ from src.services.trivia_question_bank import question_fingerprint
 GLOBAL_GROUP_ID = "GLOBAL"
 REGISTRY_PK = "CONFIG#TRIVIA"
 REGISTRY_SK = "USED_QUESTION_FPS"
-MAX_REGISTRY_FINGERPRINTS = 500
+MAX_REGISTRY_FINGERPRINTS = 2000
 
 
 def _fingerprint_from_item(item: dict[str, Any]) -> str | None:

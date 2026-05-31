@@ -17,7 +17,6 @@ from src.jobs.daily_trivia_schedule import (
     local_today_iso,
     should_publish_daily_trivia,
 )
-from src.fixtures.trivia_questions import FALLBACK_QUESTIONS
 from src.services.trivia_question_bank import (
     pick_any_curated_question,
     pick_curated_question,
@@ -57,6 +56,8 @@ TOPIC_QUERIES = {
 DAILY_GENERAL_TOPIC = "historias_mundiales"
 DAILY_GENERAL_LEVEL = "MEDIUM"
 DAILY_TRIVIA_JOB = "DAILY_TRIVIA"
+GENERATION_MAX_ATTEMPTS = 3
+MIN_CONTEXT_CHARS = 80
 
 
 class TriviaService:
@@ -84,31 +85,56 @@ class TriviaService:
         fk = str(profile.get("football_knowledge") or "medium").lower()
         return PROFILE_TO_LEVEL.get(fk, "MEDIUM")
 
+    def _is_admin(self, user_id: str) -> bool:
+        profile = self._users.get_profile(user_id) or {}
+        return bool(profile.get("is_admin"))
+
     def rounds_remaining(self, user_id: str) -> int:
+        if self._is_admin(user_id):
+            return MAX_ROUNDS_PER_DAY
         profile = self._users.get_profile(user_id) or {}
         used = int(profile.get("trivia_rounds_today") or 0)
         return max(0, MAX_ROUNDS_PER_DAY - used)
 
     def _ensure_can_play(self, user_id: str) -> None:
-        if self.rounds_remaining(user_id) <= 0:
+        if self._is_admin(user_id):
+            return
+        profile = self._users.get_profile(user_id) or {}
+        used = int(profile.get("trivia_rounds_today") or 0)
+        if used >= MAX_ROUNDS_PER_DAY:
             raise ValueError("DAILY_LIMIT")
 
-    def _fetch_context(self, topic: str, *, match: dict | None = None) -> str:
+    def _rounds_footer(self, user_id: str) -> str:
+        if self._is_admin(user_id):
+            return "\n\n📊 Rondas hoy: ilimitadas (admin)"
+        remaining = self.rounds_remaining(user_id)
+        return f"\n\n📊 Rondas restantes hoy: {remaining}/{MAX_ROUNDS_PER_DAY}"
+
+    def _fetch_context(self, topic: str, *, match: dict | None = None) -> tuple[str, str]:
+        """Retorna (contexto, source) donde source es kb o web."""
+        if match:
+            from src.services.trivia_kb_generator import fetch_pre_match_kb_context
+
+            text = fetch_pre_match_kb_context(match).strip()
+            return text[:6000], "kb" if len(text) >= MIN_CONTEXT_CHARS else "web"
+
         topic_key = (topic or "mundiales").lower()
         base = TOPIC_QUERIES.get(topic_key, TOPIC_QUERIES["mundiales"])
-        if match:
-            base = f"{match.get('home_team')} {match.get('away_team')} {base}"
         try:
             from src.kb.resolve import resolve_kb_then_web
 
             result = resolve_kb_then_web(base, enqueue_on_web=False)
-            text = (result.kb_text or "").strip()
-            if len(text) < 80 and result.tavily_configured:
-                text = (result.web_text or text or "").strip()
-            return text[:4000]
+            kb_text = (result.kb_text or "").strip()
+            if len(kb_text) >= MIN_CONTEXT_CHARS:
+                return kb_text[:4000], "kb"
+            if result.tavily_configured:
+                web_text = (result.web_text or "").strip()
+                if web_text:
+                    return web_text[:4000], "web"
+            return kb_text[:4000], "kb"
         except Exception:
             logger.exception("trivia context fetch failed")
-            return ""
+            return "", "kb"
 
     def _exclude_fingerprints(self, user_id: str | None) -> set[str]:
         """Preguntas ya generadas (global) + respondidas por el usuario."""
@@ -127,25 +153,64 @@ class TriviaService:
         exclude_fingerprints: set[str] | None = None,
         user_id: str | None = None,
     ) -> dict[str, Any]:
-        """Solo banco curado de fútbol — sin meta-preguntas sobre fuentes/KB."""
+        """KB/web + Bedrock on-demand; fallback curado (SPEC-049)."""
+        from src.services.trivia_kb_generator import generate_question_from_context
+
         level = level.upper() if level.upper() in LEVEL_POINTS else "MEDIUM"
         exclude = set(exclude_fingerprints or [])
         if user_id:
             exclude |= self._exclude_fingerprints(user_id)
 
+        context_source = "kb"
+        if context is not None:
+            ctx = context.strip()
+        else:
+            ctx, context_source = self._fetch_context(topic, match=match)
+
+        if ctx:
+            for attempt in range(1, GENERATION_MAX_ATTEMPTS + 1):
+                q = generate_question_from_context(
+                    context=ctx,
+                    topic=topic,
+                    level=level,
+                    match=match,
+                    exclude_fingerprints=exclude,
+                    attempt=attempt,
+                    context_source=context_source,
+                )
+                if q and q.get("question_fp") not in exclude:
+                    logger.info(
+                        "trivia_generated topic=%s level=%s source=%s fp=%s attempt=%s",
+                        topic,
+                        level,
+                        q.get("source"),
+                        q.get("question_fp"),
+                        attempt,
+                    )
+                    return q
+
         q = pick_curated_question(topic=topic, level=level, exclude_fingerprints=exclude)
         if q:
+            q.setdefault("source", "manual")
             return q
 
         q = pick_curated_question(topic="mundiales", level=level, exclude_fingerprints=exclude)
         if q:
+            q.setdefault("source", "manual")
             return q
 
         q = pick_any_curated_question(exclude_fingerprints=exclude)
         if q:
+            q.setdefault("source", "manual")
             return q
 
-        raise ValueError("TRIVIA_BANK_EXHAUSTED")
+        logger.warning(
+            "trivia_generation_failed topic=%s level=%s context_len=%s",
+            topic,
+            level,
+            len(ctx),
+        )
+        raise ValueError("GENERATION_FAILED")
 
     def generate_pre_match_trivia(self, match: dict[str, Any]) -> dict[str, Any]:
         from src.services.trivia_kb_generator import generate_pre_match_question
@@ -281,8 +346,7 @@ class TriviaService:
         }
         self._trivia.put_play_session(record)
         msg = self.format_question_message(q)
-        remaining = self.rounds_remaining(user_id)
-        msg += f"\n\n📊 Rondas restantes hoy: {remaining}/{MAX_ROUNDS_PER_DAY}"
+        msg += self._rounds_footer(user_id)
         return {
             "session_id": session_id,
             "message": msg,
@@ -382,7 +446,6 @@ class TriviaService:
         opt_text = options.get(correct_letter, "")
         profile = self._users.get_profile(user_id) or {}
         total = int(profile.get("total_points") or 0)
-        remaining = self.rounds_remaining(user_id)
 
         if duplicate_question:
             head = (
@@ -399,7 +462,12 @@ class TriviaService:
             head += f" — {opt_text}"
         if explanation and not duplicate_question:
             head += f"\n\n{explanation}"
-        head += f"\n\n📊 Total: {total} pts | Rondas hoy: {remaining}/{MAX_ROUNDS_PER_DAY}"
+        if profile.get("is_admin"):
+            used = int(profile.get("trivia_rounds_today") or 0)
+            head += f"\n\n📊 Total: {total} pts | Rondas hoy: {used} (ilimitadas)"
+        else:
+            remaining = self.rounds_remaining(user_id)
+            head += f"\n\n📊 Total: {total} pts | Rondas hoy: {remaining}/{MAX_ROUNDS_PER_DAY}"
         return head
 
     def publish_daily_general(

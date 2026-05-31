@@ -98,11 +98,11 @@ def handle_trivia_command(user_id: str, text: str) -> tuple[str | None, dict | N
         except ValueError as exc:
             code = str(exc)
             if code == "DAILY_LIMIT":
-                return "Ya jugaste tus 5 rondas de trivia hoy. Volvé mañana 🌙", None
-            if code == "TRIVIA_BANK_EXHAUSTED":
+                return "Ya jugaste tus 5 trivias de hoy. Volvé mañana 🌙", None
+            if code == "GENERATION_FAILED":
                 return (
-                    "Por hoy no quedan preguntas nuevas para vos en el banco. "
-                    "Volvé mañana o respondé las trivias publicadas del grupo."
+                    "No pude generar una pregunta nueva ahora. "
+                    "Probá en unos minutos o respondé las trivias publicadas del grupo."
                 ), None
             raise
 
@@ -116,10 +116,10 @@ def handle_trivia_command(user_id: str, text: str) -> tuple[str | None, dict | N
             code = str(exc)
             if code == "NOT_ADMIN":
                 return "Solo el admin global puede usar /trivia-admin.", None
-            if code == "TRIVIA_BANK_EXHAUSTED":
+            if code == "GENERATION_FAILED":
                 return (
-                    "Ya usamos todas las preguntas del banco para ese nivel/tema. "
-                    "Probá otro tema o avisá al equipo para ampliar el banco."
+                    "No pude generar la trivia ahora. Probá otro tema "
+                    "(mundiales, records, jugadores, reglas) en unos minutos."
                 ), None
             raise
 
@@ -138,10 +138,10 @@ def handle_trivia_command(user_id: str, text: str) -> tuple[str | None, dict | N
                 return "No tenés un grupo propio.", None
             if code == "GROUP_TRIVIA_LIMIT":
                 return "Ya hay 3 trivias activas en tu grupo.", None
-            if code == "TRIVIA_BANK_EXHAUSTED":
+            if code == "GENERATION_FAILED":
                 return (
-                    "Ya usamos todas las preguntas del banco para ese tema. "
-                    "Probá otro tema en /trivia-grupo <tema>."
+                    "No pude generar la trivia para ese tema. "
+                    "Probá otro en /trivia-grupo <tema>."
                 ), None
             raise
 

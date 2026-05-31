@@ -99,7 +99,12 @@ def _execute_trivia_tool(
     except ValueError as exc:
         code = str(exc)
         if code == "DAILY_LIMIT":
-            return "Ya jugaste tus 5 rondas de trivia hoy. Volvé mañana 🌙"
+            return "Ya jugaste tus 5 trivias de hoy. Volvé mañana 🌙"
+        if code == "GENERATION_FAILED":
+            return (
+                "No pude generar una pregunta nueva ahora. "
+                "Probá en unos minutos o con otro tema."
+            )
         if code == "NOT_ADMIN":
             return "Solo el admin global puede enviar trivia general."
         if code == "NOT_OWNER":

@@ -152,47 +152,43 @@ def _extract_json_block(text: str) -> dict[str, Any] | None:
     return None
 
 
-def generate_question_from_kb(
-    match: dict[str, Any],
-    context: str,
-    *,
-    level: str = "EXPERT",
-    exclude_fingerprints: set[str] | None = None,
-) -> dict[str, Any] | None:
-    """Pregunta verificable basada en contexto KB; None si no se pudo generar."""
+_LEVEL_INSTRUCTIONS = {
+    "BASIC": (
+        "Hecho ampliamente conocido del fútbol o los Mundiales; "
+        "opciones claramente distinguibles."
+    ),
+    "MEDIUM": (
+        "Estadística, fecha o dato específico del contexto; "
+        "requiere conocimiento moderado."
+    ),
+    "EXPERT": (
+        "Curiosidad rara, récord poco conocido; "
+        "distractores plausibles pero incorrectos."
+    ),
+}
+
+_TOPIC_LABELS = {
+    "mundiales": "Historia de la Copa del Mundo",
+    "historias_mundiales": "Anécdotas y leyendas del Mundial",
+    "records": "Récords y estadísticas FIFA",
+    "selecciones": "Selecciones nacionales",
+    "jugadores": "Jugadores y leyendas",
+    "reglas": "Reglas del fútbol",
+    "libre": "Curiosidades del fútbol",
+    "pre_partido": "Partido específico del Mundial 2026",
+}
+
+
+def _bedrock_mcq_json(prompt: str, *, temperature: float = 0.2) -> dict[str, Any] | None:
     import boto3
-
-    home = match.get("home_team", "")
-    away = match.get("away_team", "")
-    home_label = _team_labels(home)[0]
-    away_label = _team_labels(away)[0]
-    exclude = exclude_fingerprints or set()
-    fixture = _match_fixture_blurb(match)
-
-    prompt = f"""Sos un editor de trivia de Copa Mundial 2026.
-Generá UNA pregunta de opción múltiple nivel {level} EXCLUSIVAMENTE sobre el partido:
-{fixture}
-
-Reglas estrictas:
-- La pregunta DEBE mencionar a {home_label} y a {away_label} (o {home} y {away}).
-- Debe ser sobre historial, jugadores, DT, grupo o datos del contexto de ESE cruce (no otro mundial genérico).
-- Usá SOLO hechos del contexto (no inventes).
-- 4 opciones A, B, C, D; exactamente una correcta en "correct".
-- Sin referencias a knowledge base, Tavily ni Wikipedia.
-
-Contexto:
-{context[:4500]}
-
-Respondé SOLO JSON:
-{{"question": "...", "options": {{"A":"...","B":"...","C":"...","D":"..."}}, "correct": "A"}}"""
 
     try:
         client = boto3.client("bedrock-runtime", region_name=_REGION)
         body = json.dumps(
             {
                 "anthropic_version": "bedrock-2023-05-31",
-                "max_tokens": 600,
-                "temperature": 0.2,
+                "max_tokens": 700,
+                "temperature": temperature,
                 "messages": [{"role": "user", "content": prompt}],
             }
         )
@@ -207,37 +203,142 @@ Respondé SOLO JSON:
         for block in payload.get("content", []):
             if block.get("type") == "text":
                 raw += block.get("text", "")
-        data = _extract_json_block(raw)
-        if not data:
-            return None
-        question = str(data.get("question") or "").strip()
-        options = data.get("options") or {}
-        correct = str(data.get("correct") or "").upper().strip()
-        if not question or correct not in ("A", "B", "C", "D"):
-            return None
-        opts = {k: str(options.get(k, "")).strip() for k in ("A", "B", "C", "D")}
-        if not all(opts.values()):
-            return None
-        if is_meta_source_question(question, opts):
-            return None
-        if not _question_references_match(question, home, away):
-            logger.warning("Bedrock trivia rejected: no menciona ambos equipos")
-            return None
-        fp = question_fingerprint(question)
-        if fp in exclude:
-            return None
-        return {
-            "question": question,
-            "options": opts,
-            "correct": correct,
-            "level": level,
-            "topic": "pre_partido",
-            "question_fp": fp,
-            "source": "kb_bedrock",
-        }
+        return _extract_json_block(raw)
     except Exception:
         logger.exception("Bedrock trivia generation failed")
         return None
+
+
+def _validate_mcq_payload(
+    data: dict[str, Any],
+    *,
+    match: dict[str, Any] | None,
+    exclude: set[str],
+) -> dict[str, Any] | None:
+    question = str(data.get("question") or "").strip()
+    options = data.get("options") or {}
+    correct = str(data.get("correct") or "").upper().strip()
+    explanation = str(data.get("explanation") or "").strip()
+    if not question or correct not in ("A", "B", "C", "D"):
+        return None
+    opts = {k: str(options.get(k, "")).strip() for k in ("A", "B", "C", "D")}
+    if not all(opts.values()):
+        return None
+    if is_meta_source_question(question, opts):
+        return None
+    if match:
+        home = match.get("home_team", "")
+        away = match.get("away_team", "")
+        if not _question_references_match(question, home, away):
+            logger.warning("Bedrock trivia rejected: no menciona ambos equipos")
+            return None
+    fp = question_fingerprint(question)
+    if fp in exclude:
+        return None
+    return {
+        "question": question,
+        "options": opts,
+        "correct": correct,
+        "explanation": explanation,
+        "question_fp": fp,
+    }
+
+
+def generate_question_from_context(
+    *,
+    context: str,
+    topic: str = "mundiales",
+    level: str = "MEDIUM",
+    match: dict[str, Any] | None = None,
+    exclude_fingerprints: set[str] | None = None,
+    attempt: int = 1,
+    context_source: str = "kb",
+) -> dict[str, Any] | None:
+    """Genera MCQ verificable desde contexto KB/web (SPEC-049)."""
+    level = level.upper()
+    exclude = exclude_fingerprints or set()
+    ctx = (context or "").strip()
+    if len(ctx) < 80:
+        return None
+
+    topic_key = (topic or "mundiales").lower()
+    topic_label = _TOPIC_LABELS.get(topic_key, topic_key)
+    level_hint = _LEVEL_INSTRUCTIONS.get(level, _LEVEL_INSTRUCTIONS["MEDIUM"])
+    temperature = min(0.5, 0.2 + 0.1 * max(0, attempt - 1))
+
+    if match:
+        home = match.get("home_team", "")
+        away = match.get("away_team", "")
+        home_label = _team_labels(home)[0]
+        away_label = _team_labels(away)[0]
+        fixture = _match_fixture_blurb(match)
+        prompt = f"""Sos un editor de trivia de Copa Mundial 2026.
+Generá UNA pregunta de opción múltiple nivel {level} EXCLUSIVAMENTE sobre el partido:
+{fixture}
+
+Reglas estrictas:
+- La pregunta DEBE mencionar a {home_label} y a {away_label} (o {home} y {away}).
+- Debe ser sobre historial, jugadores, DT, grupo o datos del contexto de ESE cruce.
+- Dificultad: {level_hint}
+- Usá SOLO hechos del contexto (no inventes).
+- 4 opciones A, B, C, D; exactamente una correcta en "correct".
+- Incluí "explanation" breve (1-2 frases).
+- Sin referencias a knowledge base, Tavily ni Wikipedia.
+
+Contexto:
+{ctx[:4500]}
+
+Respondé SOLO JSON:
+{{"question": "...", "options": {{"A":"...","B":"...","C":"...","D":"..."}}, "correct": "A", "explanation": "..."}}"""
+    else:
+        prompt = f"""Sos un editor de trivia de Copa Mundial y fútbol.
+Generá UNA pregunta de opción múltiple nivel {level}.
+Tema: {topic_label}
+Dificultad: {level_hint}
+
+Reglas:
+- Usá SOLO hechos del contexto (no inventes).
+- 4 opciones A, B, C, D; exactamente una correcta en "correct".
+- Incluí "explanation" breve (1-2 frases).
+- Sin referencias a knowledge base, Tavily ni Wikipedia.
+
+Contexto:
+{ctx[:4500]}
+
+Respondé SOLO JSON:
+{{"question": "...", "options": {{"A":"...","B":"...","C":"...","D":"..."}}, "correct": "A", "explanation": "..."}}"""
+
+    data = _bedrock_mcq_json(prompt, temperature=temperature)
+    if not data:
+        return None
+    validated = _validate_mcq_payload(data, match=match, exclude=exclude)
+    if not validated:
+        return None
+    src = "kb_bedrock" if context_source == "kb" else "web_bedrock"
+    return {
+        **validated,
+        "level": level,
+        "topic": topic_key,
+        "source": src,
+    }
+
+
+def generate_question_from_kb(
+    match: dict[str, Any],
+    context: str,
+    *,
+    level: str = "EXPERT",
+    exclude_fingerprints: set[str] | None = None,
+) -> dict[str, Any] | None:
+    """Pregunta verificable basada en contexto KB; None si no se pudo generar."""
+    return generate_question_from_context(
+        context=context,
+        topic="pre_partido",
+        level=level,
+        match=match,
+        exclude_fingerprints=exclude_fingerprints,
+        context_source="kb",
+    )
 
 
 def _template_from_match_metadata(match: dict[str, Any]) -> dict[str, Any]:
