@@ -126,6 +126,21 @@ data "aws_iam_policy_document" "telegram_webhook_inline" {
     ]
   }
 
+  statement {
+    sid = "BedrockTrivia"
+    actions = [
+      "bedrock:InvokeModel",
+      "bedrock:Converse",
+    ]
+    resources = [
+      "arn:aws:bedrock:${var.aws_region}::foundation-model/anthropic.claude-sonnet-4-6",
+      "arn:aws:bedrock:${var.aws_region}::foundation-model/us.anthropic.claude-sonnet-4-6",
+      "arn:aws:bedrock:${var.aws_region}::foundation-model/amazon.nova-lite-v1:0",
+      "arn:aws:bedrock:${var.aws_region}::foundation-model/us.amazon.nova-lite-v1:0",
+      "arn:aws:bedrock:${var.aws_region}:${data.aws_caller_identity.current.account_id}:inference-profile/*",
+    ]
+  }
+
   dynamic "statement" {
     for_each = var.enable_world_cup_news ? [1] : []
     content {
@@ -191,6 +206,7 @@ resource "aws_lambda_function" "telegram_webhook" {
         TELEGRAM_BOT_USERNAME       = var.telegram_bot_username
         TELEGRAM_ADMIN_CHAT_IDS     = var.telegram_admin_chat_ids
         INVITATION_NOTIFY_QUEUE_URL = var.enable_invitation_notify_queue ? aws_sqs_queue.invitation_exhausted[0].url : ""
+        BEDROCK_TRIVIA_MODEL_ID     = "us.anthropic.claude-sonnet-4-6"
       },
       module.kb.kb_query_lambda_name != "" ? {
         KB_QUERY_LAMBDA_NAME = module.kb.kb_query_lambda_name

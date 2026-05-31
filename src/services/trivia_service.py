@@ -58,6 +58,10 @@ DAILY_GENERAL_LEVEL = "MEDIUM"
 DAILY_TRIVIA_JOB = "DAILY_TRIVIA"
 GENERATION_MAX_ATTEMPTS = 3
 MIN_CONTEXT_CHARS = 80
+GENERIC_TRIVIA_CONTEXT = (
+    "Copa Mundial FIFA: historia, campeones, goleadores, sedes, récords, "
+    "selecciones nacionales, finales memorables y curiosidades del fútbol."
+)
 
 
 class TriviaService:
@@ -136,12 +140,30 @@ class TriviaService:
             logger.exception("trivia context fetch failed")
             return "", "kb"
 
+    def _answered_fingerprints(self, user_id: str | None) -> set[str]:
+        if not user_id:
+            return set()
+        return self._users.get_answered_question_fingerprints(user_id)
+
     def _exclude_fingerprints(self, user_id: str | None) -> set[str]:
         """Preguntas ya generadas (global) + respondidas por el usuario."""
         fps = self._trivia.get_used_question_fingerprints()
         if user_id:
-            fps |= self._users.get_answered_question_fingerprints(user_id)
+            fps |= self._answered_fingerprints(user_id)
         return fps
+
+    def _prepare_generation_context(self, topic: str, ctx: str) -> str:
+        """Asegura contexto mínimo para Bedrock aunque KB/web devuelvan poco."""
+        text = (ctx or "").strip()
+        topic_key = (topic or "mundiales").lower()
+        topic_line = TOPIC_QUERIES.get(topic_key, TOPIC_QUERIES["mundiales"])
+        if len(text) >= MIN_CONTEXT_CHARS:
+            return text[:4000]
+        parts = [GENERIC_TRIVIA_CONTEXT, f"Tema: {topic_line}"]
+        if text:
+            parts.append(text)
+        merged = "\n\n".join(parts).strip()
+        return merged[:4000]
 
     def generate_trivia_question(
         self,
@@ -163,9 +185,10 @@ class TriviaService:
 
         context_source = "kb"
         if context is not None:
-            ctx = context.strip()
+            ctx = self._prepare_generation_context(topic, context)
         else:
-            ctx, context_source = self._fetch_context(topic, match=match)
+            raw_ctx, context_source = self._fetch_context(topic, match=match)
+            ctx = self._prepare_generation_context(topic, raw_ctx)
 
         if ctx:
             for attempt in range(1, GENERATION_MAX_ATTEMPTS + 1):
@@ -189,17 +212,24 @@ class TriviaService:
                     )
                     return q
 
-        q = pick_curated_question(topic=topic, level=level, exclude_fingerprints=exclude)
+        # Fallback curado: solo excluir preguntas ya respondidas por el usuario
+        # (el registry global agotaba ~12 ítems manuales en dev).
+        curated_exclude = self._answered_fingerprints(user_id) if user_id else exclude
+        q = pick_curated_question(
+            topic=topic, level=level, exclude_fingerprints=curated_exclude
+        )
         if q:
             q.setdefault("source", "manual")
             return q
 
-        q = pick_curated_question(topic="mundiales", level=level, exclude_fingerprints=exclude)
+        q = pick_curated_question(
+            topic="mundiales", level=level, exclude_fingerprints=curated_exclude
+        )
         if q:
             q.setdefault("source", "manual")
             return q
 
-        q = pick_any_curated_question(exclude_fingerprints=exclude)
+        q = pick_any_curated_question(exclude_fingerprints=curated_exclude)
         if q:
             q.setdefault("source", "manual")
             return q

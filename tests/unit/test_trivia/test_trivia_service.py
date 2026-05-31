@@ -126,26 +126,54 @@ def test_admin_skips_daily_limit():
     assert "ilimitadas" in result["message"]
 
 
-def test_generation_failed_when_no_context_and_no_curated():
+def test_curated_fallback_ignores_global_registry_for_play():
+    """Usuario no debe quedar bloqueado si el registry global agotó el banco manual."""
     trivia = MagicMock()
-    trivia.get_used_question_fingerprints.return_value = {f"fp{i}" for i in range(100)}
+    all_fps = {f"global{i}" for i in range(20)}
+    trivia.get_used_question_fingerprints.return_value = all_fps
     users = MagicMock()
     users.get_answered_question_fingerprints.return_value = set()
     svc = TriviaService(trivia_dao=trivia, user_dao=users)
     with patch.object(svc, "_fetch_context", return_value=("", "kb")):
         with patch(
-            "src.services.trivia_service.pick_curated_question",
+            "src.services.trivia_kb_generator.generate_question_from_context",
+            return_value=None,
+        ):
+            q = svc.generate_trivia_question(
+                topic="records",
+                level="EXPERT",
+                user_id="u1",
+            )
+    assert q["correct"] in ("A", "B", "C", "D")
+    assert q.get("source") == "manual"
+
+
+def test_generation_failed_when_no_context_and_no_curated():
+    trivia = MagicMock()
+    trivia.get_used_question_fingerprints.return_value = {f"fp{i}" for i in range(100)}
+    users = MagicMock()
+    users.get_answered_question_fingerprints.return_value = {f"fp{i}" for i in range(100)}
+    svc = TriviaService(trivia_dao=trivia, user_dao=users)
+    with patch.object(svc, "_fetch_context", return_value=("", "kb")):
+        with patch(
+            "src.services.trivia_kb_generator.generate_question_from_context",
             return_value=None,
         ):
             with patch(
-                "src.services.trivia_service.pick_any_curated_question",
+                "src.services.trivia_service.pick_curated_question",
                 return_value=None,
             ):
-                try:
-                    svc.generate_trivia_question(topic="mundiales", level="BASIC")
-                    assert False, "expected GENERATION_FAILED"
-                except ValueError as exc:
-                    assert str(exc) == "GENERATION_FAILED"
+                with patch(
+                    "src.services.trivia_service.pick_any_curated_question",
+                    return_value=None,
+                ):
+                    try:
+                        svc.generate_trivia_question(
+                            topic="mundiales", level="BASIC", user_id="u1"
+                        )
+                        assert False, "expected GENERATION_FAILED"
+                    except ValueError as exc:
+                        assert str(exc) == "GENERATION_FAILED"
 
 
 def test_answer_play_correct_points():
