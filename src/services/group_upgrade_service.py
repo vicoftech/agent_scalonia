@@ -123,6 +123,23 @@ class GroupUpgradeService:
         )
         return text, type_picker_keyboard()
 
+    def start_member_pack_upgrade(
+        self, user_id: str, group_id: str
+    ) -> tuple[str, dict]:
+        g = self._groups.get_group(group_id) or {}
+        if str(g.get("owner_id")) != user_id:
+            profile = self._users.get_profile(user_id) or {}
+            if not profile.get("is_admin"):
+                return "Sin permiso para ampliar este grupo.", {}
+        self._clear_wizard(user_id)
+        self._users.update_profile(
+            user_id,
+            group_upgrade_wizard_type="members",
+            group_upgrade_pick_group_id=group_id,
+        )
+        allocation = [{"type": "MEMBER_PACK", "group_id": group_id, "packs": 1}]
+        return self._set_quote(user_id, units=1, allocation=allocation)
+
     def _format_allocation_summary(self, allocation: list[dict[str, Any]]) -> str:
         lines: list[str] = []
         for item in allocation:
@@ -206,6 +223,12 @@ class GroupUpgradeService:
 
         if data == "gup:start":
             return self.start_wizard(user_id)
+        if data.startswith("gup:quickmem:"):
+            g8 = data.split(":", 2)[2]
+            group = self.resolve_owned_group(user_id, g8)
+            if not group:
+                return "Grupo no encontrado.", None
+            return self.start_member_pack_upgrade(user_id, group["group_id"])
         if data == "gup:cancel":
             self._clear_wizard(user_id)
             return "Compra cancelada.", None
@@ -510,9 +533,16 @@ class GroupUpgradeService:
         profile = self._users.get_profile(uid) or {}
         extra = int(profile.get("extra_owned_group_slots") or 0) + max(1, int(count))
         self._users.update_profile(uid, extra_owned_group_slots=extra)
+        n = max(1, int(count))
+        notify_text = (
+            f"🎁 Te habilitaron crear {n} grupo(s) más. "
+            "Tocá 👥 Grupos → Crear grupo nuevo."
+        )
+        notified = self._notify(uid, profile, notify_text)
+        suffix = "" if notified else " (sin notificación — sin tg_chat_id)"
         return (
             f"✅ {alias}: +{count} slot(s) de grupo "
-            f"(total extra: {extra})."
+            f"(total extra: {extra}).{suffix}"
         )
 
     def admin_grant_member_packs(
@@ -526,6 +556,7 @@ class GroupUpgradeService:
         if not target:
             return f"No encontré el alias «{alias}»."
         uid = target["user_id"]
+        profile = self._users.get_profile(uid) or {}
         group = self.resolve_owned_group(uid, group_ref)
         if not group:
             return f"No encontré grupo «{group_ref}» de ese usuario."
@@ -535,9 +566,16 @@ class GroupUpgradeService:
         packs = max(1, int(packs))
         new_cap = current + packs * MEMBERS_PER_PACK
         self._groups.update_group(gid, max_members=new_cap)
+        gname = g.get("name", gid[:8])
+        notify_text = (
+            f'🎁 «{gname}» ahora admite {new_cap} miembros (+{packs * MEMBERS_PER_PACK}). '
+            "Tocá 👥 Grupos para invitar."
+        )
+        notified = self._notify(uid, profile, notify_text)
+        suffix = "" if notified else " (sin notificación — sin tg_chat_id)"
         return (
-            f"✅ {alias} — «{g.get('name', gid[:8])}»: "
-            f"max_members {current} → {new_cap}"
+            f"✅ {alias} — «{gname}»: "
+            f"max_members {current} → {new_cap}{suffix}"
         )
 
     def admin_apply_units(self, admin_id: str, alias: str, units: int) -> str:
@@ -554,8 +592,14 @@ class GroupUpgradeService:
             1, int(units)
         )
         self._users.update_profile(uid, pending_group_upgrade_units=pending)
-        self._notify(uid, profile, f"Tenés {pending} U para asignar. Usá /ampliar_plan.")
-        return f"✅ {alias}: +{units} U pendientes (total {pending})."
+        added = max(1, int(units))
+        notify_text = (
+            f"🎁 Tenés {added} unidad(es) para asignar. "
+            "Tocá 💳 Ampliar plan o 👥 Grupos."
+        )
+        notified = self._notify(uid, profile, notify_text)
+        suffix = "" if notified else " (sin notificación — sin tg_chat_id)"
+        return f"✅ {alias}: +{units} U pendientes (total {pending}).{suffix}"
 
     def admin_list_pending(self, admin_id: str) -> str:
         from src.services.auth_service import AuthService
@@ -606,6 +650,8 @@ class GroupUpgradeService:
 
     def _notify(self, user_id: str, profile: dict[str, Any], text: str) -> bool:
         if not self._telegram_notify:
+            return False
+        if profile.get("notifications_enabled") is False:
             return False
         chat_id = profile.get("tg_chat_id")
         if chat_id is None:

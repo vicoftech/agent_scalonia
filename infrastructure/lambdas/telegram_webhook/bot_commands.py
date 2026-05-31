@@ -21,7 +21,7 @@ SHORTCUT_COMMANDS: list[dict[str, str]] = [
     {"command": "partidos", "description": "Partidos del Mundial y predecir"},
     {"command": "ask_ia", "description": "Consultá al agente IA (5/día gratis)"},
     {"command": "mi_ranking", "description": "Ranking por grupo"},
-    {"command": "grupos", "description": "Ver y administrar tus grupos"},
+    {"command": "grupos", "description": "Mis grupos (hub con botones)"},
     {"command": "reglas", "description": "Cómo predecir y puntuar"},
 ]
 
@@ -54,7 +54,15 @@ ADMIN_MENU_EXTRA: list[dict[str, str]] = [
     },
     {
         "command": "grupo_ver_cuotas",
-        "description": "Admin: cuotas de grupos de un alias",
+        "description": "Admin: cuotas y U pendientes de un alias",
+    },
+    {
+        "command": "grupo_aplicar_u",
+        "description": "Admin: acreditar U de ampliación por alias",
+    },
+    {
+        "command": "grupo_compras_pendientes",
+        "description": "Admin: compras de ampliación pendientes",
     },
 ]
 
@@ -262,7 +270,7 @@ Menú / (botón al lado del input):
 /partidos — Fixture y predecir
 /ask_ia — Consultas al agente IA (5/día gratis)
 /mi_ranking — Ranking por grupo
-/grupos — Tus grupos
+/grupos — Mis grupos (hub inline: botones para crear, invitar, ranking)
 /reglas — Cómo predecir y puntuar
 /start — Registro o bienvenida
 /help — Esta ayuda
@@ -271,7 +279,8 @@ Menú / (botón al lado del input):
 También podés escribir (no están en el menú /):
 /predecir ARG 2-0 ALG — Marcador rápido
 /completo — Variables extendidas de una predicción
-/crear_grupo · /editar_grupo · /miembros
+/ampliar_plan — Ampliar grupos o cupos (+5 miembros)
+/crear_grupo · /editar_grupo · /miembros (alternativa al hub)
 /invitar · /unirme · /mis_invitaciones
 
 El agente IA solo responde dentro de /ask_ia (no texto libre suelto)."""
@@ -285,11 +294,13 @@ Comandos admin (en tu menú /):
 /noticia — Buscar noticia (Tavily) o publicar con URL/texto
 /noticia_publicar — Publicar borrador
 /noticias_hoy — Listado del día
-/grupo_otorgar_grupo <alias> [n] — Slot grupo extra
+/grupo_otorgar_grupo <alias> [n] — Slot grupo extra (notifica al usuario)
 /grupo_otorgar_cupos <alias> <grupo> <packs> — +5 miembros por pack
+/grupo_aplicar_u <alias> <N> — Acreditar unidades de ampliación
 /grupo_ver_cuotas <alias> — Cuotas y U pendientes
+/grupo_compras_pendientes — Compras de ampliación sin acreditar
 
-Si no ves /ia_otorgar en el menú, mandá /menu para refrescar."""
+Si no ves los comandos admin en el menú, mandá /menu para refrescar."""
 
 
 def admin_menu_hint() -> str:
@@ -300,8 +311,9 @@ def admin_menu_hint() -> str:
         "· /trivia_admin — trivia experto\n"
         "· /admin_grupos — panel grupos\n"
         "· /crear_grupo_para — grupo para otro alias\n"
-        "· /noticia — noticias admin\n"
-        "· /noticias_hoy — enviadas hoy"
+        "· /grupo_otorgar_grupo · /grupo_otorgar_cupos — ampliación manual\n"
+        "· /grupo_aplicar_u · /grupo_ver_cuotas — U y cuotas\n"
+        "· /noticia · /noticias_hoy — noticias admin"
     )
 
 

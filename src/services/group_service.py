@@ -40,6 +40,58 @@ class GroupService:
             return False, "Usá letras, números, espacios o guiones solamente."
         return True, n
 
+    def is_group_name_unique_for_owner(
+        self,
+        user_id: str,
+        name: str,
+        *,
+        exclude_group_id: str | None = None,
+    ) -> bool:
+        needle = (name or "").strip().lower()
+        if not needle:
+            return False
+        for gid in self._groups.list_owned_group_ids(user_id):
+            if exclude_group_id and gid == exclude_group_id:
+                continue
+            g = self._groups.get_group(gid)
+            if not g or g.get("status") == "DELETED" or g.get("is_global"):
+                continue
+            if str(g.get("name", "")).strip().lower() == needle:
+                return False
+        return True
+
+    def list_hub_groups(self, user_id: str) -> list[dict]:
+        """Grupos privados ACTIVE del usuario (sin GLOBAL) para el hub inline."""
+        out: list[dict] = []
+        for gid in self._groups.list_group_ids_for_user(user_id):
+            if gid == GLOBAL_GROUP_ID:
+                continue
+            g = self._groups.get_group(gid)
+            if not g or g.get("is_global") or g.get("status") == "DELETED":
+                continue
+            role = "owner" if g.get("owner_id") == user_id else "miembro"
+            out.append(
+                {
+                    "group_id": gid,
+                    "name": g.get("name", gid),
+                    "avatar": g.get("avatar", "⚽"),
+                    "role": role,
+                    "invite_code": g.get("invite_code"),
+                    "max_members": int(g.get("max_members") or 5),
+                    "member_count": self._groups.count_members(gid),
+                }
+            )
+        out.sort(key=lambda x: (x["role"] != "owner", str(x["name"]).lower()))
+        return out
+
+    def clear_hub_state(self, user_id: str) -> None:
+        self._users.update_profile(
+            user_id,
+            group_hub_step=None,
+            group_hub_draft_name=None,
+            group_hub_context_group_id=None,
+        )
+
     def can_create_group(self, user_id: str) -> tuple[bool, str | None]:
         profile = self._users.get_profile(user_id) or {}
         if profile.get("is_admin"):
@@ -118,6 +170,8 @@ class GroupService:
         valid, result = self.validate_group_name(name)
         if not valid:
             return result, None
+        if not self.is_group_name_unique_for_owner(user_id, result):
+            return f'Ya tenés un grupo llamado "{result}". Elegí otro nombre.', None
         self._users.update_profile(
             user_id,
             group_create_step="awaiting_avatar",
@@ -485,6 +539,10 @@ class GroupService:
         valid, result = self.validate_group_name(new_name)
         if not valid:
             return result
+        if not self.is_group_name_unique_for_owner(
+            user_id, result, exclude_group_id=gid
+        ):
+            return f'Ya tenés un grupo llamado "{result}". Elegí otro nombre.'
         self._groups.update_group(gid, name=result)
         self._users.update_profile(user_id, group_edit_pending=None)
         return f'✅ Nombre actualizado a "{result}"'
@@ -591,6 +649,284 @@ class GroupService:
         pending = profile.get("group_edit_pending") or {}
         if pending.get("action") == "rename":
             return self.apply_rename(user_id, text) or None
+        return None
+
+    def submit_hub_create_name(self, user_id: str, name: str) -> tuple[str, dict | None]:
+        valid, result = self.validate_group_name(name)
+        if not valid:
+            return result, None
+        if not self.is_group_name_unique_for_owner(user_id, result):
+            return f'Ya tenés un grupo llamado "{result}". Elegí otro nombre.', None
+        self._users.update_profile(
+            user_id,
+            group_hub_step="awaiting_create_avatar",
+            group_hub_draft_name=result,
+        )
+        from src.services.group_hub_telegram_ui import hub_avatar_keyboard
+
+        return "Elegí un avatar para el grupo:", hub_avatar_keyboard()
+
+    def start_hub_create(self, user_id: str) -> tuple[str, dict | None]:
+        ok, existing_name = self.can_create_group(user_id)
+        if not ok:
+            from src.services.group_hub_telegram_ui import hub_create_limit_keyboard
+
+            return (
+                f'Ya tenés el máximo de grupos propios ("{existing_name}").\n'
+                "Para crear otro grupo necesitás ampliar tu plan:",
+                hub_create_limit_keyboard(),
+            )
+        self.clear_hub_state(user_id)
+        self._users.update_profile(user_id, group_hub_step="awaiting_create_name")
+        return (
+            "¡Vamos a crear tu grupo! 🎉\n\n"
+            "Escribí el nombre (2–50 caracteres, único entre tus grupos):",
+            None,
+        )
+
+    def finish_hub_create(self, user_id: str, avatar: str) -> tuple[str, dict | None]:
+        profile = self._users.get_profile(user_id) or {}
+        draft_name = (profile.get("group_hub_draft_name") or "").strip()
+        if profile.get("group_hub_step") != "awaiting_create_avatar" or not draft_name:
+            self.clear_hub_state(user_id)
+            return "No encontré el borrador del grupo. Empezá de nuevo desde 👥 Grupos.", None
+
+        max_members = 50 if profile.get("is_admin") else 5
+        group = self._groups.create_group(
+            owner_id=user_id,
+            name=draft_name,
+            avatar=avatar,
+            max_members=max_members,
+        )
+        self._groups.add_member(GLOBAL_GROUP_ID, user_id)
+        owned_count = len(self._groups.list_owned_group_ids(user_id))
+        self.clear_hub_state(user_id)
+        self._users.update_profile(user_id, groups_owned=owned_count)
+
+        gid = group["group_id"]
+        code = group.get("invite_code", "")
+
+        from src.services.invitation_service import InvitationService
+
+        inv = InvitationService().create_invitation(
+            user_id, max_uses=5, group_id=gid
+        )
+        link = inv.get("link") or inv.get("invite_url") or self._invite_link(inv["invite_id"])
+
+        from src.services.group_hub_telegram_ui import group_short, hub_created_keyboard
+
+        g8 = group_short(gid)
+        text = (
+            f'✅ Grupo "{draft_name}" creado\n\n'
+            f"Código: {code}\n"
+        )
+        if link:
+            text += f"Link: {link}\n"
+        return text.strip(), hub_created_keyboard(g8)
+
+    def start_hub_rename(self, user_id: str, group_id: str) -> tuple[str, dict | None]:
+        if not self._can_manage(user_id, group_id):
+            return "Sin permiso.", None
+        g = self._groups.get_group(group_id)
+        if not g or g.get("is_global"):
+            return "Este grupo no se puede renombrar.", None
+        self._users.update_profile(
+            user_id,
+            group_hub_step="awaiting_rename",
+            group_hub_context_group_id=group_id,
+        )
+        return (
+            f'¿Nuevo nombre para "{g.get("name", group_id)}"?\n'
+            "(2–50 caracteres, único entre tus grupos)",
+            None,
+        )
+
+    def apply_hub_rename(self, user_id: str, new_name: str) -> tuple[str, dict | None]:
+        profile = self._users.get_profile(user_id) or {}
+        if profile.get("group_hub_step") != "awaiting_rename":
+            return "", None
+        gid = profile.get("group_hub_context_group_id")
+        if not gid:
+            self.clear_hub_state(user_id)
+            return "No encontré el grupo. Volvé a 👥 Grupos.", None
+        valid, result = self.validate_group_name(new_name)
+        if not valid:
+            return result, None
+        if not self.is_group_name_unique_for_owner(
+            user_id, result, exclude_group_id=gid
+        ):
+            return f'Ya tenés un grupo llamado "{result}". Elegí otro nombre.', None
+        self._groups.update_group(gid, name=result)
+        self.clear_hub_state(user_id)
+        from src.services.group_hub_telegram_ui import group_short, hub_owner_detail_keyboard
+
+        g8 = group_short(gid)
+        return (
+            f'✅ Nombre actualizado a "{result}"',
+            hub_owner_detail_keyboard(g8),
+        )
+
+    def start_hub_add_member(self, user_id: str, group_id: str) -> tuple[str, dict | None]:
+        if not self._can_manage(user_id, group_id):
+            return "Sin permiso.", None
+        g = self._groups.get_group(group_id)
+        if not g:
+            return "Grupo no encontrado.", None
+        slots = self._auth.slots_available(group_id, actor_user_id=user_id)
+        if slots is not None and slots <= 0:
+            from src.services.group_hub_telegram_ui import hub_member_limit_keyboard
+
+            name = g.get("name", group_id)
+            max_m = int(g.get("max_members") or 5)
+            g8 = group_id.replace("-", "")[:8]
+            return (
+                f"El grupo «{name}» llegó al cupo ({max_m}/{max_m}).\n"
+                "Comprá +5 integrantes con una unidad:",
+                hub_member_limit_keyboard(g8),
+            )
+        self._users.update_profile(
+            user_id,
+            group_hub_step="awaiting_add_alias",
+            group_hub_context_group_id=group_id,
+        )
+        return (
+            f'➕ Sumar jugador a "{g.get("name", group_id)}"\n\n'
+            "Escribí el alias (ej: vic):",
+            None,
+        )
+
+    def apply_hub_add_member(
+        self, user_id: str, alias: str
+    ) -> tuple[str, dict | None]:
+        profile = self._users.get_profile(user_id) or {}
+        if profile.get("group_hub_step") != "awaiting_add_alias":
+            return "", None
+        gid = profile.get("group_hub_context_group_id")
+        if not gid:
+            self.clear_hub_state(user_id)
+            return "No encontré el grupo. Volvé a 👥 Grupos.", None
+        try:
+            ok, msg = self.add_member_by_alias(user_id, alias, group_id=gid)
+        except ValueError as exc:
+            return str(exc), None
+        self.clear_hub_state(user_id)
+        from src.services.group_hub_telegram_ui import group_short, hub_after_add_keyboard
+
+        g8 = group_short(gid)
+        return msg, hub_after_add_keyboard(g8)
+
+    def format_hub_home(self, user_id: str) -> tuple[str, dict]:
+        groups = self.list_hub_groups(user_id)
+        can_create, _ = self.can_create_group(user_id)
+        show_upgrade = not can_create
+        from src.services.group_hub_telegram_ui import hub_home_keyboard
+
+        if not groups:
+            text = (
+                "👥 Mis grupos\n\n"
+                "Todavía no estás en ningún grupo privado.\n"
+                "Creá el tuyo o pedí una invitación."
+            )
+        else:
+            text = "👥 Mis grupos\n\nElegí un grupo:"
+        kb = hub_home_keyboard(
+            groups, can_create=can_create, show_upgrade=show_upgrade
+        )
+        return text, kb
+
+    def format_hub_owner_detail(self, user_id: str, group_id: str) -> tuple[str, dict]:
+        g = self._groups.get_group(group_id) or {}
+        from src.services.group_hub_telegram_ui import group_short, hub_owner_detail_keyboard
+
+        g8 = group_short(group_id)
+        count = self._groups.count_members(group_id)
+        max_m = int(g.get("max_members") or 5)
+        code = g.get("invite_code") or "—"
+        avatar = g.get("avatar", "⚽")
+        name = g.get("name", group_id)
+        text = (
+            f"{avatar} {name}\n"
+            f"👥 {count}/{max_m} miembros · código {code}"
+        )
+        return text, hub_owner_detail_keyboard(g8)
+
+    def format_hub_member_detail(self, user_id: str, group_id: str) -> tuple[str, dict]:
+        g = self._groups.get_group(group_id) or {}
+        from src.services.group_hub_telegram_ui import group_short, hub_member_detail_keyboard
+
+        g8 = group_short(group_id)
+        avatar = g.get("avatar", "⚽")
+        name = g.get("name", group_id)
+        text = f"{avatar} {name}\nSos miembro de este grupo."
+        return text, hub_member_detail_keyboard(g8)
+
+    def format_hub_members(
+        self, user_id: str, group_id: str
+    ) -> tuple[str, dict | None]:
+        if not self._can_manage(user_id, group_id):
+            return "Sin permiso.", None
+        g = self._groups.get_group(group_id)
+        if not g:
+            return "Grupo no encontrado.", None
+        members = self._groups.list_member_user_ids(group_id)
+        max_m = int(g.get("max_members") or 5)
+        lines = [f"👥 {g.get('name')} — {len(members)}/{max_m} miembros", ""]
+        owner_id = g.get("owner_id", "")
+        member_rows: list[dict] = []
+        for uid in members:
+            prof = self._users.get_profile(uid) or {}
+            alias = prof.get("alias", uid[:8])
+            member_rows.append({"user_id": uid, "alias": alias})
+            if uid == owner_id:
+                lines.append(f"⚽ {alias} (owner)")
+            elif uid == user_id:
+                lines.append(f"👤 {alias} (vos)")
+            else:
+                lines.append(f"👤 {alias}")
+        from src.services.group_hub_telegram_ui import group_short, hub_members_keyboard
+
+        g8 = group_short(group_id)
+        kb = hub_members_keyboard(
+            g8, member_rows, owner_id=str(owner_id), viewer_id=user_id
+        )
+        return "\n".join(lines), kb
+
+    def resolve_member_short(self, group_id: str, u8: str) -> str | None:
+        needle = (u8 or "").strip().lower()
+        if not needle:
+            return None
+        for uid in self._groups.list_member_user_ids(group_id):
+            compact = uid.replace("-", "").lower()
+            if compact.startswith(needle) or uid.lower().startswith(needle):
+                return uid
+        return None
+
+    def handle_hub_pending(
+        self, user_id: str, text: str
+    ) -> tuple[str, dict | None] | None:
+        profile = self._users.get_profile(user_id) or {}
+        step = profile.get("group_hub_step")
+        if not step:
+            return None
+        low = text.strip().lower()
+        if low in ("/cancel", "/cancelar"):
+            self.clear_hub_state(user_id)
+            return self.format_hub_home(user_id)
+        if step == "awaiting_create_name":
+            return self.submit_hub_create_name(user_id, text)
+        if step == "awaiting_rename":
+            return self.apply_hub_rename(user_id, text)
+        if step == "awaiting_add_alias":
+            return self.apply_hub_add_member(user_id, text)
+        if step == "awaiting_create_avatar":
+            if text.strip().startswith("/"):
+                return None
+            from src.services.group_hub_telegram_ui import hub_avatar_keyboard
+
+            return (
+                "Elegí un avatar para el grupo 👆",
+                hub_avatar_keyboard(),
+            )
         return None
 
     def handle_pending_with_markup(

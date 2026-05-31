@@ -306,6 +306,30 @@ def _handle_callback_query(callback: dict, ok: dict) -> dict:
                     token,
                 )
             return ok
+        elif data.startswith("grh:"):
+            cb_id = callback.get("id")
+            if cb_id:
+                _post_json(
+                    f"{TG_API}/bot{token}/answerCallbackQuery",
+                    {"callback_query_id": cb_id},
+                    timeout=5,
+                )
+            from group_hub_commands import handle_group_hub_callback
+
+            try:
+                result = handle_group_hub_callback(user_id, data)
+                if result:
+                    reply, markup = result
+                    if reply:
+                        _send_message(chat_id, reply, token, reply_markup=markup)
+            except Exception:
+                logger.exception("group_hub_callback failed data=%s", data[:60])
+                _send_message(
+                    chat_id,
+                    "No pude procesar grupos. Probá de nuevo con /grupos.",
+                    token,
+                )
+            return ok
         elif data.startswith("grp:"):
             cb_id = callback.get("id")
             if cb_id:
@@ -670,10 +694,19 @@ def handler(event: dict, context) -> dict:
                     return ok
 
         if profile and (
-            profile.get("group_create_step")
+            profile.get("group_hub_step")
+            or profile.get("group_create_step")
             or profile.get("group_edit_pending")
             or profile.get("group_add_member_group_id")
         ):
+            from group_hub_commands import handle_group_hub_pending
+
+            hub_result = handle_group_hub_pending(user_id, profile, text)
+            if hub_result and hub_result[0]:
+                hub_text, hub_markup = hub_result
+                _send_message(chat_id, hub_text, token, reply_markup=hub_markup)
+                return ok
+
             from group_commands import handle_group_pending_message
 
             grp_result = handle_group_pending_message(user_id, profile, text)

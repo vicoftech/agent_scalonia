@@ -46,6 +46,8 @@ def test_admin_menu_includes_admin_commands():
     assert "ia_otorgar" in admin
     assert "ask_ia" in admin
     assert "crear_grupo_para" in admin
+    assert "grupo_aplicar_u" in admin
+    assert "grupo_compras_pendientes" in admin
     assert len(admin) == len(USER_MENU_COMMANDS) + len(ADMIN_MENU_EXTRA)
 
 
@@ -76,7 +78,17 @@ def test_rules_message_has_scoring_not_commands():
     assert "/partidos" not in text
 
 
-def test_help_admin_only_for_global_admin():
+def test_help_mentions_grupos_hub():
+    assert "hub inline" in help_message(is_admin=False).lower() or "hub con botones" in help_message(
+        is_admin=False
+    ).lower() or "hub" in help_message(is_admin=False).lower()
+
+
+def test_help_admin_group_upgrade_commands():
+    admin_help = help_message(is_admin=True)
+    assert "grupo_aplicar_u" in admin_help
+    assert "grupo_compras_pendientes" in admin_help
+
     assert "trivia_admin" not in help_message(is_admin=False)
     assert "trivia_admin" in help_message(is_admin=True)
 

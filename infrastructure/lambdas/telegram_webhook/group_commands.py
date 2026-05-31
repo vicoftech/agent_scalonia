@@ -21,9 +21,13 @@ _AGREGAR = re.compile(
 
 
 def handle_group_command(user_id: str, text: str) -> tuple[str, dict | None] | None:
+    from group_hub_commands import handle_grupos_command
+
+    hub = handle_grupos_command(user_id, text)
+    if hub:
+        return hub
+
     svc = GroupService()
-    if _GRUPOS.match(text.strip()):
-        return svc.format_groups_list(user_id), None
     if _CREAR.match(text.strip()):
         return svc.start_create_group(user_id)
     if _EDITAR.match(text.strip()):
