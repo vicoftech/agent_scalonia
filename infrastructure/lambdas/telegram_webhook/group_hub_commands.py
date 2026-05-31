@@ -42,8 +42,8 @@ def handle_group_hub_callback(user_id: str, data: str) -> tuple[str, dict | None
     if data == "grh:create":
         return svc.start_hub_create(user_id)
 
-    if len(parts) >= 3 and parts[1] == "av":
-        avatar = parts[2]
+    if data.startswith("grh:av:"):
+        avatar = data.split(":", 2)[2]
         profile = svc._users.get_profile(user_id) or {}
         if profile.get("group_hub_step") == "awaiting_create_avatar":
             return svc.finish_hub_create(user_id, avatar)

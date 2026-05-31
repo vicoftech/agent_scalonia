@@ -107,6 +107,30 @@ class GroupService:
         extra = int(profile.get("extra_owned_group_slots") or 0)
         return _FREE_MAX_OWNED_GROUPS + extra
 
+    def _invite_max_uses(self, user_id: str, group_id: str, *, default: int = 5) -> int:
+        slots = self._auth.slots_available(group_id, actor_user_id=user_id)
+        if slots is None:
+            return default
+        return max(0, min(default, int(slots)))
+
+    def _create_post_group_invitation(
+        self, user_id: str, group_id: str, *, default_max_uses: int = 5
+    ) -> dict:
+        """Invitación inicial tras crear grupo; respeta cupo (owner ya cuenta)."""
+        from src.services.invitation_service import InvitationService
+
+        max_uses = self._invite_max_uses(user_id, group_id, default=default_max_uses)
+        if max_uses < 1:
+            return {}
+        try:
+            return InvitationService(
+                group_dao=self._groups,
+                user_dao=self._users,
+                auth=self._auth,
+            ).create_invitation(user_id, max_uses=max_uses, group_id=group_id)
+        except ValueError:
+            return {}
+
     def format_groups_list(self, user_id: str) -> str:
         group_ids = self._groups.list_group_ids_for_user(user_id)
         if not group_ids:
@@ -214,13 +238,13 @@ class GroupService:
             group_draft_name=None,
         )
 
-        from src.services.invitation_service import InvitationService
-
-        inv = InvitationService().create_invitation(
-            user_id, max_uses=5, group_id=group["group_id"]
+        inv = self._create_post_group_invitation(
+            user_id, group["group_id"], default_max_uses=5
         )
         code = group.get("invite_code", "")
-        link = inv.get("link") or inv.get("invite_url") or self._invite_link(inv["invite_id"])
+        link = inv.get("link") or inv.get("invite_url") or (
+            self._invite_link(inv["invite_id"]) if inv.get("invite_id") else ""
+        )
 
         return (
             f'✅ Grupo "{draft_name}" creado\n\n'
@@ -691,6 +715,17 @@ class GroupService:
             self.clear_hub_state(user_id)
             return "No encontré el borrador del grupo. Empezá de nuevo desde 👥 Grupos.", None
 
+        ok, existing_name = self.can_create_group(user_id)
+        if not ok:
+            self.clear_hub_state(user_id)
+            from src.services.group_hub_telegram_ui import hub_create_limit_keyboard
+
+            return (
+                f'Ya tenés el máximo de grupos propios ("{existing_name}").\n'
+                "Para crear otro grupo necesitás ampliar tu plan:",
+                hub_create_limit_keyboard(),
+            )
+
         max_members = 50 if profile.get("is_admin") else 5
         group = self._groups.create_group(
             owner_id=user_id,
@@ -706,12 +741,10 @@ class GroupService:
         gid = group["group_id"]
         code = group.get("invite_code", "")
 
-        from src.services.invitation_service import InvitationService
-
-        inv = InvitationService().create_invitation(
-            user_id, max_uses=5, group_id=gid
+        inv = self._create_post_group_invitation(user_id, gid, default_max_uses=5)
+        link = inv.get("link") or inv.get("invite_url") or (
+            self._invite_link(inv["invite_id"]) if inv.get("invite_id") else ""
         )
-        link = inv.get("link") or inv.get("invite_url") or self._invite_link(inv["invite_id"])
 
         from src.services.group_hub_telegram_ui import group_short, hub_created_keyboard
 

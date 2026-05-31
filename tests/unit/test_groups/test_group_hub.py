@@ -121,6 +121,44 @@ def test_admin_grant_group_slots_notifies(mock_groups, mock_users, mock_auth):
     assert "Crear grupo nuevo" in mock_notify.call_args[0][2]
 
 
+@patch("src.services.invitation_service.InvitationService")
+@patch("src.services.group_service.GroupDAO")
+@patch("src.services.group_service.UserDAO")
+def test_finish_hub_create_uses_available_invite_slots(
+    mock_user, mock_group, mock_inv_svc
+):
+    profile = {
+        "group_hub_step": "awaiting_create_avatar",
+        "group_hub_draft_name": "Nuevo",
+        "is_admin": False,
+        "extra_owned_group_slots": 0,
+    }
+    mock_user.return_value.get_profile.return_value = profile
+    mock_user.return_value.update_profile.side_effect = lambda _u, **kw: profile.update(kw)
+    mock_group.return_value.list_owned_group_ids.return_value = []
+    mock_group.return_value.create_group.return_value = {
+        "group_id": "g-new",
+        "invite_code": "ABC123",
+    }
+    mock_auth = MagicMock()
+    mock_auth.slots_available.return_value = 4
+    mock_inv_svc.return_value.create_invitation.return_value = {
+        "invite_id": "inv1",
+        "link": "https://t.me/bot?start=inv1",
+    }
+    svc = GroupService(
+        group_dao=mock_group.return_value,
+        user_dao=mock_user.return_value,
+        auth=mock_auth,
+    )
+    text, kb = svc.finish_hub_create("u1", "⚽")
+    assert "creado" in text.lower()
+    mock_inv_svc.return_value.create_invitation.assert_called_once_with(
+        "u1", max_uses=4, group_id="g-new"
+    )
+    assert kb is not None
+
+
 @patch("src.services.group_upgrade_service.UserDAO")
 @patch("src.services.group_upgrade_service.GroupDAO")
 def test_start_member_pack_upgrade(mock_groups, mock_users):
