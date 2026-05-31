@@ -264,7 +264,8 @@ class OnboardingService:
                     user_id,
                     alias=temp,
                     m1_step=M1_STEP_TEAM,
-                    alias_suggestions_shown=False,
+                    alias_suggestions_shown=None,
+                    alias_retry_clicked=None,
                 )
                 return {"ok": True, "m1_step": M1_STEP_TEAM, "alias": temp}
             if m1_step == M1_STEP_TEAM:
@@ -298,24 +299,39 @@ class OnboardingService:
             if reason == "alias_taken":
                 alts = self.suggest_alias_alternatives(alias)
                 profile = self._users.get_profile(user_id) or {}
-                if profile.get("alias_suggestions_shown"):
-                    temp = self.generate_temp_alias()
-                    self._users.update_profile(
-                        user_id,
-                        alias=temp,
-                        m1_step=M1_STEP_TEAM,
-                    )
-                    return {
-                        "ok": True,
-                        "alias": temp,
-                        "m1_step": M1_STEP_TEAM,
-                        "used_temp": True,
-                    }
-                self._users.update_profile(user_id, alias_suggestions_shown=True)
+                if profile.get("alias_retry_clicked"):
+                    self._users.update_profile(user_id, alias_suggestions_shown=True)
                 return {"ok": False, "alias_taken": True, "alternatives": alts}
             return {"ok": False, "error": reason}
-        self._users.update_profile(user_id, alias=alias.strip(), m1_step=M1_STEP_TEAM)
+        self._users.update_profile(
+            user_id,
+            alias=alias.strip(),
+            m1_step=M1_STEP_TEAM,
+            alias_suggestions_shown=None,
+            alias_retry_clicked=None,
+        )
         return {"ok": True, "alias": alias.strip(), "m1_step": M1_STEP_TEAM}
+
+    def mark_alias_retry(self, user_id: str) -> dict[str, Any]:
+        """Segunda ronda de sugerencias rechazada → alias temporal; si no, pedir tipeo."""
+        profile = self._users.get_profile(user_id) or {}
+        if profile.get("alias_suggestions_shown"):
+            temp = self.generate_temp_alias()
+            self._users.update_profile(
+                user_id,
+                alias=temp,
+                m1_step=M1_STEP_TEAM,
+                alias_suggestions_shown=None,
+                alias_retry_clicked=None,
+            )
+            return {
+                "ok": True,
+                "alias": temp,
+                "m1_step": M1_STEP_TEAM,
+                "used_temp": True,
+            }
+        self._users.update_profile(user_id, alias_retry_clicked=True)
+        return {"ok": False, "retry_prompt": True}
 
     def save_m1_team(self, user_id: str, team_code: str | None) -> dict[str, Any]:
         code = (team_code or "").upper()[:3] if team_code else None
@@ -362,6 +378,8 @@ class OnboardingService:
                 lines.append(f"│ 🧠 Trivia: {p['football_knowledge']}")
             if p.get("prode_goal"):
                 lines.append(f"│ 🎯 Objetivo: {p['prode_goal']}")
+            lines.append("│ 👤 Editá preferencias con Perfil │")
+            lines.append("│    (el alias no se modifica ahí) │")
         stage = p.get("onboarding_stage", STAGE_M1_PENDING)
         progress = {"M1_PENDING": "0/3", "M1_COMPLETE": "1/3", "M2_COMPLETE": "2/3", "M3_COMPLETE": "3/3"}.get(
             stage, "?"

@@ -80,6 +80,63 @@ def test_get_pending_prompt_m3():
     assert text and "prode" in text.lower()
 
 
+def test_suggest_alias_alternatives_returns_three():
+    svc = OnboardingService(user_dao=MagicMock())
+    alts = svc.suggest_alias_alternatives("GolazoFan")
+    assert len(alts) == 3
+    assert all(a.startswith("GolazoFan") for a in alts)
+
+
+def test_save_m1_alias_taken_always_returns_alternatives():
+    dao = MagicMock()
+    dao.get_profile.return_value = {"alias_suggestions_shown": True, "alias_retry_clicked": True}
+    dao.alias_taken.return_value = True
+    svc = OnboardingService(user_dao=dao)
+    result = svc.save_m1_alias("u1", "Taken")
+    assert result["ok"] is False
+    assert result["alias_taken"] is True
+    assert len(result["alternatives"]) == 3
+    dao.update_profile.assert_called_with("u1", alias_suggestions_shown=True)
+
+
+def test_save_m1_alias_success_clears_retry_flags():
+    dao = MagicMock()
+    dao.alias_taken.return_value = False
+    svc = OnboardingService(user_dao=dao)
+    result = svc.save_m1_alias("u1", "FreeAlias")
+    assert result["ok"] is True
+    dao.update_profile.assert_called_with(
+        "u1",
+        alias="FreeAlias",
+        m1_step="awaiting_team",
+        alias_suggestions_shown=None,
+        alias_retry_clicked=None,
+    )
+
+
+def test_mark_alias_retry_first_time_prompts():
+    dao = MagicMock()
+    dao.get_profile.return_value = {}
+    svc = OnboardingService(user_dao=dao)
+    result = svc.mark_alias_retry("u1")
+    assert result["retry_prompt"] is True
+    dao.update_profile.assert_called_with("u1", alias_retry_clicked=True)
+
+
+def test_mark_alias_retry_second_time_assigns_temp():
+    dao = MagicMock()
+    dao.get_profile.return_value = {"alias_suggestions_shown": True}
+    svc = OnboardingService(user_dao=dao)
+    result = svc.mark_alias_retry("u1")
+    assert result["ok"] is True
+    assert result["used_temp"] is True
+    assert result["alias"].startswith("Jugador_")
+    dao.update_profile.assert_called_once()
+    call_kw = dao.update_profile.call_args
+    assert call_kw[0][0] == "u1"
+    assert call_kw[1]["m1_step"] == "awaiting_team"
+
+
 def test_first_post_start_instruction():
     from src.services.onboarding_service import FIRST_POST_START_INSTRUCTION
 

@@ -15,6 +15,9 @@ from src.services.onboarding_telegram_ui import language_keyboard, team_keyboard
 
 logger = logging.getLogger(__name__)
 
+_ALIAS_RETRY_BUTTON = "✏️ Escribir otro"
+_ALIAS_RETRY_PROMPT = "Escribí otro alias (2–30 caracteres, letras, números, _ y -):"
+
 _QUESTION_HINTS = (
     "?",
     "cuando",
@@ -32,6 +35,15 @@ _QUESTION_HINTS = (
 def _looks_like_question(text: str) -> bool:
     low = text.lower()
     return any(h in low for h in _QUESTION_HINTS)
+
+
+def _alias_taken_response(alts: list[str]) -> tuple[str, dict]:
+    btns = [[{"text": a, "callback_data": f"onb:alias:{a}"}] for a in alts[:3]]
+    btns.append([{"text": _ALIAS_RETRY_BUTTON, "callback_data": "onb:alias:retry"}])
+    return (
+        "Ese alias ya está tomado 😅\n¿Qué tal alguna de estas?",
+        {"inline_keyboard": btns},
+    )
 
 
 def m1_welcome_message(group_name: str | None = None) -> str:
@@ -79,14 +91,7 @@ def handle_onboarding_message(
         saved = svc.save_m1_alias(user_id, stripped)
         if not saved.get("ok"):
             if saved.get("alias_taken"):
-                alts = saved.get("alternatives", [])
-                btns = [[{"text": a, "callback_data": f"onb:alias:{a}"}] for a in alts[:3]]
-                btns.append([{"text": "Quiero otro", "callback_data": "onb:alias:retry"}])
-                return (
-                    "Ese alias ya está tomado 😅 ¿Alguna de estas?\n"
-                    + " | ".join(alts),
-                    {"inline_keyboard": btns},
-                )
+                return _alias_taken_response(saved.get("alternatives", []))
             return saved.get("error", "Alias inválido."), None
         if saved.get("used_temp"):
             return (
@@ -113,11 +118,22 @@ def handle_onboarding_callback(user_id: str, profile: dict, data: str) -> tuple[
     kind = parts[1]
     value = parts[2]
 
-    if kind == "alias" and value != "retry":
+    if kind == "alias" and value == "retry":
+        result = svc.mark_alias_retry(user_id)
+        if result.get("used_temp"):
+            return (
+                f"Te asigné el alias temporal {result['alias']}.\n\n" + _team_prompt(),
+                team_keyboard(),
+            )
+        return _ALIAS_RETRY_PROMPT, None
+
+    if kind == "alias":
         saved = svc.save_m1_alias(user_id, value)
         if saved.get("ok"):
             return f"Perfecto, {value} 🙌\n\n" + _team_prompt(), team_keyboard()
-        return "No pude usar ese alias. Escribí otro.", None
+        if saved.get("alias_taken"):
+            return _alias_taken_response(saved.get("alternatives", []))
+        return saved.get("error", "No pude usar ese alias. Escribí otro."), None
 
     if kind == "team":
         code = None if value == "none" else value

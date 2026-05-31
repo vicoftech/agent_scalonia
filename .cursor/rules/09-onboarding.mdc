@@ -79,24 +79,70 @@ BOT: 🎉🎊⚽🎊🎉
      [⚽ Ver partidos del día]
 ```
 
-### Validaciones del alias
+### Validaciones del alias (unicidad)
+
+**Reglas de formato**
 
 - Longitud: 2–30 caracteres
-- Solo letras, números, guiones y underscores
-- Si está tomado → sugerir 3 alternativas con sufijo numérico
-- Solo **1 ronda** de sugerencias — si rechaza todas, alias temporal
-- Alias temporal: `Jugador_XXXX` (4 chars alfanuméricos)
-- `/listo` → alias temporal asignado, mensaje explicativo
+- Solo letras, números, guiones y underscores (`^[a-zA-Z0-9_-]+$`)
+- Unicidad: consulta DynamoDB (`UserDAO.alias_taken`) — case-insensitive en MVP
+
+**Flujo cuando el alias ya existe**
+
+Cuando el usuario **tipea** un alias ocupado en M1 (no al elegir botón sugerido):
+
+1. **No avanzar** de paso — permanece en `m1_step=awaiting_alias`.
+2. Mostrar mensaje claro + **3 alternativas similares** como botones inline (una fila cada una o fila única según ancho).
+3. Incluir siempre botón **«✏️ Escribir otro»** (`onb:alias:retry`) para que vuelva a tipear libremente.
+4. Si el usuario elige una alternativa (`onb:alias:<alias>`) → validar de nuevo y avanzar a equipo si OK.
+5. Si vuelve a tipear otro alias tomado → **repetir** el ciclo (3 nuevas sugerencias + «Escribir otro») — sin límite de rondas por tipeo.
+6. Solo si el usuario elige **«Quiero otro» / «Escribir otro»** y luego en la **segunda ronda de sugerencias** rechaza todo (flag `alias_suggestions_shown=true`) → asignar **alias temporal** `Jugador_XXXX` y avanzar.
+7. `/listo` en paso alias → alias temporal + mensaje explicativo; avanza a equipo.
 
 ```python
-# Ejemplo de flujo con alias duplicado
+# onboarding_service.suggest_alias_alternatives(alias) → exactamente 3 strings
+# Ejemplo: "GolazoFan" → ["GolazoFan1", "GolazoFan2", "GolazoFan47"]
+```
+
+**Ejemplo UX — alias duplicado**
+
+```
+USUARIO: GolazoFan
+
 BOT: Ese alias ya está tomado 😅
      ¿Qué tal alguna de estas?
-     [GolazoFan1] [GolazoFan2] [GolazoFan47]
-     [Quiero otro diferente]
 
-# Si rechaza → alias temporal automático
+     [GolazoFan1]
+     [GolazoFan2]
+     [GolazoFan47]
+     [✏️ Escribir otro]
+
+USUARIO: [✏️ Escribir otro]
+
+BOT: Escribí otro alias (2–30 caracteres):
+
+USUARIO: ProdeKing2026
+
+BOT: Ese alias ya está tomado 😅
+     [ProdeKing2026_1] [ProdeKing2026_2] [ProdeKing2026_89]
+     [✏️ Escribir otro]
 ```
+
+**Implementación Telegram (`onboarding_handler.py`)**
+
+- Texto libre en `M1_STEP_ALIAS` → `save_m1_alias` → si `alias_taken`, render inline con `alternatives[:3]`.
+- Callback `onb:alias:retry` → prompt «Escribí otro alias» (sin cambiar step).
+- Callback `onb:alias:<valor>` → `save_m1_alias` con valor del botón.
+
+**Post-M1 — alias no editable**
+
+- Desde **Perfil** (SPEC-048): el alias se muestra **solo lectura**; no hay flujo de cambio en MVP.
+- Copy: *«El alias no se puede modificar desde acá.»*
+
+**Alias temporal**
+
+- Formato: `Jugador_` + 4 chars alfanuméricos aleatorios
+- Nunca dejar `alias` vacío en DynamoDB
 
 ### UX de selección de equipo
 
@@ -216,7 +262,8 @@ BOT: 🏆🎊⚽🌟🎊🏆
      • La trivia se calibra a nivel Fanático 🧠
      • El resumen diario se adapta a tu objetivo 📊
 
-     Podés cambiar todo con /perfil cuando quieras.
+     Podés cambiar hincha, idioma y preferencias con **👤 Perfil** en el teclado fijo.
+     El **alias** no se modifica desde ahí.
 ```
 
 ---
@@ -225,7 +272,7 @@ BOT: 🏆🎊⚽🌟🎊🏆
 
 | Dato | Momento | Campo DB | Uso en el sistema |
 |------|---------|----------|------------------|
-| `alias` | M1 — obligatorio | `alias` | Ranking, menciones en grupos |
+| `alias` | M1 — obligatorio | `alias` | Ranking, menciones en grupos — **no editable en Perfil (SPEC-048)** |
 | `favorite_team` | M1 — opcional | `favorite_team` | Alertas cuando juega, sugerencias de jugadores |
 | `preferred_language` | M1 — opcional | `preferred_language` | Idioma de todas las respuestas del agente |
 | `favorite_player` | M2 — predicción | `favorite_player` | Anécdotas proactivas, sugerido en /completo |
@@ -307,10 +354,13 @@ class OnboardingService:
         """
 
     def validate_alias(self, alias: str) -> tuple[bool, str]:
-        """Valida longitud y caracteres. Verifica unicidad en Aurora."""
+        """Longitud y caracteres permitidos (sin unicidad)."""
+
+    def validate_alias_for_user(self, user_id: str, alias: str) -> tuple[bool, str]:
+        """Formato + unicidad (alias_taken). Usado en M1 y callbacks onb:alias:*."""
 
     def suggest_alias_alternatives(self, alias: str) -> list[str]:
-        """Retorna [alias+'1', alias+'2', alias+random_2_digits]."""
+        """Retorna exactamente 3 alternativas: [alias+'1', alias+'2', alias+random_2_digits]."""
 
     def generate_temp_alias(self) -> str:
         """Retorna 'Jugador_' + 4 chars alfanuméricos aleatorios."""
@@ -355,6 +405,8 @@ class OnboardingService:
 - La acción del usuario (predecir, jugar trivia) se completa **siempre** antes de la pregunta de onboarding
 - `/listo` acepta **siempre** — el agente nunca insiste ni repite la pregunta
 - El alias temporal se genera con `Jugador_` + 4 chars — nunca dejar el campo vacío en DynamoDB
+- **Alias duplicado en M1:** mostrar **3 alternativas inline** + botón **«✏️ Escribir otro»**; permitir reintentos ilimitados al tipear; alias temporal solo tras segunda ronda de sugerencias rechazada (`alias_suggestions_shown`) o `/listo`
+- **Alias post-M1:** no editable desde Perfil (SPEC-048)
 - La selección de equipo en M1 avanza automáticamente con 1 tap — sin botón de confirmar
 - Solo el idioma requiere confirmación explícita (para evitar cambios accidentales)
 - El `football_knowledge` en M2b se pregunta **antes** de generar la pregunta de trivia
