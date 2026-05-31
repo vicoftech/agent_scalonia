@@ -12,6 +12,7 @@ from src.services.trivia_question_bank import (
     pick_curated_for_match_strict,
     question_fingerprint,
 )
+from src.services.trivia_curation import validate_trivia_mcq
 
 logger = logging.getLogger(__name__)
 
@@ -235,13 +236,18 @@ def _validate_mcq_payload(
     fp = question_fingerprint(question)
     if fp in exclude:
         return None
-    return {
+    payload = {
         "question": question,
         "options": opts,
         "correct": correct,
         "explanation": explanation,
         "question_fp": fp,
     }
+    ok, reason = validate_trivia_mcq(payload)
+    if not ok:
+        logger.warning("Bedrock trivia rejected: curation %s", reason)
+        return None
+    return payload
 
 
 def generate_question_from_context(

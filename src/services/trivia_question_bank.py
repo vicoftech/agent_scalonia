@@ -7,6 +7,7 @@ import re
 from typing import Any
 
 from src.fixtures.trivia_questions import FALLBACK_QUESTIONS
+from src.services.trivia_curation import validate_trivia_mcq
 
 _META_SOURCE_PATTERN = re.compile(
     r"\b(knowledge\s*base|knowledgebase|base\s+de\s+conocimiento|"
@@ -144,6 +145,9 @@ def pick_curated_for_match_strict(
 def _pick_from_pool(pool: list[dict[str, Any]], exclude: set[str]) -> dict[str, Any] | None:
     random.shuffle(pool)
     for q in pool:
+        ok, reason = validate_trivia_mcq(q)
+        if not ok:
+            continue
         fp = question_fingerprint(q["question"])
         if fp in exclude:
             continue

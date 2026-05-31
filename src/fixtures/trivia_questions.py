@@ -39,11 +39,14 @@ FALLBACK_QUESTIONS: list[dict] = [
         "level": "MEDIUM",
         "question": (
             "En el Mundial 1990, ¿qué selección eliminó a Inglaterra en semifinales "
-            "con los penales de Schillaci y Aldo Serena?"
+            "con un 2-1 en Turín, con goles de Schillaci y Tardelli?"
         ),
         "options": {"A": "Alemania", "B": "Italia", "C": "Argentina", "D": "Brasil"},
         "correct": "B",
-        "explanation": "Italia venció a Inglaterra 2-1 en Turín y llegó a la final en casa.",
+        "explanation": (
+            "Italia venció 2-1 a Inglaterra en semifinales; Schillaci y Tardelli marcaron "
+            "para la Azzurra y Lineker descontó para Inglaterra."
+        ),
         "source": "manual",
     },
     {
