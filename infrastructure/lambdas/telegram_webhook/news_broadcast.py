@@ -38,6 +38,7 @@ def broadcast_news_message(
                 caption,
                 token,
                 reply_markup=keyboard,
+                parse_mode="HTML",
             )
             sent += 1
         except Exception:

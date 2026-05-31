@@ -33,13 +33,17 @@ _VER_CUOTAS = re.compile(
 
 def _service() -> GroupUpgradeService:
     from handler import _get_token, _send_message
+    from payment_proof_commands import notify_admins_payment_proof
 
     token = _get_token()
 
     def telegram_notify(chat_id: int, text: str) -> None:
         _send_message(int(chat_id), text, token)
 
-    return GroupUpgradeService(telegram_notify=telegram_notify)
+    return GroupUpgradeService(
+        telegram_notify=telegram_notify,
+        admin_proof_notify=notify_admins_payment_proof,
+    )
 
 
 def handle_group_upgrade_command(user_id: str, text: str) -> tuple[str, dict | None] | None:
@@ -86,5 +90,9 @@ def handle_group_upgrade_callback(user_id: str, data: str) -> tuple[str, dict | 
         return "No pude procesar esa acción. Probá /ampliar_plan de nuevo.", None
 
 
-def handle_group_upgrade_purchase_proof(user_id: str, *, file_id: str) -> str:
-    return _service().handle_payment_proof(user_id, file_id=file_id)
+def handle_group_upgrade_purchase_proof(
+    user_id: str, *, file_id: str, file_kind: str = "photo"
+) -> str:
+    return _service().handle_payment_proof(
+        user_id, file_id=file_id, file_kind=file_kind
+    )

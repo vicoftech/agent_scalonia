@@ -298,6 +298,35 @@ class UserDAO:
             scan_kwargs["ExclusiveStartKey"] = resp["LastEvaluatedKey"]
         return targets
 
+    def list_admin_telegram_targets(self) -> list[dict[str, Any]]:
+        """Admins globales con tg_chat_id — reenvío de comprobantes de pago."""
+        targets: list[dict[str, Any]] = []
+        scan_kwargs: dict[str, Any] = {
+            "FilterExpression": (
+                Attr("sort_key").eq("PROFILE")
+                & Attr("is_admin").eq(True)
+                & Attr("tg_chat_id").exists()
+            ),
+            "ProjectionExpression": "user_id, tg_chat_id, alias",
+        }
+        while True:
+            resp = self._table.scan(**scan_kwargs)
+            for item in resp.get("Items", []):
+                chat_id = item.get("tg_chat_id")
+                uid = item.get("user_id")
+                if uid and chat_id is not None:
+                    targets.append(
+                        {
+                            "user_id": uid,
+                            "tg_chat_id": int(chat_id),
+                            "alias": item.get("alias"),
+                        }
+                    )
+            if not resp.get("LastEvaluatedKey"):
+                break
+            scan_kwargs["ExclusiveStartKey"] = resp["LastEvaluatedKey"]
+        return targets
+
     def get_answered_question_fingerprints(self, user_id: str) -> set[str]:
         profile = self.get_profile(user_id) or {}
         raw = profile.get("trivia_answered_fps") or []

@@ -97,15 +97,17 @@ def _send_photo(
     token: str,
     *,
     reply_markup: dict | None = None,
-) -> None:
-    """sendPhoto con caption HTML — SPEC-2026-046."""
+    parse_mode: str | None = None,
+) -> bool:
+    """sendPhoto con caption — comprobantes de pago e imágenes."""
     cap = caption[:1024] if len(caption) > 1024 else caption
     body: dict[str, Any] = {
         "chat_id": chat_id,
         "photo": photo,
         "caption": cap,
-        "parse_mode": "HTML",
     }
+    if parse_mode:
+        body["parse_mode"] = parse_mode
     if reply_markup:
         body["reply_markup"] = reply_markup
     for attempt in range(3):
@@ -115,7 +117,38 @@ def _send_photo(
             continue
         if code >= 400:
             logger.warning("sendPhoto failed code=%s desc=%s", code, j.get("description"))
-        break
+            return False
+        return True
+    return False
+
+
+def _send_document(
+    chat_id: int,
+    document: str,
+    caption: str,
+    token: str,
+    *,
+    reply_markup: dict | None = None,
+) -> bool:
+    """sendDocument con caption — comprobantes PDF."""
+    cap = caption[:1024] if len(caption) > 1024 else caption
+    body: dict[str, Any] = {
+        "chat_id": chat_id,
+        "document": document,
+        "caption": cap,
+    }
+    if reply_markup:
+        body["reply_markup"] = reply_markup
+    for attempt in range(3):
+        code, j = _post_json(f"{TG_API}/bot{token}/sendDocument", body)
+        if code == 429:
+            time.sleep(float(j.get("parameters", {}).get("retry_after", 2)))
+            continue
+        if code >= 400:
+            logger.warning("sendDocument failed code=%s desc=%s", code, j.get("description"))
+            return False
+        return True
+    return False
 
 
 def _friendly_agent_error(reason: str) -> str:
@@ -529,13 +562,15 @@ def handler(event: dict, context) -> dict:
             if photos or document:
                 if photos:
                     file_id = photos[-1].get("file_id", "")
+                    kind = "photo"
                 else:
                     file_id = document.get("file_id", "")
+                    kind = "document"
                 if file_id:
                     from group_upgrade_commands import handle_group_upgrade_purchase_proof
 
                     proof_reply = handle_group_upgrade_purchase_proof(
-                        user_id, file_id=file_id
+                        user_id, file_id=file_id, file_kind=kind
                     )
                     if proof_reply:
                         _send_message(chat_id, proof_reply, token)

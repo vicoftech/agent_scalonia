@@ -16,6 +16,38 @@ class IaPurchaseDAO:
     def __init__(self, table_name: str | None = None):
         self._table = get_table(table_name)
 
+    def record_proof_submission(
+        self,
+        *,
+        user_id: str,
+        alias: str,
+        credits_requested: int,
+        amount_ars: int,
+        telegram_file_id: str,
+        payment_alias: str,
+        file_kind: str,
+    ) -> str:
+        purchase_id = str(uuid.uuid4())
+        self._table.put_item(
+            Item={
+                "partition_key": f"IA_PURCHASE#{purchase_id}",
+                "sort_key": "DETAILS",
+                "purchase_id": purchase_id,
+                "user_id": user_id,
+                "alias": alias,
+                "credits_granted": 0,
+                "credits_requested": int(credits_requested),
+                "amount_ars": int(amount_ars),
+                "telegram_file_id": telegram_file_id,
+                "file_kind": file_kind,
+                "payment_alias": payment_alias,
+                "source": "PROOF_SUBMITTED",
+                "status": "PENDING_ADMIN",
+                "created_at": _now_iso(),
+            }
+        )
+        return purchase_id
+
     def record_auto_purchase(
         self,
         *,

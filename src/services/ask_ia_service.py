@@ -75,11 +75,13 @@ class AskIaService:
         *,
         invoke_agent: Callable[[str, str, str], str] | None = None,
         telegram_notify: Callable[[int, str], None] | None = None,
+        admin_proof_notify: Callable[[str, str, str], int] | None = None,
     ):
         self._users = users or UserDAO()
         self._purchases = purchases or IaPurchaseDAO()
         self._invoke_agent = invoke_agent
         self._telegram_notify = telegram_notify
+        self._admin_proof_notify = admin_proof_notify
         self.daily_free = _env_int("IA_DAILY_FREE_CREDITS", 5)
         self.pack_bonus = _env_int("IA_PACK_BONUS_CREDITS", 20)
         self.min_pack_ars = _env_int("IA_MIN_PACK_ARS", 6999)
@@ -169,7 +171,7 @@ class AskIaService:
             f"Transferí ${self.min_pack_ars:,} ARS (mínimo) al alias:\n"
             f"{self.payment_alias}\n\n"
             "Enviá el comprobante en este chat (captura o PDF).\n"
-            "Te acreditamos las consultas automáticamente en esta cuenta de Telegram.\n\n"
+            "El admin lo validará y te acreditará las consultas en breve.\n\n"
             "Las 5 consultas gratis vuelven mañana a las 00:01 (hora Argentina)."
         ).replace(",", ".")
         return text, upgrade_keyboard()
@@ -288,6 +290,11 @@ class AskIaService:
     def handle_purchase_proof(
         self, user_id: str, *, file_id: str, file_kind: str
     ) -> str:
+        from src.services.payment_proof_notify import (
+            USER_RECEIPT_ACK,
+            build_ask_ia_admin_caption,
+        )
+
         profile = self._users.get_profile(user_id) or {}
         if not profile.get("ai_purchase_pending"):
             return (
@@ -297,35 +304,39 @@ class AskIaService:
 
         if self._purchase_cooldown_active(profile):
             return (
-                "Ya procesamos un comprobante en las últimas 24 h.\n"
-                "Si pagaste de nuevo y no se acreditó, contactá al administrador "
-                "con /help."
+                "Ya enviaste un comprobante en las últimas 24 h.\n"
+                "Si pagaste de nuevo, el admin lo revisará en breve o contactanos con /help."
             )
 
-        bonus = int(profile.get("ai_bonus_credits") or 0) + self.pack_bonus
-        now = datetime.now(timezone.utc).isoformat()
         alias = (profile.get("alias") or "jugador").strip()
-        self._users.update_profile(
-            user_id,
-            ai_bonus_credits=bonus,
-            ai_purchase_pending=False,
-            ai_last_auto_purchase_at=now,
-        )
-        self._purchases.record_auto_purchase(
+        now = datetime.now(timezone.utc).isoformat()
+        self._purchases.record_proof_submission(
             user_id=user_id,
             alias=alias,
-            credits_granted=self.pack_bonus,
+            credits_requested=self.pack_bonus,
             amount_ars=self.min_pack_ars,
             telegram_file_id=file_id,
             payment_alias=self.payment_alias,
+            file_kind=file_kind,
         )
-        profile = self.ensure_daily_reset(user_id)
-        total = self.credits_available(profile)
-        return (
-            f"✅ Acreditamos {self.pack_bonus} consultas en tu cuenta (@{alias}).\n"
-            f"Total disponible: {total}.\n"
-            f"Usá /ask_ia cuando quieras."
+        self._users.update_profile(
+            user_id,
+            ai_purchase_pending=False,
+            ai_last_auto_purchase_at=now,
         )
+
+        caption = build_ask_ia_admin_caption(profile, amount_ars=self.min_pack_ars)
+        notified = 0
+        if self._admin_proof_notify:
+            notified = self._admin_proof_notify(file_id, file_kind, caption)
+
+        msg = USER_RECEIPT_ACK
+        if notified == 0:
+            msg += (
+                "\n\n⚠️ No pudimos avisar al admin por Telegram. "
+                "Tu comprobante quedó registrado."
+            )
+        return msg
 
     def _notify_bonus_grant(
         self, profile: dict[str, Any], amount: int, total: int

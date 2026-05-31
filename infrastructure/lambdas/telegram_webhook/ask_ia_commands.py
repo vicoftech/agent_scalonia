@@ -26,13 +26,18 @@ _CANCEL = re.compile(r"^/(?:cancel|cancelar)(?:@[\w_]+)?\s*$", re.IGNORECASE)
 
 def _service() -> AskIaService:
     from handler import _get_token, _invoke_agent, _send_message
+    from payment_proof_commands import notify_admins_payment_proof
 
     token = _get_token()
 
     def telegram_notify(chat_id: int, text: str) -> None:
         _send_message(int(chat_id), text, token)
 
-    return AskIaService(invoke_agent=_invoke_agent, telegram_notify=telegram_notify)
+    return AskIaService(
+        invoke_agent=_invoke_agent,
+        telegram_notify=telegram_notify,
+        admin_proof_notify=notify_admins_payment_proof,
+    )
 
 
 def handle_ask_ia_command(user_id: str, text: str) -> tuple[str, dict | None] | None:

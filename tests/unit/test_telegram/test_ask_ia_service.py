@@ -39,6 +39,7 @@ def _svc(**kwargs) -> AskIaService:
         purchases=purchases,
         invoke_agent=invoke,
         telegram_notify=telegram_notify,
+        admin_proof_notify=kwargs.get("admin_proof_notify"),
     )
 
 
@@ -139,18 +140,28 @@ def test_handle_prompt_transient_error_keeps_session():
     assert kb is None
 
 
-def test_purchase_proof_credits_bonus():
+def test_purchase_proof_forwards_to_admin():
     store = {
         "user_id": "u1",
         "alias": "toti",
         "ai_bonus_credits": 0,
         "ai_purchase_pending": True,
     }
-    svc = _svc(profile_store=store)
+    notified: list[tuple[str, str, str]] = []
+
+    def admin_notify(file_id: str, kind: str, caption: str) -> int:
+        notified.append((file_id, kind, caption))
+        return 1
+
+    svc = _svc(profile_store=store, admin_proof_notify=admin_notify)
     msg = svc.handle_purchase_proof("u1", file_id="file123", file_kind="photo")
-    assert "Acreditamos" in msg
-    assert store["ai_bonus_credits"] == 20
+    assert "Recibimos tu comprobante" in msg
+    assert "admin" in msg.lower()
+    assert store.get("ai_bonus_credits", 0) == 0
     assert store.get("ai_purchase_pending") is False
+    assert len(notified) == 1
+    assert notified[0][0] == "file123"
+    assert "toti" in notified[0][2]
 
 
 def test_purchase_cooldown_blocks_second():

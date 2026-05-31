@@ -26,12 +26,14 @@ class GroupUpgradeService:
         matches: MatchDAO | None = None,
         purchases: GroupUpgradeDAO | None = None,
         telegram_notify: Callable[[int, str], None] | None = None,
+        admin_proof_notify: Callable[[str, str, str], int] | None = None,
     ):
         self._users = users or UserDAO()
         self._groups = groups or GroupDAO()
         self._matches = matches or MatchDAO()
         self._purchases = purchases or GroupUpgradeDAO()
         self._telegram_notify = telegram_notify
+        self._admin_proof_notify = admin_proof_notify
         self.payment_alias = os.environ.get(
             "IA_PAYMENT_ALIAS", os.environ.get("GUP_PAYMENT_ALIAS", "Scalonia2026.mp")
         )
@@ -209,8 +211,7 @@ class GroupUpgradeService:
             f"Precio: ${total:,} ARS{promo_tag}\n\n"
             f"Transferí a alias:\n{self.payment_alias}\n\n"
             "Enviá el comprobante en este chat (foto o PDF).\n"
-            "Si no completaste el wizard, indicá en un mensaje si querés "
-            "grupos nuevos o más integrantes y en qué grupo."
+            "El admin lo validará y te acreditará el pedido en breve."
         ).replace(",", ".")
         return text, None
 
@@ -417,33 +418,39 @@ class GroupUpgradeService:
         delta = datetime.now(timezone.utc) - last.astimezone(timezone.utc)
         return delta < timedelta(hours=self.purchase_cooldown_h)
 
-    def handle_payment_proof(self, user_id: str, *, file_id: str) -> str:
+    def handle_payment_proof(
+        self, user_id: str, *, file_id: str, file_kind: str = "photo"
+    ) -> str:
+        from src.services.payment_proof_notify import (
+            USER_RECEIPT_ACK,
+            build_group_upgrade_admin_caption,
+        )
+
         profile = self._users.get_profile(user_id) or {}
         if not profile.get("group_upgrade_purchase_pending"):
             return "Para enviar un comprobante, primero usá /ampliar_plan y confirmá la cotización."
 
         if self._purchase_cooldown_active(profile):
             return (
-                "Ya procesamos un comprobante de ampliación en las últimas 24 h.\n"
-                "Si pagaste de nuevo, contactá al admin."
+                "Ya enviaste un comprobante de ampliación en las últimas 24 h.\n"
+                "Si pagaste de nuevo, el admin lo revisará en breve."
             )
 
         if self._purchases.find_by_file_id(file_id):
             return "Ese comprobante ya fue registrado."
 
         units = int(profile.get("group_upgrade_wizard_units") or 0)
-        purchase_id = profile.get("group_upgrade_purchase_id") or ""
+        purchase_id = str(profile.get("group_upgrade_purchase_id") or "")
+        amount_ars = int(profile.get("group_upgrade_quote_ars") or 0)
         if units <= 0:
             return "No hay una compra en curso. Usá /ampliar_plan de nuevo."
 
-        pending = int(profile.get("pending_group_upgrade_units") or 0) + units
         now = datetime.now(timezone.utc).isoformat()
         if purchase_id:
             self._purchases.mark_paid(purchase_id, telegram_file_id=file_id)
 
         self._users.update_profile(
             user_id,
-            pending_group_upgrade_units=pending,
             group_upgrade_purchase_pending=False,
             last_group_upgrade_purchase_at=now,
         )
@@ -454,19 +461,25 @@ class GroupUpgradeService:
         except json.JSONDecodeError:
             allocation = []
 
-        if allocation and self._allocation_units(allocation) <= pending:
-            summary = self.apply_allocation(user_id, allocation)
-            return (
-                f"✅ Pago registrado ({units} U).\n{summary}\n\n"
-                "Ya podés crear grupos o invitar más integrantes."
-            )
-
-        return (
-            f"✅ Pago registrado: {units} unidad(es) acreditadas.\n"
-            f"Tenés {pending} U pendientes de asignar.\n"
-            "Usá /ampliar_plan → Combinación para asignarlas, "
-            "o escribile al admin con tu comprobante."
+        alloc_summary = self._format_allocation_summary(allocation)
+        caption = build_group_upgrade_admin_caption(
+            profile,
+            units=units,
+            amount_ars=amount_ars,
+            allocation_summary=alloc_summary,
+            purchase_id=purchase_id,
         )
+        notified = 0
+        if self._admin_proof_notify:
+            notified = self._admin_proof_notify(file_id, file_kind, caption)
+
+        msg = USER_RECEIPT_ACK
+        if notified == 0:
+            msg += (
+                "\n\n⚠️ No pudimos avisar al admin por Telegram. "
+                "Tu comprobante quedó registrado."
+            )
+        return msg
 
     def _allocation_units(self, allocation: list[dict[str, Any]]) -> int:
         total = 0
