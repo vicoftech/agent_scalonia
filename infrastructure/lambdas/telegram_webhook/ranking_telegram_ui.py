@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from src.dao.dynamo.user_dao import UserDAO
 from src.services.ranking_service import RANKING_TOP_N
 
 
@@ -42,6 +43,12 @@ def format_ranking_message(
     end = start + page_size
     page_rows = rows[start:end]
     viewer_row = next((r for r in rows if r.get("is_viewer")), None)
+
+    if viewer_row:
+        profile = UserDAO().get_profile(str(viewer_row.get("user_id") or "")) or {}
+        t_pts = int(profile.get("tournament_points") or 0)
+        if t_pts > 0:
+            lines.append(f"\n🏆 Bonus torneo: +{t_pts} pts (en todos tus grupos)")
 
     for row in page_rows:
         lines.append(_format_row(row))

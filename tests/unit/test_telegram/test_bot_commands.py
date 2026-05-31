@@ -15,7 +15,7 @@ from infrastructure.lambdas.telegram_webhook.bot_commands import (
 
 def test_shortcuts_are_first_in_menu():
     cmds = commands_for_user(is_admin=False)
-    names = [c["command"] for c in cmds[:6]]
+    names = [c["command"] for c in cmds[:8]]
     assert names == [
         "proximo",
         "partidos",
@@ -23,6 +23,8 @@ def test_shortcuts_are_first_in_menu():
         "mi_ranking",
         "grupos",
         "reglas",
+        "trivia",
+        "perfil",
     ]
 
 

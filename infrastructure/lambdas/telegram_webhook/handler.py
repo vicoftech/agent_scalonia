@@ -426,6 +426,30 @@ def _handle_callback_query(callback: dict, ok: dict) -> dict:
                     token,
                 )
             return ok
+        elif data.startswith("prf:"):
+            cb_id = callback.get("id")
+            if cb_id:
+                _post_json(
+                    f"{TG_API}/bot{token}/answerCallbackQuery",
+                    {"callback_query_id": cb_id},
+                    timeout=5,
+                )
+            from profile_commands import handle_profile_callback
+
+            try:
+                result = handle_profile_callback(user_id, data)
+                if result:
+                    reply, markup = result
+                    if reply:
+                        _send_message(chat_id, reply, token, reply_markup=markup)
+            except Exception:
+                logger.exception("profile_callback failed data=%s", data[:60])
+                _send_message(
+                    chat_id,
+                    "No pude procesar tu perfil. Probá de nuevo con /perfil.",
+                    token,
+                )
+            return ok
         elif data.startswith("rnk:"):
             cb_id = callback.get("id")
             if cb_id:
@@ -766,6 +790,15 @@ def handler(event: dict, context) -> dict:
                         token,
                     )
                     return ok
+
+        if profile and profile.get("profile_wizard_step"):
+            from profile_commands import handle_profile_pending
+
+            prf_result = handle_profile_pending(user_id, profile, text)
+            if prf_result:
+                prf_text, prf_markup = prf_result
+                _send_message(chat_id, prf_text, token, reply_markup=prf_markup)
+                return ok
 
         if profile and (
             profile.get("group_hub_step")

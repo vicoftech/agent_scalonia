@@ -15,7 +15,7 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-# --- Teclado fijo (6 botones) = menú / ---
+# --- Teclado fijo (8 botones) = menú / ---
 SHORTCUT_COMMANDS: list[dict[str, str]] = [
     {"command": "proximo", "description": "Próximos partidos del fixture"},
     {"command": "partidos", "description": "Partidos del Mundial y predecir"},
@@ -23,12 +23,13 @@ SHORTCUT_COMMANDS: list[dict[str, str]] = [
     {"command": "mi_ranking", "description": "Ranking por grupo"},
     {"command": "grupos", "description": "Mis grupos (hub con botones)"},
     {"command": "reglas", "description": "Cómo predecir y puntuar"},
+    {"command": "trivia", "description": "Jugar una trivia (máx. 5 por día)"},
+    {"command": "perfil", "description": "Tu perfil y predicciones del torneo"},
 ]
 
 USER_MENU_COMMANDS: list[dict[str, str]] = SHORTCUT_COMMANDS + [
     {"command": "start", "description": "Registrarte o volver al inicio"},
     {"command": "help", "description": "Ayuda y lista de comandos"},
-    {"command": "trivia", "description": "Jugar una trivia (máx. 5 por día)"},
 ]
 
 ADMIN_MENU_EXTRA: list[dict[str, str]] = [
@@ -69,7 +70,7 @@ ADMIN_MENU_EXTRA: list[dict[str, str]] = [
 MENU_COMMANDS = USER_MENU_COMMANDS
 ADMIN_COMMANDS = ADMIN_MENU_EXTRA
 
-_COMMANDS_VERSION = os.environ.get("BOT_COMMANDS_VERSION", "10")
+_COMMANDS_VERSION = os.environ.get("BOT_COMMANDS_VERSION", "14")
 _MENU_LANGUAGE = os.environ.get("BOT_COMMANDS_LANGUAGE", "es")
 
 

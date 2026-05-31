@@ -351,6 +351,16 @@ class UserDAO:
             ExpressionAttributeValues={":p": int(points), ":now": _now_iso()},
         )
 
+    def add_tournament_points(self, user_id: str, points: int) -> None:
+        """Bonus torneo (SPEC-048) — una sola vez por usuario."""
+        self._table.update_item(
+            Key={"partition_key": f"USER#{user_id}", "sort_key": "PROFILE"},
+            UpdateExpression=(
+                "SET updated_at = :now ADD tournament_points :p, total_points :p"
+            ),
+            ExpressionAttributeValues={":p": int(points), ":now": _now_iso()},
+        )
+
     def add_trivia_round(self, user_id: str, *, points: int, count_round: bool = True) -> None:
         """Suma puntos de trivia y opcionalmente incrementa rondas del día."""
         vals: dict[str, Any] = {":p": points, ":now": _now_iso()}

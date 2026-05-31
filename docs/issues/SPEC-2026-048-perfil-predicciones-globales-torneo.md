@@ -5,7 +5,7 @@
 | **SPEC-ID** | SPEC-2026-048 |
 | **Tipo** | Feature — perfil, onboarding extendido, scoring global |
 | **Sprint** | Post SPEC-019 (onboarding) / SPEC-042 (Mi ranking) |
-| **Estado** | **Especificado** — pendiente implementación |
+| **Estado** | **Implementado** (MVP Telegram + scoring; sync Aurora fase 2 pendiente) |
 | **Extiende** | SPEC-2026-019 (onboarding progresivo), `/perfil`, tarjeta de perfil |
 | **Depende de** | SPEC-018 (PROFILE), SPEC-032 (lifecycle partidos), fixture 104 partidos, SPEC-013 (scoring), SPEC-042 (ranking por grupo) |
 | **Regresión** | [SPEC-2026-028](SPEC-2026-028-regression-suite-features-implementadas.md) — onboarding + ranking |

@@ -69,7 +69,10 @@ class RankingService:
         preds = self._preds.list_user_predictions(
             user_id, group_id=group_id, status="SCORED"
         )
-        return sum(int(p.get("points_earned") or 0) for p in preds)
+        match_pts = sum(int(p.get("points_earned") or 0) for p in preds)
+        profile = self._users.get_profile(user_id) or {}
+        tournament_pts = int(profile.get("tournament_points") or 0)
+        return match_pts + tournament_pts
 
     def build_group_ranking(
         self,

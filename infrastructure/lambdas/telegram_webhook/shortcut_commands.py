@@ -94,7 +94,7 @@ def handle_shortcut_command(
             "✅ Menú actualizado (botón / y teclado de abajo).\n\n"
             "Usá /help para la lista completa.\n"
             "Atajos: ⏭️ Próximo · ⚽ Partidos · 🤖 Ask IA · "
-            "🏆 Mi ranking · 👥 Grupos · 📖 Reglas"
+            "🏆 Mi ranking · 👥 Grupos · 📖 Reglas · 🎯 Trivia · 👤 Perfil"
         )
         if AuthService().is_admin_global(user_id):
             base += f"\n\n{admin_menu_hint()}"
@@ -117,6 +117,18 @@ def handle_shortcut_command(
 
     if matches_mi_ranking_command(text):
         return handle_mi_ranking_command(user_id, text)
+
+    from profile_commands import handle_perfil_command
+
+    perfil_reply = handle_perfil_command(user_id, text)
+    if perfil_reply:
+        return perfil_reply
+
+    from trivia_commands import handle_trivia_command
+
+    trivia_reply = handle_trivia_command(user_id, text)
+    if trivia_reply:
+        return trivia_reply
 
     from ask_ia_commands import handle_ask_ia_command
 
@@ -145,4 +157,6 @@ def should_refresh_bot_menu(text: str) -> bool:
         "/ask_ia",
         "/reglas",
         "/completo",
+        "/trivia",
+        "/perfil",
     }
