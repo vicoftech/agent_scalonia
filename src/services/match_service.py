@@ -180,6 +180,14 @@ class MatchService:
         upcoming.sort(key=lambda m: m["kickoff_utc"])
         return upcoming[: max(1, min(limit, 30))]
 
+    def first_tournament_match(self) -> dict[str, Any] | None:
+        """Primer partido del torneo por kickoff (incluye ya jugados)."""
+        rows = self.list_all()
+        if not rows:
+            return None
+        rows.sort(key=lambda m: (m.get("kickoff_utc") or "", int(m.get("match_number") or 0)))
+        return rows[0]
+
     def group_fixture(self, group_letter: str) -> list[dict[str, Any]]:
         gl = group_letter.upper()[:1]
         return self.search(group_letter=gl, limit=50)

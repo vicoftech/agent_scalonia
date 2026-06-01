@@ -76,8 +76,13 @@ def _send_message(
     *,
     reply_markup: dict | None = None,
     parse_mode: str | None = None,
+    skip_footer: bool = False,
 ) -> None:
     """Texto plano o HTML (Ask IA). Fallback a plano si Telegram rechaza el markup."""
+    if not skip_footer:
+        from src.services.telegram_interaction_footer import append_interaction_footer
+
+        text = append_interaction_footer(text, parse_mode=parse_mode)
     chunks = [text[i : i + MAX_TG_LEN] for i in range(0, len(text or ""), MAX_TG_LEN)] or [""]
     for chunk in chunks:
         for attempt in range(3):
@@ -109,8 +114,13 @@ def _send_photo(
     *,
     reply_markup: dict | None = None,
     parse_mode: str | None = None,
+    skip_footer: bool = False,
 ) -> bool:
     """sendPhoto con caption — comprobantes de pago e imágenes."""
+    if not skip_footer:
+        from src.services.telegram_interaction_footer import append_interaction_footer
+
+        caption = append_interaction_footer(caption, parse_mode=parse_mode)
     cap = caption[:1024] if len(caption) > 1024 else caption
     body: dict[str, Any] = {
         "chat_id": chat_id,

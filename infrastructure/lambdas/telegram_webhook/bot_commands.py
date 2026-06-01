@@ -320,9 +320,10 @@ def admin_menu_hint() -> str:
 
 def send_main_reply_keyboard(chat_id: int, token: str, *, hint: str | None = None) -> None:
     from handler import TG_API, _post_json
+    from src.services.telegram_interaction_footer import append_interaction_footer
     from telegram_keyboards import main_reply_keyboard
 
-    text = hint or "👇 Atajos — tocá un botón o el menú /"
+    text = append_interaction_footer(hint or "👇 Atajos — tocá un botón o el menú /")
     _post_json(
         f"{TG_API}/bot{token}/sendMessage",
         {
