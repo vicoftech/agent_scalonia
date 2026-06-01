@@ -219,7 +219,9 @@ def _prose_to_structured_markdown(body: str) -> str:
     return "\n\n".join(s for s in sections if s)
 
 
-def _needs_bedrock_polish(html_out: str, raw_body: str) -> bool:
+def _needs_bedrock_polish(html_out: str, raw_body: str, *, variant: str) -> bool:
+    if variant == "kb_direct":
+        return False
     if os.environ.get("AI_FORMAT_BEDROCK", "true").lower() in ("0", "false", "no"):
         return False
     if len(raw_body) < 160:
@@ -255,7 +257,8 @@ def _bedrock_polish_html(raw_body: str) -> str | None:
         "- Título inicial con emoji y <b>negrita</b>.\n"
         "- Párrafos separados por línea en blanco.\n"
         "- Listas con prefijo ▫️ (sin <ul>).\n"
-        "- Tablas comparativas en <pre> si aplica.\n"
+        "- Tablas comparativas en <pre> solo si son grillas markdown limpias.\n"
+        "- Plantillas/convocatorias: listas por puesto, NUNCA tablas en <pre>.\n"
         "- Resaltá datos clave (DT, grupo, figuras) con <b>.\n"
         "- NO inventes datos; conservá el contenido original.\n"
         "- Español rioplatense.\n\n"
@@ -394,6 +397,20 @@ def _format_block(block: str, *, mode: OutputMode) -> str:
     return _inline_to_plain(block)
 
 
+def _maybe_reformat_messy_web(body: str) -> str:
+    from src.kb.web_content import format_squad_scrape_markdown, is_messy_web_scrape
+
+    if not body or not is_messy_web_scrape(body):
+        return body
+    teams = _detect_team_topics(body)
+    team_label = None
+    if teams:
+        code, name = teams[0]
+        team_label = f"{flag_emoji(code)} {name}"
+    formatted = format_squad_scrape_markdown(body, team_label=team_label)
+    return formatted or body
+
+
 def format_ai_telegram_response(
     text: str,
     *,
@@ -416,6 +433,7 @@ def format_ai_telegram_response(
     footer_match = _CREDITS_FOOTER_RE.search(raw)
     footer = footer_match.group(0).strip() if footer_match else ""
     body = _CREDITS_FOOTER_RE.sub("", raw).strip()
+    body = _maybe_reformat_messy_web(body)
 
     if not _has_rich_structure(body):
         body = _prose_to_structured_markdown(body)
@@ -429,7 +447,7 @@ def format_ai_telegram_response(
         formatted_blocks.append(_format_block(block, mode=mode))
 
     out = "\n\n".join(formatted_blocks)
-    if mode == "html" and _needs_bedrock_polish(out, body):
+    if mode == "html" and _needs_bedrock_polish(out, body, variant=variant):
         polished = _bedrock_polish_html(body)
         if polished:
             out = polished

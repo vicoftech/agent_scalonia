@@ -36,6 +36,22 @@ def is_historical_football_query(text: str) -> bool:
     return bool(_HISTORICAL_FOOTBALL_PATTERN.search((text or "").strip()))
 
 
+_SQUAD_ROSTER_PATTERNS = [
+    r"\b(plantel|convocatoria|n[oó]mina|lista de jugadores|jugadores convocados)\b",
+    r"\b(selecci[oó]n|equipo nacional)\b",
+    r"\b(plantel|jugadores|convocados|plantilla)\b.*\b(de\s+)?[a-záéíóúñ]{4,}\b",
+    r"\b(uruguay|argentina|brasil|españa|francia|m[eé]xico|colombia|chile)\b.*\b(plantel|jugadores|convocados|selecci[oó]n)\b",
+]
+
+
+def is_squad_roster_query(text: str) -> bool:
+    """Consultas de plantel/convocatoria — priorizar KB y evitar web cruda."""
+    q = (text or "").strip()
+    if len(q) < 6:
+        return False
+    return any(re.search(p, q, re.IGNORECASE) for p in _SQUAD_ROSTER_PATTERNS)
+
+
 def suggested_web_search_type(text: str) -> str:
     """search_type para web_search_tool."""
     if is_analytical_query(text):

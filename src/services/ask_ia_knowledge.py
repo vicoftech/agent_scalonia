@@ -94,10 +94,25 @@ def try_direct_knowledge_reply(user_prompt: str) -> str | None:
         if is_analytical_query(question):
             return None
 
+        from src.kb.query_intent import is_squad_roster_query
+        from src.kb.web_content import is_messy_web_scrape
+
         resolved = resolve_kb_then_web(question, max_results=5, enqueue_on_web=True)
+        squad_query = is_squad_roster_query(question)
+        web_messy = bool(
+            resolved.web_text and is_messy_web_scrape(resolved.web_text)
+        )
+
+        if squad_query and resolved.kb_text and len(resolved.kb_text.strip()) >= 80:
+            body = _trim_display(resolved.kb_text)
+            return f"📚 Según la Knowledge Base del Prode:\n\n{body}"[:4096]
 
         if resolved.web_text and _is_usable_web_result(resolved.web_text):
+            if web_messy and squad_query:
+                return None
             body = _trim_display(resolved.web_text)
+            if web_messy:
+                return None
             if resolved.kb_text and kb_is_sufficient(
                 question, resolved.kb_text, resolved.kb_max_score
             ):
