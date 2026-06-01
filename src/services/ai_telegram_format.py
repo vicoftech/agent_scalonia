@@ -2,8 +2,14 @@
 from __future__ import annotations
 
 import html
+import logging
+import os
 import re
 from typing import Any, Literal
+
+from src.services.team_flags import TEAM_DISPLAY_NAMES, flag_emoji
+
+logger = logging.getLogger(__name__)
 
 OutputMode = Literal["html", "plain"]
 
@@ -55,6 +61,24 @@ _CREDITS_FOOTER_RE = re.compile(
     r"\n\nConsultas restantes:\s*\d+\s*$",
     re.I,
 )
+_KB_PREFIX_RE = re.compile(
+    r"^(📚 Según la Knowledge Base del Prode:|🌐 Información verificada(?: \(web \+ Knowledge Base\)| \(búsqueda web\))?:)\s*\n*",
+    re.I,
+)
+_SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+(?=[A-ZÁÉÍÓÚÑ¿\"(])")
+_LIST_INTRO_RE = re.compile(
+    r"(?i)(figuras|jugadores|delanteros|mediocampistas|defensores|arqueros|plantel|convocatoria)"
+    r"(?: como|:)?\s+(.+?)(?:\.|$)"
+)
+_GROUP_RE = re.compile(r"\b(Grupo [A-H])\b", re.I)
+_BEDROCK_FORMAT_MODELS = [
+    m.strip()
+    for m in os.environ.get(
+        "AI_FORMAT_BEDROCK_MODELS",
+        "amazon.nova-lite-v1:0,amazon.nova-pro-v1:0",
+    ).split(",")
+    if m.strip()
+]
 
 
 def escape_html(text: str) -> str:
@@ -83,6 +107,178 @@ def _split_blocks(text: str) -> list[str]:
         return []
     parts = re.split(r"\n\s*\n", normalized)
     return [p.strip() for p in parts if p.strip()]
+
+
+def _detect_team_topics(text: str) -> list[tuple[str, str]]:
+    lower = (text or "").lower()
+    hits: list[tuple[int, str, str]] = []
+    for code, name in TEAM_DISPLAY_NAMES.items():
+        idx_name = lower.find(name.lower())
+        idx_code = lower.find(code.lower())
+        idx = -1
+        if idx_name >= 0:
+            idx = idx_name
+        elif idx_code >= 0:
+            idx = idx_code
+        if idx >= 0:
+            hits.append((idx, code, name))
+    hits.sort(key=lambda x: x[0])
+    return [(code, name) for _, code, name in hits]
+
+
+def _normalize_source_prefix(text: str) -> tuple[str, str | None]:
+    m = _KB_PREFIX_RE.match(text.strip())
+    if not m:
+        return text, None
+    prefix = m.group(1).strip().rstrip(":")
+    body = text[m.end() :].strip()
+    if prefix.startswith("📚"):
+        return body, "📚 Knowledge Base"
+    return body, "🌐 Fuentes verificadas"
+
+
+def _comma_list_to_bullets(fragment: str) -> list[str]:
+    parts = re.split(r",\s*|\s+y\s+", fragment.strip())
+    return [p.strip() for p in parts if p.strip()]
+
+
+def _extract_inline_lists(text: str) -> tuple[str, list[str]]:
+    bullets: list[str] = []
+    for m in _LIST_INTRO_RE.finditer(text):
+        label = m.group(1).strip().capitalize()
+        items = _comma_list_to_bullets(m.group(2))
+        if len(items) >= 2:
+            bullets.extend(f"- 👤 {item}" for item in items[:6])
+    return text, bullets
+
+
+def _bold_key_phrases(text: str) -> str:
+    out = _GROUP_RE.sub(r"**\1**", text)
+    out = re.sub(
+        r"(?i)\b((?:DT|director técnico)[:\s]+[^.!?]+)",
+        r"**\1**",
+        out,
+    )
+    out = re.sub(
+        r"(?i)\b(La Celeste|Selección(?: uruguaya| argentina| mexicana)?)\b",
+        r"**\1**",
+        out,
+    )
+    return out
+
+
+def _split_sentences(text: str) -> list[str]:
+    parts = [p.strip() for p in _SENTENCE_SPLIT_RE.split(text.strip()) if p.strip()]
+    return parts or [text.strip()]
+
+
+def _group_sentences(sentences: list[str], *, size: int = 2) -> list[str]:
+    if not sentences:
+        return []
+    groups: list[str] = []
+    for i in range(0, len(sentences), size):
+        chunk = " ".join(sentences[i : i + size]).strip()
+        if chunk:
+            groups.append(chunk)
+    return groups
+
+
+def _has_rich_structure(text: str) -> bool:
+    if re.search(r"^#{1,3}\s", text, re.M):
+        return True
+    if _LIST_RE.search(text):
+        return True
+    if _is_table_block(text):
+        return True
+    return text.count("\n\n") >= 2
+
+
+def _prose_to_structured_markdown(body: str) -> str:
+    body, source_title = _normalize_source_prefix(body)
+    body, inline_bullets = _extract_inline_lists(body)
+    body = _bold_key_phrases(body)
+
+    sections: list[str] = []
+    if source_title:
+        sections.append(f"## {source_title}")
+
+    teams = _detect_team_topics(body)
+    if teams and not source_title:
+        code, name = teams[0]
+        sections.append(f"## {flag_emoji(code)} {name}")
+
+    if _has_rich_structure(body):
+        sections.append(body)
+    else:
+        paragraphs = _group_sentences(_split_sentences(body), size=2)
+        sections.extend(paragraphs)
+
+    if inline_bullets:
+        sections.append("\n".join(inline_bullets))
+
+    return "\n\n".join(s for s in sections if s)
+
+
+def _needs_bedrock_polish(html_out: str, raw_body: str) -> bool:
+    if os.environ.get("AI_FORMAT_BEDROCK", "true").lower() in ("0", "false", "no"):
+        return False
+    if len(raw_body) < 160:
+        return False
+    if "<b>" in html_out and html_out.count("\n\n") >= 2:
+        return False
+    return True
+
+
+def _bedrock_response_text(payload: dict[str, Any]) -> str:
+    out = payload.get("output") or {}
+    msg = out.get("message") or {}
+    parts: list[str] = []
+    for block in msg.get("content") or []:
+        if isinstance(block, dict) and block.get("text"):
+            parts.append(str(block["text"]))
+    return "".join(parts).strip()
+
+
+def _sanitize_telegram_html(text: str) -> str:
+    cleaned = re.sub(r"<(?!/?(?:b|i|pre|code)\b)[^>]+>", "", text or "")
+    return cleaned.strip()
+
+
+def _bedrock_polish_html(raw_body: str) -> str | None:
+    import boto3
+
+    region = os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION", "us-east-1")
+    prompt = (
+        "Reformateá este texto para Telegram usando SOLO HTML válido "
+        "(tags permitidos: <b>, <i>, <pre>).\n"
+        "Reglas:\n"
+        "- Título inicial con emoji y <b>negrita</b>.\n"
+        "- Párrafos separados por línea en blanco.\n"
+        "- Listas con prefijo ▫️ (sin <ul>).\n"
+        "- Tablas comparativas en <pre> si aplica.\n"
+        "- Resaltá datos clave (DT, grupo, figuras) con <b>.\n"
+        "- NO inventes datos; conservá el contenido original.\n"
+        "- Español rioplatense.\n\n"
+        "Respondé SOLO el HTML final, sin explicación.\n\n"
+        f"TEXTO:\n{raw_body[:3600]}"
+    )
+    client = boto3.client("bedrock-runtime", region_name=region)
+    for model_id in _BEDROCK_FORMAT_MODELS:
+        try:
+            resp = client.converse(
+                modelId=model_id,
+                messages=[{"role": "user", "content": [{"text": prompt}]}],
+                inferenceConfig={"maxTokens": 1200, "temperature": 0.1},
+            )
+            raw = _bedrock_response_text(resp)
+            if raw:
+                cleaned = _sanitize_telegram_html(raw)
+                if "<b>" in cleaned or cleaned.count("\n\n") >= 2:
+                    logger.info("ai format bedrock ok model=%s", model_id)
+                    return cleaned
+        except Exception as exc:
+            logger.warning("ai format bedrock failed model=%s err=%s", model_id, exc)
+    return None
 
 
 def _is_table_block(block: str) -> bool:
@@ -221,6 +417,9 @@ def format_ai_telegram_response(
     footer = footer_match.group(0).strip() if footer_match else ""
     body = _CREDITS_FOOTER_RE.sub("", raw).strip()
 
+    if not _has_rich_structure(body):
+        body = _prose_to_structured_markdown(body)
+
     blocks = _split_blocks(body)
     if not blocks:
         blocks = [body]
@@ -230,6 +429,10 @@ def format_ai_telegram_response(
         formatted_blocks.append(_format_block(block, mode=mode))
 
     out = "\n\n".join(formatted_blocks)
+    if mode == "html" and _needs_bedrock_polish(out, body):
+        polished = _bedrock_polish_html(body)
+        if polished:
+            out = polished
     if variant == "prediction" and mode == "plain":
         out = f"📊 Contexto IA\n\n{out}"
     if footer:

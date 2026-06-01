@@ -39,6 +39,22 @@ def test_format_credits_footer_html():
     assert "3" in out
 
 
+def test_format_uruguay_prose_has_structure():
+    import os
+
+    os.environ["AI_FORMAT_BEDROCK"] = "false"
+    raw = (
+        "Uruguay llega al Mundial 2026 con Marcelo Bielsa como DT. "
+        "La Celeste tiene figuras como Federico Valverde, Ronald Araújo y Darwin Núñez. "
+        "En el Grupo H comparte con España, Cabo Verde y Arabia Saudita."
+    )
+    out = format_ai_telegram_response(raw, mode="html")
+    assert "<b>" in out
+    assert "Uruguay" in out
+    assert out.count("\n\n") >= 1
+    assert "▫️" in out or "Grupo H" in out
+
+
 def test_format_prediction_analysis_plain():
     brief = {
         "ia_prediction_line": "Dado el análisis previo me inclino por México como ganador del partido.",
