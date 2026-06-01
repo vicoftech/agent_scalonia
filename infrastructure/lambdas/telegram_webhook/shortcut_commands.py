@@ -127,7 +127,7 @@ def handle_shortcut_command(
     from trivia_commands import handle_trivia_command
 
     trivia_reply = handle_trivia_command(user_id, text)
-    if trivia_reply:
+    if trivia_reply and trivia_reply[0]:
         return trivia_reply
 
     from ask_ia_commands import handle_ask_ia_command

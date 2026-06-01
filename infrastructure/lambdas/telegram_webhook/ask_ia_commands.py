@@ -28,10 +28,8 @@ def _service() -> AskIaService:
     from handler import _get_token, _invoke_agent, _send_message
     from payment_proof_commands import notify_admins_payment_proof
 
-    token = _get_token()
-
     def telegram_notify(chat_id: int, text: str) -> None:
-        _send_message(int(chat_id), text, token)
+        _send_message(int(chat_id), text, _get_token())
 
     return AskIaService(
         invoke_agent=_invoke_agent,
