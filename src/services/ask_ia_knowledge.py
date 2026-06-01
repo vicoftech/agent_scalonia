@@ -28,6 +28,12 @@ _FIXTURE_HINT = (
 )
 
 
+def _format_instructions() -> str:
+    from src.services.ai_telegram_format import AI_RESPONSE_FORMAT_PROMPT
+
+    return AI_RESPONSE_FORMAT_PROMPT
+
+
 @dataclass
 class AskIaTurnPrep:
     """Resultado de preparar un turno Ask IA."""
@@ -168,15 +174,15 @@ def prepare_ask_ia_turn(user_prompt: str) -> AskIaTurnPrep:
         resolved = resolve_kb_then_web(scoped, max_results=5, enqueue_on_web=True)
 
         if resolved.web_text:
-            parts = [scoped, _WEB_CTX_HEADER, resolved.web_text]
+            parts = [scoped, _format_instructions(), _WEB_CTX_HEADER, resolved.web_text]
             if resolved.kb_text:
-                parts.insert(1, f"{_KB_CTX_HEADER}:\n{resolved.kb_text}")
+                parts.insert(2, f"{_KB_CTX_HEADER}:\n{resolved.kb_text}")
             return AskIaTurnPrep(agent_prompt=f"{_NO_TOOLS}\n\n" + "\n\n".join(parts))
 
         if resolved.kb_text and resolved.kb_chunk_count > 0:
             return AskIaTurnPrep(
                 agent_prompt=(
-                    f"{_NO_TOOLS}\n\n{scoped}\n\n"
+                    f"{_NO_TOOLS}\n\n{scoped}\n\n{_format_instructions()}\n\n"
                     f"{_KB_CTX_HEADER}:\n{resolved.kb_text}"
                 )
             )

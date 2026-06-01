@@ -36,6 +36,7 @@ from agent.tools.onboarding_tool import make_onboarding_tool
 from agent.tools.trivia_tool import make_trivia_tool
 from agent.tools.web_search_tool import web_search_tool
 from agent.prompt_sections import TRIVIA_SECTION
+from src.services.ai_telegram_format import AI_RESPONSE_FORMAT_PROMPT
 from src.services.onboarding_service import ONBOARDING_SECTION, OnboardingService
 
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
@@ -109,6 +110,8 @@ BRIEF_GENERATION (solo si el mensaje incluye [BRIEF_GENERATION]):
 - No inventes jugadores ni marcadores exactos.
 - ia_prediction_line debe empezar con: Dado el análisis previo me inclino por
 - Respondé solo el JSON (sin texto extra fuera del objeto).
+
+{AI_RESPONSE_FORMAT_PROMPT}
 """.strip()
 
 SYSTEM_PROMPT = f"{_BASE_PROMPT}\n\n{ONBOARDING_SECTION}\n\n{TRIVIA_SECTION}\n\n{GUARDRAIL_SECTION}"

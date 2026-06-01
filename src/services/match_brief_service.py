@@ -87,31 +87,9 @@ class MatchBriefService:
         self._match_briefs.freeze(match_id)
 
     def format_ia_prediction_for_ui(self, match_brief: dict[str, Any]) -> str:
-        line = (match_brief.get("ia_prediction_line") or "").strip()
-        if not line:
-            return ""
-        home = match_brief.get("home_team") or ""
-        away = match_brief.get("away_team") or ""
-        bullets_home_s = match_brief.get("home_strengths") or []
-        bullets_home_w = match_brief.get("home_weaknesses") or []
-        bullets_away_s = match_brief.get("away_strengths") or []
-        bullets_away_w = match_brief.get("away_weaknesses") or []
+        from src.services.ai_telegram_format import format_prediction_analysis
 
-        def _fmt_bullets(label: str, items: list) -> str:
-            if not items:
-                return ""
-            return "\n".join([f"• {label}: {x}" for x in items[:4]])
-
-        lines = [
-            "── Contexto IA ──",
-            f"🤖 IA Prediction: {line}",
-            _fmt_bullets(f"Fortalezas {home}", bullets_home_s),
-            _fmt_bullets(f"Debilidades {home}", bullets_home_w),
-            _fmt_bullets(f"Fortalezas {away}", bullets_away_s),
-            _fmt_bullets(f"Debilidades {away}", bullets_away_w),
-            "_(Análisis informativo; no es recomendación de apuesta ni marcador exacto.)_",
-        ]
-        return "\n".join(x for x in lines if x)
+        return format_prediction_analysis(match_brief, mode="plain")
 
 
 def append_match_brief_context(lines: list[str], match_id: str) -> None:

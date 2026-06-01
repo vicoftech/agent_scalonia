@@ -25,6 +25,8 @@ RESULTADOS_DEPRECATED = (
     "Usá /ask_ia o el botón «🤖 Ask IA» para consultar al agente sobre el Mundial."
 )
 
+ASK_IA_PARSE_MODE = "HTML"
+
 # Errores del runtime AgentCore: no consumen crédito y la sesión queda abierta.
 _TRANSIENT_AGENT_MARKERS = (
     "Hubo un error",
@@ -54,6 +56,12 @@ def _agent_error_is_transient(response: str) -> bool:
     if any(m in response for m in _PERMANENT_AGENT_MARKERS):
         return False
     return any(m in response for m in _TRANSIENT_AGENT_MARKERS)
+
+
+def _format_ai_response(body: str, *, variant: str = "general") -> str:
+    from src.services.ai_telegram_format import format_ai_telegram_response
+
+    return format_ai_telegram_response(body, mode="html", variant=variant)
 
 
 def _env_int(name: str, default: int) -> int:
@@ -218,10 +226,13 @@ class AskIaService:
                 ai_session_id=self._session_id(user_id, profile),
             )
             body = f"{prep.direct_reply.strip()}\n\nConsultas restantes: {remaining}"
-            return body, self._post_response_keyboard(profile)
+            return _format_ai_response(body, variant="kb_direct"), self._post_response_keyboard(profile)
 
         session_id = self._session_id(user_id, profile)
+        from src.services.ai_telegram_format import AI_RESPONSE_FORMAT_PROMPT
+
         prompt = prep.agent_prompt or (
+            f"{AI_RESPONSE_FORMAT_PROMPT}\n\n"
             "Respondé en español rioplatense, breve, solo fútbol Mundial 2026.\n\n"
             f"{text.strip()}"
         )
@@ -257,7 +268,7 @@ class AskIaService:
             ai_session_id=session_id,
         )
         body = f"{response.strip()}\n\nConsultas restantes: {remaining}"
-        return body, self._post_response_keyboard(profile)
+        return _format_ai_response(body), self._post_response_keyboard(profile)
 
     def callback(self, user_id: str, data: str) -> tuple[str, dict | None] | None:
         if data == "ia:more":

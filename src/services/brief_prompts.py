@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from src.services.ai_telegram_format import AI_RESPONSE_FORMAT_PROMPT
 from src.services.team_flags import resolve_team_display_name
 
 
@@ -31,6 +32,7 @@ Reglas:
 - Nómina: 18-26 jugadores si hay datos; si no, figuras confirmadas y roster_completeness PARTIAL.
 - No inventes jugadores no citados en KB/web.
 - brief_markdown debe incluir encabezado ## {name} ({team_code}) y secciones 1-7 + tabla Nómina.
+- {AI_RESPONSE_FORMAT_PROMPT}
 """
 
 
@@ -70,4 +72,5 @@ Reglas:
 - PROHIBIDO marcador exacto (ej. 2-1) o cuotas.
 - ia_prediction_line debe empezar exactamente con: Dado el análisis previo me inclino por
 - Favorito: nombre completo del equipo o EMPATE técnico si equilibrado.
+- {AI_RESPONSE_FORMAT_PROMPT}
 """

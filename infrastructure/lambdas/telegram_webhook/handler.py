@@ -75,18 +75,29 @@ def _send_message(
     token: str,
     *,
     reply_markup: dict | None = None,
+    parse_mode: str | None = None,
 ) -> None:
-    """Texto plano (sin MarkdownV2) para no romper con respuestas del LLM."""
-    for chunk in [text[i : i + MAX_TG_LEN] for i in range(0, len(text), MAX_TG_LEN)]:
+    """Texto plano o HTML (Ask IA). Fallback a plano si Telegram rechaza el markup."""
+    chunks = [text[i : i + MAX_TG_LEN] for i in range(0, len(text or ""), MAX_TG_LEN)] or [""]
+    for chunk in chunks:
         for attempt in range(3):
             url = f"{TG_API}/bot{token}/sendMessage"
             body: dict[str, Any] = {"chat_id": chat_id, "text": chunk}
-            if reply_markup and chunk == text[:MAX_TG_LEN]:
+            if reply_markup and chunk == chunks[0]:
                 body["reply_markup"] = reply_markup
+            if parse_mode:
+                body["parse_mode"] = parse_mode
             code, j = _post_json(url, body)
             if code == 429:
                 time.sleep(float(j.get("parameters", {}).get("retry_after", 2)))
                 continue
+            if code >= 400 and parse_mode:
+                plain = dict(body)
+                plain.pop("parse_mode", None)
+                code, j = _post_json(url, plain)
+                if code == 429:
+                    time.sleep(float(j.get("parameters", {}).get("retry_after", 2)))
+                    continue
             break
 
 
@@ -939,7 +950,15 @@ def handler(event: dict, context) -> dict:
             ia_pending = handle_ask_ia_pending_text(user_id, text)
             if ia_pending:
                 ia_text, ia_markup = ia_pending
-                _send_message(chat_id, ia_text, token, reply_markup=ia_markup)
+                from src.services.ask_ia_service import ASK_IA_PARSE_MODE
+
+                _send_message(
+                    chat_id,
+                    ia_text,
+                    token,
+                    reply_markup=ia_markup,
+                    parse_mode=ASK_IA_PARSE_MODE,
+                )
                 return ok
         except Exception:
             logger.exception("ask_ia_pending failed")
