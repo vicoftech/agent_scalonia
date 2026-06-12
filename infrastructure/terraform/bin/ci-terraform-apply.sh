@@ -58,6 +58,9 @@ if grep -qE '^[[:space:]]*enable_match_schedules[[:space:]]*=[[:space:]]*true' "
   sleep 20
 fi
 
+chmod +x bin/import-prode-brief-table-if-missing.sh
+./bin/import-prode-brief-table-if-missing.sh
+
 terraform apply -var-file="$TFVARS" -input=false -auto-approve
 
 ./bin/promote-agent-live.sh
