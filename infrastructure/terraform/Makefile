@@ -22,6 +22,7 @@ prepare:
 	./bin/build-kb-lambda.sh ../.. kb_ingest $(CURDIR)/.build/kb_ingest.zip
 	./bin/build-kb-lambda.sh ../.. kb_query $(CURDIR)/.build/kb_query.zip
 	./bin/build-kb-lambda.sh ../.. kb_enrichment_dispatcher $(CURDIR)/.build/kb_enrichment_dispatcher.zip
+	./bin/build-daily-brief-orchestrator-lambda.sh ../lambdas/daily_brief_orchestrator $(CURDIR)/.build/daily_brief_orchestrator.zip
 
 plan: prepare init
 	@. ./bin/tf-env.sh && \

@@ -33,6 +33,12 @@ for _zip in .build/kb_ingest.zip .build/kb_query.zip .build/kb_enrichment_dispat
     exit 1
   fi
 done
+if grep -qE '^[[:space:]]*enable_daily_briefs[[:space:]]*=[[:space:]]*true' "$TFVARS"; then
+  if [[ ! -f .build/daily_brief_orchestrator.zip ]]; then
+    echo "ERROR: falta .build/daily_brief_orchestrator.zip — revisá Makefile prepare" >&2
+    exit 1
+  fi
+fi
 
 export TFVARS
 ./bin/init-backend.sh -input=false
