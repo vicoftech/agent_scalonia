@@ -202,7 +202,7 @@ class ScoringService:
             )
             reset += 1
         if self._results.get_raw(match_id):
-            self._results.clear_result_processed(match_id)
+            self._results.clear_scoring_state(match_id)
         return reset
 
     def _score_one(

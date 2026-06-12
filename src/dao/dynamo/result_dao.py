@@ -155,6 +155,17 @@ class ResultDAO:
             ExpressionAttributeValues={":f": False, ":now": _now_iso()},
         )
 
+    def clear_scoring_state(self, match_id: str) -> None:
+        """Permite re-puntuar y reenviar desglose (ISSUE-2026-050)."""
+        self._table.update_item(
+            Key={"partition_key": f"MATCH#{match_id}", "sort_key": "RESULT"},
+            UpdateExpression=(
+                "SET result_processed = :f, updated_at = :now "
+                "REMOVE scoring_breakdown_notified"
+            ),
+            ExpressionAttributeValues={":f": False, ":now": _now_iso()},
+        )
+
     def is_breakdown_notified(self, match_id: str) -> bool:
         item = self.get_raw(match_id)
         return bool(item and item.get("scoring_breakdown_notified"))

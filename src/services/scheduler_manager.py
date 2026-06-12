@@ -31,10 +31,10 @@ SCHEDULE_SPECS: tuple[tuple[str, int, str, str, dict[str, Any]], ...] = (
     ("remind-30", -30, "MATCH_REMINDER", "LAMBDA_ARN_MATCH_REMINDER", {"reminder_tier": 2}),
     ("remind-15", -15, "MATCH_REMINDER", "LAMBDA_ARN_MATCH_REMINDER", {"reminder_tier": 3}),
     ("veda", -VEDA_MINUTES_BEFORE_KICKOFF, "MATCH_VEDA", "LAMBDA_ARN_VEDA_ACTIVATOR", {}),
-    ("result", 110, "MATCH_RESULT", "LAMBDA_ARN_RESULT_COLLECTOR", {"trigger": "match_ended"}),
+    ("result", 130, "MATCH_RESULT", "LAMBDA_ARN_RESULT_COLLECTOR", {"trigger": "match_ended"}),
     (
         "scoring-catchup",
-        120,
+        140,
         "MATCH_SCORING_CATCHUP",
         "LAMBDA_ARN_SCORING_PROCESSOR",
         {},

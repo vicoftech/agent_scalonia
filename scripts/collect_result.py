@@ -51,6 +51,17 @@ def _configure_runtime(
         )
 
 
+def _parse_bool_arg(value: str | None) -> bool | None:
+    if value is None:
+        return None
+    v = value.strip().lower()
+    if v in ("1", "true", "yes", "si", "sí"):
+        return True
+    if v in ("0", "false", "no"):
+        return False
+    raise argparse.ArgumentTypeError(f"booleano inválido: {value!r}")
+
+
 def _match_on_date(match: dict, day: date) -> bool:
     kick = match.get("kickoff_utc") or ""
     if not kick:
@@ -88,6 +99,12 @@ def main() -> int:
         help="Marcador manual HOME-AWAY (ej. 2-0). Omite web_search.",
     )
     p.add_argument("--mvp", default=None, help="MVP opcional con --inject")
+    p.add_argument("--red-cards", type=int, default=None, help="Expulsiones totales")
+    p.add_argument("--goal-before-5min", type=_parse_bool_arg, default=None)
+    p.add_argument("--var-used", type=_parse_bool_arg, default=None)
+    p.add_argument("--free-kick-goal", type=_parse_bool_arg, default=None)
+    p.add_argument("--penalty-saved", type=_parse_bool_arg, default=None)
+    p.add_argument("--penalty-scored", type=_parse_bool_arg, default=None)
     p.add_argument(
         "--no-notify",
         action="store_true",
@@ -208,6 +225,12 @@ def main() -> int:
                 inj_home,
                 inj_away,
                 mvp_name=args.mvp,
+                red_cards=args.red_cards if args.red_cards is not None else 0,
+                goal_before_5min=args.goal_before_5min,
+                var_used=args.var_used,
+                free_kick_goal=args.free_kick_goal,
+                penalty_saved=args.penalty_saved,
+                penalty_scored=args.penalty_scored,
                 notify=not args.no_notify,
                 telegram_direct=args.telegram_direct,
             )

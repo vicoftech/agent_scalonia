@@ -159,7 +159,7 @@ class MatchDAO:
         )
 
     def list_matches_estimated_finished(self) -> list[dict[str, Any]]:
-        """Partidos cuyo kickoff + 110 min ya pasó (candidatos a resultado)."""
+        """Partidos cuyo kickoff + 130 min ya pasó (candidatos a resultado)."""
         from datetime import datetime, timedelta, timezone
 
         now = datetime.now(timezone.utc)
@@ -171,7 +171,7 @@ class MatchDAO:
             kickoff = datetime.fromisoformat(
                 kickoff_raw.replace("Z", "+00:00")
             )
-            if kickoff + timedelta(minutes=110) >= now:
+            if kickoff + timedelta(minutes=130) >= now:
                 continue
             out.append(m)
         return out

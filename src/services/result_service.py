@@ -22,7 +22,7 @@ from src.services.result_queues import (
 
 logger = logging.getLogger(__name__)
 
-ESTIMATED_MATCH_MINUTES = 110
+ESTIMATED_MATCH_MINUTES = 130
 
 _web_search_fn: Optional[Callable[[str], Optional[str]]] = None
 

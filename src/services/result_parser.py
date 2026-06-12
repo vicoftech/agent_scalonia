@@ -49,6 +49,213 @@ def _extract_json_block(text: str) -> dict[str, Any] | None:
     return None
 
 
+def _extract_red_card_count(raw: str) -> int | None:
+    """Cuenta expulsiones si el texto lo explicita o repite rojas directas."""
+    lower = raw.lower()
+    explicit = (
+        re.search(
+            r"(?:three|tres|3)\s+(?:straight\s+)?(?:red\s+cards?|tarjetas?\s+rojas?|rojas?)",
+            lower,
+        )
+        or re.search(r"(?:two|dos|2)\s+(?:straight\s+)?(?:red\s+cards?|tarjetas?\s+rojas?)", lower)
+        or re.search(r"(?:one|una?|1)\s+(?:straight\s+)?(?:red\s+cards?|tarjetas?\s+rojas?)", lower)
+    )
+    if explicit:
+        word = explicit.group(0)
+        if re.search(r"\bthree\b|\btres\b|\b3\b", word):
+            return 3
+        if re.search(r"\btwo\b|\bdos\b|\b2\b", word):
+            return 2
+        return 1
+    # "three red cards" como frase suelta
+    if re.search(r"\bthree\s+red\s+cards?\b|\btres\s+tarjetas?\s+rojas?\b", lower):
+        return 3
+    # Conteo por eventos puntuales (cap a 5 para evitar ruido de tablas)
+    events = len(
+        re.findall(
+            r"(?:straight\s+)?red\s+card|tarjeta\s+roja|sent\s+off|expulsad[oa]|"
+            r"##\s*\d+\+?\d*'\s*-\s*red\s+card",
+            raw,
+            re.I,
+        )
+    )
+    if events >= 3:
+        return min(events, 5)
+    if events > 0:
+        return events
+    if re.search(r"\bvar\b.*\bred\s+card\b|\bred\s+card\b.*\bvar\b", raw, re.I):
+        return max(events, 1)
+    return None
+
+
+def _extract_bool_signal(
+    raw: str,
+    *,
+    positive: tuple[str, ...],
+    negative: tuple[str, ...],
+) -> bool | None:
+    lower = raw.lower()
+    if any(re.search(p, lower) for p in negative):
+        return False
+    if any(re.search(p, lower) for p in positive):
+        return True
+    return None
+
+
+def _extract_goal_before_5min(raw: str) -> bool | None:
+    lower = raw.lower()
+    if re.search(
+        r"sin\s+goles?\s+antes\s+del\s+minuto\s+5|no\s+goal\s+before\s+(?:the\s+)?5",
+        lower,
+    ):
+        return False
+    if re.search(r"gol\s+antes\s+del\s+5|goal\s+before\s+(?:the\s+)?5", lower):
+        return True
+    if re.search(r"\bninth\s+minute\b|\bnoveno\s+minuto\b|\bin\s+the\s+ninth\s+minute\b", lower):
+        return False
+    # Primer gol del partido / torneo
+    first_goal = re.search(
+        r"(?:first\s+goal|primer\s+gol|primer gol del).{0,80}?"
+        r"(?:(\d+)(?:th|º|°)?\s*minute|minuto\s+(\d+)|(\d+)\s*'|in\s+the\s+(\w+)\s+minute)",
+        lower,
+        re.I | re.DOTALL,
+    )
+    if first_goal:
+        minute = next((int(g) for g in first_goal.groups() if g and g.isdigit()), None)
+        if minute is None:
+            word = next((g for g in first_goal.groups() if g and not g.isdigit()), None)
+            ordinals = {
+                "first": 1, "second": 2, "third": 3, "fourth": 4, "fifth": 5,
+                "sixth": 6, "seventh": 7, "eighth": 8, "ninth": 9, "tenth": 10,
+            }
+            if word:
+                minute = ordinals.get(word.lower())
+        if minute is not None:
+            return minute < 5
+    # Cualquier gol explícito en minuto < 5
+    early = re.findall(r"(?:^|[^\d])([1-4])\s*'|\bminuto\s+([1-4])\b", lower)
+    if early and re.search(r"\bgoal\b|\bgol\b|scored", lower):
+        return True
+    # Gol conocido >= 5' implica que no hubo antes del 5'
+    late = re.search(
+        r"(?:ninth|noveno|(\d{2,}))\s*(?:th\s*)?minute|minuto\s+(\d+)|(\d+)\s*'\s*.*\b(?:goal|gol|scored)",
+        lower,
+        re.I,
+    )
+    if late:
+        minute = next((int(g) for g in late.groups() if g), None)
+        if minute is not None and minute >= 5:
+            return False
+    return None
+
+
+def _extract_var_used(raw: str) -> bool | None:
+    return _extract_bool_signal(
+        raw,
+        positive=(
+            r"\bvar\s+review\b",
+            r"\bvar\b.{0,40}\bred\s+card\b",
+            r"following\s+a\s+var\s+review",
+            r"intervención\s+del\s+var\b",
+            r"hubo\s+intervención\s+del\s+var\b",
+            r"revisión\s+var\b",
+            r"var\s+screen\b",
+            r"var\s+is\s+considering\b",
+        ),
+        negative=(
+            r"sin\s+intervención\s+del\s+var\b",
+            r"no\s+var\b",
+        ),
+    )
+
+
+def _extract_penalty_kick(raw: str, kind: str) -> bool | None:
+    """Penal durante el partido (no definición por penales)."""
+    lower = raw.lower()
+    neg = (
+        r"sin\s+penal",
+        r"no\s+penalty",
+        r"almost\s+a\s+penalty",
+        r"casi\s+un\s+penal",
+        r"what\s+was\s+almost\s+a\s+penalty",
+    )
+    if any(re.search(p, lower) for p in neg):
+        return False
+    if kind == "scored":
+        pos = (
+            r"penalty\s+scored",
+            r"penal\s+convertido",
+            r"converted\s+(?:the\s+)?penalty",
+            r"scored\s+(?:a\s+)?penalty",
+        )
+    else:
+        pos = (
+            r"penalty\s+saved",
+            r"penal\s+atajado",
+            r"saved\s+(?:the\s+)?penalty",
+        )
+    return _extract_bool_signal(raw, positive=pos, negative=neg)
+
+
+def _extract_free_kick_goal(raw: str) -> bool | None:
+    return _extract_bool_signal(
+        raw,
+        positive=(r"gol\s+de\s+tiro\s+libre", r"free\s+kick\s+goal", r"goal\s+from\s+(?:a\s+)?free\s+kick"),
+        negative=(r"sin\s+gol\s+de\s+tiro\s+libre", r"no\s+free\s+kick\s+goal"),
+    )
+
+
+def _match_decided_on_penalties(raw: str) -> bool:
+    """Eliminatorias definidas por penales — no confundir con casi-penal o VAR."""
+    lower = raw.lower()
+    if re.search(r"almost\s+a\s+penalty|casi\s+un\s+penal", lower):
+        return False
+    return bool(
+        re.search(
+            r"(?:won|gana|ganó|defeat).{0,40}penalt(?:y|ies)|"
+            r"(?:after|tras)\s+penalt(?:y|ies)|"
+            r"decided\s+on\s+penalt(?:y|ies)|"
+            r"\bpenalt(?:y|ies)\s+shootout\b",
+            lower,
+        )
+    )
+
+
+def _enrich_heuristic_extended(data: dict[str, Any], raw: str) -> None:
+    reds = _extract_red_card_count(raw)
+    if reds is not None:
+        data["red_cards"] = reds
+    gb5 = _extract_goal_before_5min(raw)
+    if gb5 is not None:
+        data["goal_before_5min"] = gb5
+    var_u = _extract_var_used(raw)
+    if var_u is not None:
+        data["var_used"] = var_u
+    fk = _extract_free_kick_goal(raw)
+    if fk is not None:
+        data["free_kick_goal"] = fk
+    ps = _extract_penalty_kick(raw, "scored")
+    p_saved = _extract_penalty_kick(raw, "saved")
+    if ps is not None:
+        data["penalty_scored"] = ps
+    if p_saved is not None:
+        data["penalty_saved"] = p_saved
+    # Sin evidencia de penal durante el 90' en fase de grupos → No
+    if ps is None and p_saved is None and data.get("status") == "FT":
+        has_penalty_event = bool(
+            re.search(
+                r"penalty\s+(?:scored|saved|converted|missed|awarded)|"
+                r"penal\s+(?:convertido|atajado|errado|otorgado)|"
+                r"scored\s+(?:a\s+)?penalty|saved\s+(?:the\s+)?penalty",
+                raw,
+                re.I,
+            )
+        )
+        if not has_penalty_event:
+            data["penalty_scored"] = False
+            data["penalty_saved"] = False
+
+
 def _heuristic_parse(raw: str, match: dict[str, Any]) -> dict[str, Any] | None:
     """Parser sin LLM para tests y fallback."""
     home = match.get("home_team", "")
@@ -67,10 +274,10 @@ def _heuristic_parse(raw: str, match: dict[str, Any]) -> dict[str, Any] | None:
                 h, a = a, h
             status = "FT"
             playoff_winner = None
-            if re.search(r"penal", raw, re.I):
+            if _match_decided_on_penalties(raw):
                 status = "PEN"
                 wm = re.search(
-                    rf"{home}|{away}|argentina|francia|brasil",
+                    rf"{home}|{away}|argentina|francia|brasil|mexico|méxico|south africa|sudáfrica",
                     raw[raw.lower().find("penal") :],
                     re.I,
                 )
@@ -93,6 +300,7 @@ def _heuristic_parse(raw: str, match: dict[str, Any]) -> dict[str, Any] | None:
             )
             if mvp_m:
                 data["mvp_name"] = mvp_m.group(1).strip().split("\n")[0][:80]
+            _enrich_heuristic_extended(data, raw)
             return data
     return None
 
