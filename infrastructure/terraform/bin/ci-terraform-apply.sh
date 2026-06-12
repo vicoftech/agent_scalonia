@@ -48,14 +48,28 @@ else
   terraform workspace new "$WORKSPACE"
 fi
 
-# SPEC-032: el schedule group usa el rol OIDC de GitHub; aplicar su IAM antes (evita 403 por propagación).
-if grep -qE '^[[:space:]]*enable_match_schedules[[:space:]]*=[[:space:]]*true' "$TFVARS" \
-  && grep -qE '^[[:space:]]*enable_github_oidc[[:space:]]*=[[:space:]]*true' "$TFVARS"; then
-  echo "=== Pre-apply: IAM GitHub Actions (Scheduler) ==="
+# OIDC deploy role: aplicar política IAM antes del apply completo (Scheduler + AgentCore).
+if grep -qE '^[[:space:]]*enable_github_oidc[[:space:]]*=[[:space:]]*true' "$TFVARS"; then
+  echo "=== Pre-apply: IAM GitHub Actions deploy policy ==="
   terraform apply -var-file="$TFVARS" -input=false -auto-approve \
     -target=aws_iam_role_policy.github_actions_deploy[0]
-  echo "Esperando propagación IAM (20s)..."
-  sleep 20
+  echo "Esperando propagación IAM (15s)..."
+  sleep 15
+fi
+
+echo "=== Verify deploy principal (AgentCore) ==="
+DEPLOY_ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
+echo "Deploy account: ${DEPLOY_ACCOUNT}"
+RUNTIME_ID=$(terraform state show -no-color 'aws_bedrockagentcore_agent_runtime.prode' 2>/dev/null \
+  | awk '/agent_runtime_id/ {print $3}' | tr -d '"' | head -1 || true)
+if [[ -n "$RUNTIME_ID" ]]; then
+  if ! aws bedrock-agentcore-control get-agent-runtime \
+    --agent-runtime-id "$RUNTIME_ID" \
+    --region "${AWS_REGION:-us-east-1}" >/dev/null 2>&1; then
+    echo "::error::Forbidden GetAgentRuntime (${RUNTIME_ID}). El rol OIDC debe ser prode-github-actions-dev en la misma cuenta que el runtime (615216531593)." >&2
+    exit 1
+  fi
+  echo "AgentCore GetAgentRuntime OK (${RUNTIME_ID})"
 fi
 
 chmod +x bin/import-prode-brief-table-if-missing.sh

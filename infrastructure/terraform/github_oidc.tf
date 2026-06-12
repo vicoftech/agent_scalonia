@@ -122,6 +122,39 @@ data "aws_iam_policy_document" "github_actions_deploy" {
     resources = ["*"]
   }
 
+  # AgentCore Runtime (Terraform aws_bedrockagentcore_*) — permisos explícitos por recurso.
+  statement {
+    sid    = "BedrockAgentCoreRuntime"
+    effect = "Allow"
+    actions = [
+      "bedrock-agentcore:GetAgentRuntime",
+      "bedrock-agentcore:UpdateAgentRuntime",
+      "bedrock-agentcore:DeleteAgentRuntime",
+      "bedrock-agentcore:ListAgentRuntimes",
+      "bedrock-agentcore:GetAgentRuntimeEndpoint",
+      "bedrock-agentcore:UpdateAgentRuntimeEndpoint",
+      "bedrock-agentcore:DeleteAgentRuntimeEndpoint",
+      "bedrock-agentcore:ListAgentRuntimeEndpoints",
+      "bedrock-agentcore:TagResource",
+      "bedrock-agentcore:UntagResource",
+      "bedrock-agentcore:ListTagsForResource",
+    ]
+    resources = [
+      "arn:aws:bedrock-agentcore:${var.aws_region}:${data.aws_caller_identity.current.account_id}:runtime/*",
+      "arn:aws:bedrock-agentcore:${var.aws_region}:${data.aws_caller_identity.current.account_id}:runtime-endpoint/*",
+    ]
+  }
+
+  statement {
+    sid    = "BedrockAgentCoreCreate"
+    effect = "Allow"
+    actions = [
+      "bedrock-agentcore:CreateAgentRuntime",
+      "bedrock-agentcore:CreateAgentRuntimeEndpoint",
+    ]
+    resources = ["*"]
+  }
+
   # EventBridge Scheduler (SPEC-032) — statement dedicado; algunos applies fallan si solo va en DeployServices.
   statement {
     sid    = "EventBridgeScheduler"
