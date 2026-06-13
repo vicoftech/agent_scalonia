@@ -51,6 +51,16 @@ def pending_result_keyboard(match_id: str) -> dict[str, Any]:
     }
 
 
+def format_admin_result_detail_lines(result: MatchResult) -> list[str]:
+    """Resumen extendido para admin (preview / edición)."""
+    lines = ["", "Extendidas:"]
+    for attr, label in MATCH_EVENT_LINES:
+        lines.append(f"  {label}: {bool_label(getattr(result, attr, None))}")
+    lines.append(f"  Expulsiones (total): {result.red_cards}")
+    lines.append(f"  MVP: {result.mvp_name or '—'}")
+    return lines
+
+
 def edit_extended_keyboard(match_id: str) -> dict[str, Any]:
     rows: list[list[dict[str, str]]] = []
     codes = {
@@ -78,6 +88,21 @@ def edit_extended_keyboard(match_id: str) -> dict[str, Any]:
                 },
             ]
         )
+    rows.append(
+        [
+            {"text": "🟥 0", "callback_data": f"res:red:{match_id}:0"},
+            {"text": "1", "callback_data": f"res:red:{match_id}:1"},
+            {"text": "2", "callback_data": f"res:red:{match_id}:2"},
+            {"text": "3", "callback_data": f"res:red:{match_id}:3"},
+            {"text": "4+", "callback_data": f"res:red:{match_id}:4"},
+        ]
+    )
+    rows.append(
+        [
+            {"text": "⭐ Sin MVP", "callback_data": f"res:mvp:clear:{match_id}"},
+            {"text": "✏️ Escribir MVP", "callback_data": f"res:mvp:ask:{match_id}"},
+        ]
+    )
     rows.append(
         [
             {
@@ -145,11 +170,7 @@ def format_admin_pending_message(
         "",
         "Extendidas propuestas:",
     ]
-    for attr, label in MATCH_EVENT_LINES:
-        lines.append(f"  {label}: {bool_label(getattr(result, attr, None))}")
-    lines.append(f"  Expulsiones: {result.red_cards}")
-    lines.append("")
-    lines.append(f"⭐ MVP: {result.mvp_name or '—'}")
+    lines.extend(format_admin_result_detail_lines(result)[1:])
     lines.append("")
     lines.append("⚠️ Advertencias:")
     if candidate.warnings:
@@ -175,9 +196,8 @@ def format_admin_preview_message(
     lines = [
         f"{prefix}Partido #{match.get('match_number', '?')}",
         f"{home}  {result.home_goals} - {result.away_goals}  {away}",
-        f"MVP: {result.mvp_name or '—'}",
-        f"VAR: {bool_label(result.var_used)}",
     ]
+    lines.extend(format_admin_result_detail_lines(result))
     return "\n".join(lines)
 
 

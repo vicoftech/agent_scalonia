@@ -872,6 +872,17 @@ def handler(event: dict, context) -> dict:
             logger.exception("daily_trivia_prefetch failed")
 
         _news_cmd = (text or "").strip().lower().split()[0].split("@")[0]
+        if profile and profile.get("result_admin_pending"):
+            try:
+                from result_admin_commands import handle_result_admin_pending
+
+                res_pending = handle_result_admin_pending(user_id, profile, text)
+                if res_pending:
+                    rp_text, rp_markup = res_pending
+                    _send_message(chat_id, rp_text, token, reply_markup=rp_markup)
+                    return ok
+            except Exception:
+                logger.exception("result_admin_pending failed")
         _is_news_admin_cmd = _news_cmd in (
             "/noticia",
             "/noticia_publicar",
