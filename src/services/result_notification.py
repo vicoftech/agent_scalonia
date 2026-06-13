@@ -42,16 +42,31 @@ def format_match_events_lines(result: MatchResult) -> list[str]:
     return lines
 
 
-def format_match_result_message(match: dict[str, Any], result: MatchResult) -> str:
+def format_match_result_message(
+    match: dict[str, Any],
+    result: MatchResult,
+    *,
+    republish: bool = False,
+) -> str:
     """Mensaje 🏁 RESULTADO FINAL — marcador, goles y eventos reales del partido."""
+    lines: list[str] = []
+    if republish:
+        lines.extend(
+            [
+                "🔄 RESULTADO ACTUALIZADO (corrección oficial)",
+                "",
+            ]
+        )
     home = format_team(match["home_team"])
     away = format_team(match["away_team"])
     h, a = result.home_goals, result.away_goals
-    lines = [
-        "🏁 RESULTADO FINAL",
-        "",
-        f"{home}  {h} - {a}  {away}",
-    ]
+    lines.extend(
+        [
+            "🏁 RESULTADO FINAL",
+            "",
+            f"{home}  {h} - {a}  {away}",
+        ]
+    )
 
     phase = (match.get("phase") or "GROUP").upper()
     phase_label = PHASE_LABELS.get(phase, phase.replace("_", " ").title())
@@ -83,5 +98,9 @@ def format_match_result_message(match: dict[str, Any], result: MatchResult) -> s
 
     lines.append("")
     lines.extend(format_match_events_lines(result))
+
+    if republish:
+        lines.append("")
+        lines.append("📊 Recalculamos tus puntos. Revisá el desglose.")
 
     return "\n".join(lines)

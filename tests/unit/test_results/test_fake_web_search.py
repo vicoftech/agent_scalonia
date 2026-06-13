@@ -15,7 +15,8 @@ from src.testing.fake_web_search import build_fake_web_search_fn, load_web_searc
 @pytest.fixture(autouse=True)
 def _reset_web_search():
     set_web_search_fn(None)
-    yield
+    with patch.dict("os.environ", {"RESULT_ADMIN_GATE_ENABLED": "false"}):
+        yield
     set_web_search_fn(None)
 
 
@@ -97,6 +98,44 @@ def test_poller_saves_and_calls_collector():
     collector.collect_result.assert_called_once_with(
         "mid-mex", telegram_direct=False, force_notify=False
     )
+
+
+def test_poller_gate_on_proposes_instead_of_publish():
+    mdao = MagicMock()
+    mdao.get_match.return_value = {
+        "match_id": "mid-mex",
+        "home_team": "MEX",
+        "away_team": "RSA",
+        "phase": "GROUP",
+        "kickoff_utc": "2020-01-01T12:00:00Z",
+    }
+    mdao.find_by_teams.return_value = mdao.get_match.return_value
+    rdao = MagicMock()
+    rdao.is_scoring_done.return_value = False
+    rdao.has_scores.return_value = False
+
+    collector = MagicMock()
+    with patch.dict("os.environ", {"RESULT_ADMIN_GATE_ENABLED": "true"}):
+        with patch(
+            "src.services.result_admin_service.ResultAdminService.propose_result"
+        ) as propose:
+            from src.services.result_source_aggregator import AggregatedCandidate
+
+            propose.return_value = AggregatedCandidate(
+                match_id="mid-mex",
+                proposed=MatchResult(home_goals=2, away_goals=0),
+                consensus_score=1.0,
+            )
+            svc = ResultPollerService(
+                api_client=MockApiFootballClient(),
+                match_dao=mdao,
+                result_dao=rdao,
+                result_service=collector,
+            )
+            out = svc.poll_once(api_match_ids=[2], dry_run=False)
+    assert "mid-mex" in out["processed"]
+    rdao.save_result.assert_not_called()
+    propose.assert_called_once()
 
 
 def test_poller_handler_mock_event():

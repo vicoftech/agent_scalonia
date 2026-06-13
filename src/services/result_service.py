@@ -65,6 +65,30 @@ class ResultService:
         telegram_direct: bool = False,
         force_notify: bool = False,
     ) -> MatchResult | None:
+        from src.services.result_gate import is_admin_gate_enabled
+
+        if is_admin_gate_enabled():
+            from src.services.result_admin_service import ResultAdminService
+
+            cand = ResultAdminService(result_service=self).propose_result(
+                match_id,
+                force_notify=force_notify,
+            )
+            return cand.proposed if cand else None
+
+        return self._collect_result_legacy(
+            match_id,
+            telegram_direct=telegram_direct,
+            force_notify=force_notify,
+        )
+
+    def _collect_result_legacy(
+        self,
+        match_id: str,
+        *,
+        telegram_direct: bool = False,
+        force_notify: bool = False,
+    ) -> MatchResult | None:
         existing = self._results.get_result(match_id)
         if existing and existing.mvp_name and not force_notify:
             return existing
@@ -156,6 +180,18 @@ class ResultService:
             self._results.save_result(match_id, result, allow_overwrite=replace)
             self._matches.update_status(match_id, _match_status_from_result(result))
             return self._results.get_result(match_id) or result
+
+        from src.services.result_gate import is_admin_gate_enabled
+
+        if is_admin_gate_enabled():
+            from src.services.result_admin_service import ResultAdminService
+
+            cand = ResultAdminService(result_service=self).propose_result(
+                match_id,
+                manual_result=result,
+                force_notify=True,
+            )
+            return cand.proposed if cand else None
 
         return self._save_and_notify(
             match_id, match, result, telegram_direct=telegram_direct
@@ -254,6 +290,24 @@ class ResultService:
                     by_user[user_id].append(gid)
         return by_user
 
+    def notify_match_result(
+        self,
+        match_id: str,
+        match: dict[str, Any],
+        result: MatchResult,
+        *,
+        telegram_direct: bool = False,
+        republish: bool = False,
+    ) -> int:
+        """Notifica 🏁 a usuarios (SPEC-031 / SPEC-051 publish gate)."""
+        return self._notify_all_groups(
+            match_id,
+            match,
+            result,
+            telegram_direct=telegram_direct,
+            republish=republish,
+        )
+
     def _notify_all_groups(
         self,
         match_id: str,
@@ -261,6 +315,7 @@ class ResultService:
         result: MatchResult,
         *,
         telegram_direct: bool = False,
+        republish: bool = False,
     ) -> int:
         """Notifica el resultado: un mensaje Telegram por usuario (miembros ACTIVE)."""
         by_user = self._notify_recipients_by_user()
@@ -293,7 +348,7 @@ class ResultService:
                 skipped += 1
                 continue
 
-            message = format_match_result_message(match, result)
+            message = format_match_result_message(match, result, republish=republish)
             primary_gid = group_ids[0]
             payload = {
                 "type": "MATCH_RESULT",

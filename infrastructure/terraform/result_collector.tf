@@ -27,6 +27,8 @@ locals {
     "${local.result_collector_repo_root}/src/web/${f}" if !endswith(f, "/") && !strcontains(f, "__pycache__")],
     [for f in sort(fileset("${local.result_collector_repo_root}/src/scoring", "**")) :
     "${local.result_collector_repo_root}/src/scoring/${f}" if !endswith(f, "/") && !strcontains(f, "__pycache__")],
+    [for f in sort(fileset("${local.result_collector_repo_root}/src/clients", "**")) :
+    "${local.result_collector_repo_root}/src/clients/${f}" if !endswith(f, "/") && !strcontains(f, "__pycache__")],
   )
   result_collector_py_files = sort(fileset("${local.result_collector_lambda_dir}", "*.py"))
   result_collector_hash = sha256(join("", concat(
@@ -131,6 +133,14 @@ data "aws_iam_policy_document" "result_collector_inline" {
       resources = ["*"]
     }
   }
+  dynamic "statement" {
+    for_each = var.telegram_secret_arn != "" ? [1] : []
+    content {
+      sid       = "TelegramSecret"
+      actions   = ["secretsmanager:GetSecretValue"]
+      resources = [var.telegram_secret_arn]
+    }
+  }
 }
 
 resource "aws_iam_role_policy" "result_collector" {
@@ -161,7 +171,9 @@ resource "aws_lambda_function" "result_collector" {
       SCORING_QUEUE_URL       = var.enable_result_queues ? aws_sqs_queue.scoring[0].url : ""
       NOTIFICATION_QUEUE_URL  = var.enable_result_queues ? aws_sqs_queue.match_notifications[0].url : ""
       TAVILY_SECRET_ARN       = var.tavily_secret_arn
+      TELEGRAM_SECRET_ARN     = var.telegram_secret_arn
       RESULT_PARSE_USE_BEDROCK = "false"
+      RESULT_ADMIN_GATE_ENABLED = "true"
     }
   }
 

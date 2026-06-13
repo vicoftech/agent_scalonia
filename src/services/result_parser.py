@@ -405,6 +405,29 @@ def _clean_mvp_name(name: str | None) -> str | None:
     return cleaned
 
 
+_IN_PLAY_PATTERNS = (
+    r"\ben\s+vivo\b",
+    r"\blive\b",
+    r"\bparcial\b",
+    r"\bhalf\s*time\b",
+    r"\bprimer\s+tiempo\b",
+    r"\bsegundo\s+tiempo\b",
+    r"\bminuto\s+\d{1,2}\b",
+    r"\b\d{1,2}\s*'\s*(?:de\s+juego|played)\b",
+    r"\bstill\s+playing\b",
+    r"\bno\s+ha\s+terminado\b",
+    r"\bmatch\s+in\s+progress\b",
+)
+
+
+def detect_in_play_signals(raw: str) -> bool:
+    """True si el texto sugiere partido aún en curso (SPEC-051 AC-08)."""
+    if not raw:
+        return False
+    lower = raw.lower()
+    return any(re.search(p, lower) for p in _IN_PLAY_PATTERNS)
+
+
 def extract_mvp_from_text(raw: str) -> str | None:
     for pat in (
         r"Goles:\s*([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ\s\.]{2,35})",

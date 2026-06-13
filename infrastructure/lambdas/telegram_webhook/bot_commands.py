@@ -45,6 +45,8 @@ ADMIN_MENU_EXTRA: list[dict[str, str]] = [
     },
     {"command": "noticia", "description": "Admin: buscar/publicar noticia"},
     {"command": "noticias_hoy", "description": "Admin: noticias enviadas hoy"},
+    {"command": "resultado_pendientes", "description": "Admin: resultados por confirmar"},
+    {"command": "resultado_editar", "description": "Admin: editar/publicar resultado"},
     {
         "command": "grupo_otorgar_grupo",
         "description": "Admin: slot de grupo extra por alias",

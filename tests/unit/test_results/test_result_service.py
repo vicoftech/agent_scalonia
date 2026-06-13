@@ -56,7 +56,8 @@ def _svc(
 def _reset_injection():
     set_web_search_fn(None)
     set_llm_parse_fn(None)
-    yield
+    with patch.dict("os.environ", {"RESULT_ADMIN_GATE_ENABLED": "false"}):
+        yield
     set_web_search_fn(None)
     set_llm_parse_fn(None)
 

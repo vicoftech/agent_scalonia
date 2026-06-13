@@ -48,6 +48,9 @@ class ResultPollerService:
         dry_run: bool = False,
         telegram_direct: bool = False,
     ) -> dict[str, Any]:
+        from src.services.result_gate import is_admin_gate_enabled
+
+        gate_on = is_admin_gate_enabled()
         fixtures = self._api.list_terminal_fixtures()
         if api_match_ids is not None:
             want = {int(x) for x in api_match_ids}
@@ -85,6 +88,18 @@ class ResultPollerService:
                 continue
 
             result = fx.to_match_result(match)
+            if gate_on:
+                from src.services.result_admin_service import ResultAdminService
+
+                cand = ResultAdminService(result_service=self._collector).propose_result(
+                    mid,
+                    api_result=result,
+                    force_notify=telegram_direct,
+                )
+                if cand:
+                    processed.append(mid)
+                continue
+
             if not self._results.has_scores(mid):
                 saved = self._results.save_result(mid, result)
                 if saved:

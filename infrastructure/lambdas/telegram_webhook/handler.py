@@ -335,6 +335,23 @@ def _handle_callback_query(callback: dict, ok: dict) -> dict:
                     if reply:
                         _send_message(chat_id, reply, token, reply_markup=markup)
             return ok
+        if data.startswith("res:"):
+            cb_id = callback.get("id")
+            from result_admin_commands import handle_result_admin_callback
+
+            try:
+                result = handle_result_admin_callback(
+                    user_id,
+                    data,
+                    callback_query_id=cb_id,
+                )
+                if result:
+                    reply, markup = result
+                    if reply:
+                        _send_message(chat_id, reply, token, reply_markup=markup)
+            except Exception:
+                logger.exception("result_admin_callback failed data=%s", data[:60])
+            return ok
         if data.startswith("trv:"):
             from trivia_commands import handle_trivia_callback
 
@@ -860,6 +877,29 @@ def handler(event: dict, context) -> dict:
             "/noticia_publicar",
             "/noticias_hoy",
         )
+        _is_result_admin_cmd = _news_cmd in (
+            "/resultado_pendientes",
+            "/resultado_publicados",
+            "/resultado_recolectar",
+            "/resultado_publicar",
+            "/resultado_editar",
+        )
+        try:
+            from result_admin_commands import handle_result_admin_command
+
+            res_reply, res_markup = handle_result_admin_command(user_id, text)
+            if res_reply:
+                _send_message(chat_id, res_reply, token, reply_markup=res_markup)
+                return ok
+        except Exception:
+            logger.exception("result_admin_commands failed")
+            if _is_result_admin_cmd:
+                _send_message(
+                    chat_id,
+                    "No pude procesar el comando de resultados. Reintentá en un minuto.",
+                    token,
+                )
+                return ok
         try:
             from news_commands import handle_news_command
 

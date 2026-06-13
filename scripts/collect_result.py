@@ -133,7 +133,32 @@ def main() -> int:
     p.add_argument(
         "--skip-kickoff-check",
         action="store_true",
-        help="Recolectar aunque kickoff+110min no haya pasado (pruebas locales)",
+        help="Recolectar aunque kickoff+130min no haya pasado (pruebas locales)",
+    )
+    p.add_argument(
+        "--publish",
+        action="store_true",
+        help="Publicar directo (admin CLI; omite gate de borrador)",
+    )
+    p.add_argument(
+        "--republish",
+        action="store_true",
+        help="Con --publish: corregir resultado ya publicado y re-puntuar",
+    )
+    p.add_argument(
+        "--reset-scoring",
+        action="store_true",
+        help="Con --republish: resetear puntos antes de re-puntuar",
+    )
+    p.add_argument(
+        "--propose-only",
+        action="store_true",
+        help="Solo crear borrador para admin (default con gate activo)",
+    )
+    p.add_argument(
+        "--gate-off",
+        action="store_true",
+        help="Desactivar RESULT_ADMIN_GATE_ENABLED para esta ejecución",
     )
     args = p.parse_args()
 
@@ -146,6 +171,10 @@ def main() -> int:
         logger.info("web_search: modo mock (fixture)")
     if args.skip_kickoff_check:
         os.environ["RESULT_SKIP_KICKOFF_CHECK"] = "1"
+    if args.gate_off:
+        os.environ["RESULT_ADMIN_GATE_ENABLED"] = "false"
+    elif not os.environ.get("RESULT_ADMIN_GATE_ENABLED"):
+        os.environ.setdefault("RESULT_ADMIN_GATE_ENABLED", "true")
 
     if not args.no_resolve_queues and not args.no_notify:
         from src.services.result_queues import ensure_queue_urls
@@ -220,22 +249,58 @@ def main() -> int:
     ok = 0
     for mid in match_ids:
         if args.inject and inj_home is not None and inj_away is not None:
-            result = svc.apply_manual_result(
-                mid,
-                inj_home,
-                inj_away,
-                mvp_name=args.mvp,
-                red_cards=args.red_cards if args.red_cards is not None else 0,
-                goal_before_5min=args.goal_before_5min,
-                var_used=args.var_used,
-                free_kick_goal=args.free_kick_goal,
-                penalty_saved=args.penalty_saved,
-                penalty_scored=args.penalty_scored,
-                notify=not args.no_notify,
-                telegram_direct=args.telegram_direct,
-            )
+            if args.publish:
+                from src.models.match_result import MatchResult
+                from src.services.result_admin_service import ResultAdminService
+                from src.services.scoring_service import ScoringService
+
+                result = MatchResult(
+                    home_goals=inj_home,
+                    away_goals=inj_away,
+                    mvp_name=args.mvp,
+                    red_cards=args.red_cards if args.red_cards is not None else 0,
+                    goal_before_5min=args.goal_before_5min,
+                    var_used=args.var_used,
+                    free_kick_goal=args.free_kick_goal,
+                    penalty_saved=args.penalty_saved,
+                    penalty_scored=args.penalty_scored,
+                    source="web_search",
+                )
+                admin = ResultAdminService(result_service=svc)
+                if args.republish or args.reset_scoring:
+                    if args.reset_scoring:
+                        ScoringService().reset_match_scoring(mid)
+                    outcome = admin.republish_result(
+                        mid,
+                        result,
+                        "cli-admin",
+                        telegram_direct=args.telegram_direct,
+                    )
+                else:
+                    outcome = admin.publish_curated(
+                        mid,
+                        result,
+                        "cli-admin",
+                        telegram_direct=args.telegram_direct,
+                    )
+                result = result if outcome.published else None
+            else:
+                result = svc.apply_manual_result(
+                    mid,
+                    inj_home,
+                    inj_away,
+                    mvp_name=args.mvp,
+                    red_cards=args.red_cards if args.red_cards is not None else 0,
+                    goal_before_5min=args.goal_before_5min,
+                    var_used=args.var_used,
+                    free_kick_goal=args.free_kick_goal,
+                    penalty_saved=args.penalty_saved,
+                    penalty_scored=args.penalty_scored,
+                    notify=not args.no_notify,
+                    telegram_direct=args.telegram_direct,
+                )
         else:
-            result = svc.collect_result(mid)
+            result = svc.collect_result(mid, telegram_direct=args.telegram_direct)
         if result:
             ok += 1
             logger.info("OK %s → %s-%s MVP=%s", mid[:8], result.home_goals, result.away_goals, result.mvp_name)
