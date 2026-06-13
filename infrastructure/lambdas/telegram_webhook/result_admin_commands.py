@@ -159,7 +159,17 @@ def handle_result_admin_command(
     if m:
         home_t, away_t = m.group(1), m.group(2)
         if not home_t:
-            return "Uso: /resultado_editar HOME AWAY [marcador]", None
+            lines = [
+                "Uso: /resultado_editar HOME AWAY [marcador]",
+                "Ejemplo: /resultado_editar MEX RSA 2-0",
+            ]
+            try:
+                published = _list_published()
+                if published:
+                    lines.extend(["", published])
+            except Exception:
+                logger.exception("resultado_editar list_published failed")
+            return "\n".join(lines), None
         match = _resolve_match((home_t, away_t))
         if not match:
             return "No encontré ese partido.", None

@@ -7,6 +7,8 @@ locals {
   telegram_src_files = concat(
     [for f in sort(fileset("${local.telegram_repo_root}/src/dao", "**")) :
     "${local.telegram_repo_root}/src/dao/${f}" if !endswith(f, "/") && !strcontains(f, "__pycache__")],
+    [for f in sort(fileset("${local.telegram_repo_root}/src/models", "**")) :
+    "${local.telegram_repo_root}/src/models/${f}" if !endswith(f, "/") && !strcontains(f, "__pycache__")],
     [for f in sort(fileset("${local.telegram_repo_root}/src/services", "**")) :
     "${local.telegram_repo_root}/src/services/${f}" if !endswith(f, "/") && !strcontains(f, "__pycache__")],
     [for f in sort(fileset("${local.telegram_repo_root}/src/scoring", "**")) :
