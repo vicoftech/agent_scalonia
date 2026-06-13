@@ -126,7 +126,7 @@ def test_admin_confirm_publishes_and_enqueues_scoring():
     auth = MagicMock()
     auth.is_admin_global.return_value = True
 
-    with patch("src.services.result_admin_service.enqueue_scoring") as eq:
+    with patch("src.services.result_admin_service.enqueue_scoring", return_value=True) as eq:
         admin = ResultAdminService(
             results=rdao,
             matches=mdao,
@@ -136,7 +136,49 @@ def test_admin_confirm_publishes_and_enqueues_scoring():
         out = admin.confirm_and_publish("mid-051", "admin-1")
         assert out.published
         assert out.notified_users == 3
+        assert out.scoring_enqueued
         eq.assert_called_once()
+
+
+def test_publish_curated_runs_sync_scoring_when_queue_missing():
+    from src.services.result_admin_service import ResultAdminService
+    from src.services.scoring_service import ScoringOutcome
+
+    rdao = MagicMock()
+    mdao = MagicMock()
+    mdao.get_match.return_value = _match()
+    svc_mock = MagicMock()
+    svc_mock.notify_match_result.return_value = 2
+    scoring = MagicMock()
+    scoring.process_finish_match.return_value = ScoringOutcome(
+        match_id="mid-051",
+        scored=4,
+    )
+
+    auth = MagicMock()
+    auth.is_admin_global.return_value = True
+
+    with patch("src.services.result_admin_service.enqueue_scoring", return_value=False):
+        admin = ResultAdminService(
+            results=rdao,
+            matches=mdao,
+            auth=auth,
+            result_service=svc_mock,
+            scoring=scoring,
+        )
+        out = admin.publish_curated(
+            "mid-051",
+            MatchResult(home_goals=2, away_goals=0),
+            "admin-1",
+            telegram_direct=True,
+        )
+    assert out.published
+    assert out.scoring_enqueued
+    scoring.process_finish_match.assert_called_once()
+    scoring.notify_scoring_breakdowns.assert_called_once_with(
+        "mid-051",
+        telegram_direct=True,
+    )
 
 
 def test_non_admin_confirm_rejected():

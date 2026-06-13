@@ -298,8 +298,29 @@ class ResultAdminService:
             republish=republish,
         )
         outcome.notified_users = notified
-        enqueue_scoring(match_id, result.to_dict())
-        outcome.scoring_enqueued = True
+
+        enqueued = enqueue_scoring(match_id, result.to_dict())
+        if enqueued:
+            outcome.scoring_enqueued = True
+        else:
+            logger.warning(
+                "scoring queue unavailable; sync scoring match=%s",
+                match_id[:8],
+            )
+            score_out = self._scoring.process_finish_match(
+                match_id,
+                result=result,
+                force=republish,
+            )
+            outcome.scoring_enqueued = (
+                score_out.scored > 0
+                or (not score_out.already_processed and bool(score_out.rows))
+            )
+            if telegram_direct and score_out.scored > 0:
+                self._scoring.notify_scoring_breakdowns(
+                    match_id,
+                    telegram_direct=True,
+                )
         outcome.published = True
         outcome.publish_version = version
         return outcome

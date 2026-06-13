@@ -131,6 +131,71 @@ def test_wizard_last_step_shows_preview():
     assert markup["inline_keyboard"][0][0]["text"] == "✅ Publicar"
 
 
+def test_wizard_publish_uses_publish_curated_with_telegram_direct():
+    from result_admin_commands import handle_result_admin_callback
+
+    profile = {
+        "result_admin_wizard": {
+            "match_id": "mid-can",
+            "step_idx": 7,
+            "draft": {
+                "home_goals": 2,
+                "away_goals": 1,
+                "goal_before_5min": False,
+                "var_used": True,
+                "free_kick_goal": False,
+                "penalty_saved": False,
+                "penalty_scored": False,
+                "red_cards": 0,
+                "_touched": ["home_goals", "away_goals", "var_used"],
+            },
+        }
+    }
+    match = {
+        "match_id": "mid-can",
+        "home_team": "CAN",
+        "away_team": "BIH",
+        "phase": "GROUP",
+        "match_number": 12,
+    }
+    outcome = MagicMock()
+    outcome.published = True
+    outcome.republish = False
+    outcome.publish_version = 1
+    outcome.notified_users = 5
+    outcome.scoring_enqueued = True
+    outcome.errors = []
+
+    import sys
+
+    mock_handler = MagicMock()
+    mock_handler._get_token.return_value = "tok"
+    sys.modules["handler"] = mock_handler
+
+    with patch("result_admin_commands._admin_only", return_value=True):
+        with patch("result_admin_commands.MatchDAO") as M:
+            M.return_value.get_match.return_value = match
+            with patch("result_admin_commands.ResultDAO") as R:
+                R.return_value.has_scores.return_value = False
+                with patch("result_admin_commands._save_wizard"):
+                    with patch("src.dao.dynamo.user_dao.UserDAO") as U:
+                        U.return_value.get_profile.return_value = profile
+                        with patch(
+                            "result_admin_commands.ResultAdminService"
+                        ) as S:
+                            S.return_value.publish_curated.return_value = outcome
+                            reply, _ = handle_result_admin_callback(
+                                "admin-1",
+                                "res:pub:publish:mid-can",
+                            )
+    S.return_value.publish_curated.assert_called_once()
+    call_kwargs = S.return_value.publish_curated.call_args
+    assert call_kwargs.kwargs.get("telegram_direct") is True
+    assert reply and "Publicado" in reply
+    assert "5 usuarios notificados" in reply
+    assert "Scoring procesado" in reply
+
+
 def test_draft_to_result_never_sets_mvp():
     from result_admin_commands import _draft_to_result
 

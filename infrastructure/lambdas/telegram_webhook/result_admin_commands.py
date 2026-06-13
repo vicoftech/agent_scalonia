@@ -304,15 +304,31 @@ def handle_result_admin_callback(
                 return "Completá el wizard antes de publicar.", None
             result = _draft_to_result(draft, match)
             if ResultDAO().has_scores(match_id):
-                outcome = svc.republish_result(match_id, result, user_id)
+                outcome = svc.republish_result(
+                    match_id, result, user_id, telegram_direct=True
+                )
             else:
-                svc.update_candidate_from_admin(match_id, result, user_id)
-                outcome = svc.confirm_and_publish(match_id, user_id)
+                outcome = svc.publish_curated(
+                    match_id,
+                    result,
+                    user_id,
+                    telegram_direct=True,
+                    collection_source_summary="admin_wizard",
+                )
             _save_wizard(user_id, None)
             if not outcome.published:
                 return f"Error: {', '.join(outcome.errors)}", None
             label = "Republicado" if outcome.republish else "Publicado"
-            return f"✅ {label} v{outcome.publish_version}.", None
+            lines = [f"✅ {label} v{outcome.publish_version}."]
+            if outcome.notified_users:
+                lines.append(f"🏁 {outcome.notified_users} usuarios notificados.")
+            else:
+                lines.append("⚠️ No se notificó a usuarios.")
+            if outcome.scoring_enqueued:
+                lines.append("📊 Scoring procesado.")
+            else:
+                lines.append("⚠️ Scoring no procesado.")
+            return "\n".join(lines), None
 
         if action == "back":
             cand_raw = ResultDAO().get_candidate_raw(match_id)

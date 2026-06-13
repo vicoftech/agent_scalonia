@@ -175,6 +175,18 @@ data "aws_iam_policy_document" "telegram_webhook_inline" {
       resources = [aws_dynamodb_table.prode_brief[0].arn]
     }
   }
+
+  dynamic "statement" {
+    for_each = var.enable_result_queues ? [1] : []
+    content {
+      sid       = "ResultQueuesSQS"
+      actions   = ["sqs:SendMessage"]
+      resources = [
+        aws_sqs_queue.scoring[0].arn,
+        aws_sqs_queue.match_notifications[0].arn,
+      ]
+    }
+  }
 }
 
 resource "aws_iam_role_policy" "telegram_webhook" {
@@ -233,6 +245,10 @@ resource "aws_lambda_function" "telegram_webhook" {
         NEWS_REDIRECT_ENABLED            = "true"
         TAVILY_SECRET_ARN                = var.tavily_secret_arn
         BEDROCK_NEWS_TRANSLATE_MODEL_ID  = "amazon.nova-lite-v1:0"
+      } : {},
+      var.enable_result_queues ? {
+        SCORING_QUEUE_URL      = aws_sqs_queue.scoring[0].url
+        NOTIFICATION_QUEUE_URL = aws_sqs_queue.match_notifications[0].url
       } : {},
     )
   }

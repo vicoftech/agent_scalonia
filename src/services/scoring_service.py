@@ -137,8 +137,14 @@ class ScoringService:
             self.notify_scoring_breakdowns(match_id)
         return outcome
 
-    def notify_scoring_breakdowns(self, match_id: str) -> int:
+    def notify_scoring_breakdowns(
+        self,
+        match_id: str,
+        *,
+        telegram_direct: bool = False,
+    ) -> int:
         """Encola desglose de puntos (MATCH_SCORING) tras puntuar — SPEC-041 sandbox."""
+        from src.services.match_notify_dispatcher import MatchNotifyDispatcher
         from src.services.prediction_result_report import format_finished_match_report
         from src.services.result_queues import enqueue_lifecycle_notification
 
@@ -157,6 +163,7 @@ class ScoringService:
             return 0
 
         sent = 0
+        dispatcher = MatchNotifyDispatcher(users=self._users) if telegram_direct else None
         for pred in self._preds.list_predictions_for_match(
             match_id, statuses=(STATUS_SCORED,)
         ):
@@ -179,6 +186,16 @@ class ScoringService:
                 msg_type="MATCH_SCORING",
                 group_id=group_id,
             ):
+                sent += 1
+            elif dispatcher and dispatcher.dispatch_payload(
+                {
+                    "type": "MATCH_SCORING",
+                    "user_id": user_id,
+                    "match_id": match_id,
+                    "group_id": group_id,
+                    "message": text,
+                }
+            ) == "SENT":
                 sent += 1
         if sent > 0:
             self._results.mark_breakdown_notified(match_id)
