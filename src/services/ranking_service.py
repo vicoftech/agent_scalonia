@@ -66,12 +66,16 @@ class RankingService:
         return None
 
     def _sum_scored_points(self, user_id: str, group_id: str) -> int:
+        profile = self._users.get_profile(user_id) or {}
+        tournament_pts = int(profile.get("tournament_points") or 0)
+        # GLOBAL: no hay PRED#...#GROUP#GLOBAL — las predicciones viven en grupos privados.
+        if group_id == GLOBAL_GROUP_ID:
+            match_pts = int(profile.get("match_points") or 0)
+            return match_pts + tournament_pts
         preds = self._preds.list_user_predictions(
             user_id, group_id=group_id, status="SCORED"
         )
         match_pts = sum(int(p.get("points_earned") or 0) for p in preds)
-        profile = self._users.get_profile(user_id) or {}
-        tournament_pts = int(profile.get("tournament_points") or 0)
         return match_pts + tournament_pts
 
     def build_group_ranking(

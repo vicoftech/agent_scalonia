@@ -44,8 +44,8 @@ def format_ranking_message(
     page_rows = rows[start:end]
     viewer_row = next((r for r in rows if r.get("is_viewer")), None)
 
-    if viewer_row:
-        profile = UserDAO().get_profile(str(viewer_row.get("user_id") or "")) or {}
+    if viewer_row and viewer_row.get("user_id"):
+        profile = UserDAO().get_profile(str(viewer_row["user_id"])) or {}
         t_pts = int(profile.get("tournament_points") or 0)
         if t_pts > 0:
             lines.append(f"\n🏆 Bonus torneo: +{t_pts} pts (en todos tus grupos)")
@@ -61,7 +61,12 @@ def format_ranking_message(
     if remaining > 0:
         lines.append(f"\n… y {remaining} más")
 
-    lines.append("\nActualizado tras cada partido puntuado.")
+    lines.append("Actualizado tras cada partido puntuado.")
+    if ranking.get("is_global"):
+        lines.append(
+            "\nEl ranking global suma tus puntos de partidos "
+            "(todos tus grupos) + bonus torneo."
+        )
     return "\n".join(lines)
 
 

@@ -62,6 +62,33 @@ def test_build_group_ranking_tie_breaks_by_alias():
     assert ranking["rows"][1]["alias"] == "Zoe"
 
 
+def test_build_group_ranking_global_uses_profile_points():
+    groups = MagicMock()
+    users = MagicMock()
+    preds = MagicMock()
+    groups.get_group.return_value = {
+        "name": "Global",
+        "status": "ACTIVE",
+        "is_global": True,
+    }
+    groups.list_member_user_ids.return_value = ["u1", "u2"]
+    users.get_profile.side_effect = lambda uid: {
+        "u1": {"alias": "Ana", "match_points": 12, "tournament_points": 0},
+        "u2": {"alias": "Luis", "match_points": 5, "tournament_points": 10},
+    }[uid]
+
+    ranking = _service(groups=groups, users=users, preds=preds).build_group_ranking(
+        GLOBAL_GROUP_ID, viewer_user_id="u1"
+    )
+    assert ranking is not None
+    assert ranking["is_global"] is True
+    assert ranking["rows"][0]["alias"] == "Luis"
+    assert ranking["rows"][0]["points"] == 15
+    assert ranking["rows"][1]["alias"] == "Ana"
+    assert ranking["rows"][1]["points"] == 12
+    preds.list_user_predictions.assert_not_called()
+
+
 def test_build_group_ranking_shows_zero_points():
     groups = MagicMock()
     users = MagicMock()
