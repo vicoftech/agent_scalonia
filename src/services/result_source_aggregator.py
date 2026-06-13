@@ -7,11 +7,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Optional
 
 from src.models.match_result import MatchResult
-from src.services.result_parser import (
-    detect_in_play_signals,
-    extract_mvp_from_text,
-    parse_web_result,
-)
+from src.services.result_parser import detect_in_play_signals, parse_web_result
 from src.services.result_service import ESTIMATED_MATCH_MINUTES
 
 logger = logging.getLogger(__name__)
@@ -74,7 +70,6 @@ def _tavily_queries(match: dict[str, Any]) -> list[tuple[str, str]]:
             "tavily:events",
             f"{home} vs {away} resumen goles tarjetas VAR Copa Mundial 2026",
         ),
-        ("tavily:mvp", f"jugador del partido {home} vs {away} Copa Mundial 2026"),
     ]
 
 
@@ -173,12 +168,6 @@ def _pick_proposed(
             consensus = max(consensus, 0.9)
 
     ext = _merge_extended(snapshots, warnings)
-    mvp = proposed.mvp_name
-    if not mvp:
-        for snap in sorted(snapshots, key=lambda s: -s.parse_confidence):
-            if snap.parsed and snap.parsed.mvp_name:
-                mvp = snap.parsed.mvp_name
-                break
 
     from dataclasses import replace
 
@@ -190,7 +179,7 @@ def _pick_proposed(
         free_kick_goal=ext["free_kick_goal"],
         penalty_saved=ext["penalty_saved"],
         penalty_scored=ext["penalty_scored"],
-        mvp_name=mvp,
+        mvp_name=None,
         phase=match.get("phase", proposed.phase),
     )
     if any(getattr(proposed, f) is None for f in EXTENDED_FIELDS):

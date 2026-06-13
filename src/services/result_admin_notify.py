@@ -14,6 +14,17 @@ from src.services.result_source_aggregator import AggregatedCandidate
 
 logger = logging.getLogger(__name__)
 
+# step 0 = marcador; resto = extendidas (SI/NO); red_cards: SI→1, NO→0
+WIZARD_STEPS: tuple[tuple[str, str], ...] = (
+    ("score", "marcador"),
+    ("goal_before_5min", "Gol antes del 5'"),
+    ("var_used", "Intervención VAR"),
+    ("free_kick_goal", "Gol de tiro libre"),
+    ("penalty_saved", "Penal atajado"),
+    ("penalty_scored", "Penal convertido"),
+    ("red_cards", "¿Hubo tarjetas rojas?"),
+)
+
 _send_text_fn: Callable[[int, str, dict | None], bool] | None = None
 
 
@@ -27,14 +38,8 @@ def pending_result_keyboard(match_id: str) -> dict[str, Any]:
         "inline_keyboard": [
             [
                 {
-                    "text": "✅ Confirmar y publicar",
-                    "callback_data": f"res:pub:confirm:{match_id}",
-                },
-            ],
-            [
-                {
-                    "text": "✏️ Editar",
-                    "callback_data": f"res:pub:edit:{match_id}",
+                    "text": "✏️ Ingresar resultado",
+                    "callback_data": f"res:pub:wizard:{match_id}",
                 },
             ],
             [
@@ -51,103 +56,43 @@ def pending_result_keyboard(match_id: str) -> dict[str, Any]:
     }
 
 
+def publish_confirm_keyboard(match_id: str) -> dict[str, Any]:
+    return {
+        "inline_keyboard": [
+            [
+                {
+                    "text": "✅ Publicar",
+                    "callback_data": f"res:pub:publish:{match_id}",
+                },
+                {
+                    "text": "❌ Cancelar",
+                    "callback_data": f"res:pub:cancel:{match_id}",
+                },
+            ],
+        ]
+    }
+
+
+def wizard_prompt_for_step(match: dict[str, Any], step_idx: int) -> str:
+    home = format_team(match["home_team"])
+    away = format_team(match["away_team"])
+    num = match.get("match_number", "?")
+    header = f"Partido #{num} — {home} vs {away}"
+
+    if step_idx <= 0 or step_idx >= len(WIZARD_STEPS):
+        return f"{header}\n\nIngresá el resultado (ej. 2-0):"
+
+    _field, label = WIZARD_STEPS[step_idx]
+    return f"{header}\n\n{label}\nRespondé SI o NO:"
+
+
 def format_admin_result_detail_lines(result: MatchResult) -> list[str]:
-    """Resumen extendido para admin (preview / edición)."""
+    """Resumen extendido para admin (sin MVP)."""
     lines = ["", "Extendidas:"]
     for attr, label in MATCH_EVENT_LINES:
         lines.append(f"  {label}: {bool_label(getattr(result, attr, None))}")
     lines.append(f"  Expulsiones (total): {result.red_cards}")
-    lines.append(f"  MVP: {result.mvp_name or '—'}")
     return lines
-
-
-def edit_extended_keyboard(match_id: str) -> dict[str, Any]:
-    rows: list[list[dict[str, str]]] = []
-    codes = {
-        "goal_before_5min": "gb5",
-        "var_used": "var",
-        "free_kick_goal": "fk",
-        "penalty_saved": "psv",
-        "penalty_scored": "psc",
-    }
-    for attr, code in codes.items():
-        label = next(l for a, l in MATCH_EVENT_LINES if a == attr)
-        rows.append(
-            [
-                {
-                    "text": f"{label}: Sí",
-                    "callback_data": f"res:ext:{match_id}:{code}:1",
-                },
-                {
-                    "text": "No",
-                    "callback_data": f"res:ext:{match_id}:{code}:0",
-                },
-                {
-                    "text": "—",
-                    "callback_data": f"res:ext:{match_id}:{code}:n",
-                },
-            ]
-        )
-    rows.append(
-        [
-            {"text": "🟥 0", "callback_data": f"res:red:{match_id}:0"},
-            {"text": "1", "callback_data": f"res:red:{match_id}:1"},
-            {"text": "2", "callback_data": f"res:red:{match_id}:2"},
-            {"text": "3", "callback_data": f"res:red:{match_id}:3"},
-            {"text": "4+", "callback_data": f"res:red:{match_id}:4"},
-        ]
-    )
-    rows.append(
-        [
-            {"text": "⭐ Sin MVP", "callback_data": f"res:mvp:clear:{match_id}"},
-            {"text": "✏️ Escribir MVP", "callback_data": f"res:mvp:ask:{match_id}"},
-        ]
-    )
-    rows.append(
-        [
-            {
-                "text": "📋 Vista previa y publicar",
-                "callback_data": f"res:pub:preview:{match_id}",
-            },
-        ]
-    )
-    rows.append(
-        [
-            {
-                "text": "← Volver",
-                "callback_data": f"res:pub:back:{match_id}",
-            },
-        ]
-    )
-    return {"inline_keyboard": rows}
-
-
-def edit_score_keyboard(match_id: str) -> dict[str, Any]:
-    scores = ["0-0", "1-0", "0-1", "1-1", "2-0", "0-2", "2-1", "1-2", "2-2", "3-0", "0-3", "3-1", "1-3", "3-2", "2-3"]
-    rows: list[list[dict[str, str]]] = []
-    row: list[dict[str, str]] = []
-    for sc in scores:
-        h, a = sc.split("-")
-        row.append(
-            {
-                "text": sc,
-                "callback_data": f"res:scr:{match_id}:{h}:{a}",
-            }
-        )
-        if len(row) == 3:
-            rows.append(row)
-            row = []
-    if row:
-        rows.append(row)
-    rows.append(
-        [
-            {
-                "text": "Siguiente: extendidas →",
-                "callback_data": f"res:pub:editext:{match_id}",
-            },
-        ]
-    )
-    return {"inline_keyboard": rows}
 
 
 def format_admin_pending_message(
@@ -165,19 +110,16 @@ def format_admin_pending_message(
         f"📋 RESULTADO PENDIENTE — Partido #{num}",
         f"{home}  {result.home_goals} - {result.away_goals}  {away}",
         "",
-        f"Marcador 90': {result.home_goals}-{result.away_goals}  (consenso {pct}%)",
+        f"Propuesta automática: {result.home_goals}-{result.away_goals}  (consenso {pct}%)",
         f"Fuentes: {sources}",
         "",
-        "Extendidas propuestas:",
+        "Revisá y cargá el resultado manual con el botón de abajo.",
     ]
-    lines.extend(format_admin_result_detail_lines(result)[1:])
-    lines.append("")
-    lines.append("⚠️ Advertencias:")
     if candidate.warnings:
+        lines.append("")
+        lines.append("⚠️ Advertencias:")
         for w in candidate.warnings:
             lines.append(f"  • {w}")
-    else:
-        lines.append("  • Ninguna")
     if candidate.consensus_score < 0.5:
         lines.append("")
         lines.append("🔴 ATENCIÓN: consenso bajo — revisar antes de publicar.")
@@ -198,6 +140,8 @@ def format_admin_preview_message(
         f"{home}  {result.home_goals} - {result.away_goals}  {away}",
     ]
     lines.extend(format_admin_result_detail_lines(result))
+    lines.append("")
+    lines.append("Confirmá con el botón Publicar.")
     return "\n".join(lines)
 
 

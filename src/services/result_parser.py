@@ -438,10 +438,4 @@ def extract_mvp_from_text(raw: str) -> str | None:
             name = _clean_mvp_name(m.group(1).strip().split(",")[0])
             if name:
                 return name
-    data = _heuristic_parse(
-        f'MVP: Lionel Messi. {raw}',
-        {"home_team": "X", "away_team": "Y"},
-    )
-    if data and data.get("mvp_name"):
-        return _clean_mvp_name(str(data["mvp_name"]))
     return None

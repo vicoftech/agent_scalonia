@@ -41,11 +41,10 @@ def test_detect_in_play_signals():
     assert not detect_in_play_signals("Resultado final: México 2-0 Sudáfrica")
 
 
-def test_aggregator_consensus_two_of_three():
+def test_aggregator_consensus_two_of_two():
     texts = {
         "tavily:score": "MEX 2-0 RSA resultado final Copa Mundial 2026",
         "tavily:events": "MEX vs RSA 2-0 tarjetas rojas VAR usado",
-        "tavily:mvp": "jugador del partido MEX vs RSA MVP Julián Quiñones",
     }
 
     def fake_search(q: str) -> str:
@@ -54,9 +53,7 @@ def test_aggregator_consensus_two_of_three():
                 return text
         if "marcador" in q:
             return texts["tavily:score"]
-        if "var" in q.lower():
-            return texts["tavily:events"]
-        return texts["tavily:mvp"]
+        return texts["tavily:events"]
 
     set_web_search_fn(fake_search)
     agg = ResultSourceAggregator()
@@ -64,8 +61,9 @@ def test_aggregator_consensus_two_of_three():
     assert out is not None
     assert out.proposed.home_goals == 2
     assert out.proposed.away_goals == 0
+    assert out.proposed.mvp_name is None
     assert out.consensus_score >= 0.5
-    assert len(out.snapshots) >= 3
+    assert len(out.snapshots) >= 2
 
 
 def test_aggregator_rejects_in_play_without_api():

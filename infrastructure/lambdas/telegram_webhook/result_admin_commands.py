@@ -1,4 +1,4 @@
-"""Comandos admin resultados — SPEC-2026-051."""
+"""Comandos admin resultados — wizard texto SPEC-2026-051."""
 from __future__ import annotations
 
 import logging
@@ -9,11 +9,12 @@ from src.dao.dynamo.match_dao import MatchDAO
 from src.dao.dynamo.result_dao import ResultDAO
 from src.models.match_result import MatchResult
 from src.services.result_admin_notify import (
-    edit_extended_keyboard,
-    edit_score_keyboard,
+    WIZARD_STEPS,
     format_admin_pending_message,
     format_admin_preview_message,
     pending_result_keyboard,
+    publish_confirm_keyboard,
+    wizard_prompt_for_step,
 )
 from src.services.result_admin_service import ResultAdminService
 from src.services.result_source_aggregator import AggregatedCandidate
@@ -26,34 +27,15 @@ _RESULTADO_RECOLECTAR = re.compile(
     r"^/resultado_recolectar(?:@[\w_]+)?\s+(\S+)\s+(\S+)\s*$",
     re.I,
 )
-_RESULTADO_PUBLICAR = re.compile(
-    r"^/resultado_publicar(?:@[\w_]+)?\s+(\S+)\s+(\S+)\s*$",
-    re.I,
-)
 _RESULTADO_EDITAR = re.compile(
-    r"^/resultado_editar(?:@[\w_]+)?(?:\s+(\S+)\s+(\S+)(?:\s+(\d+)-(\d+))?)?\s*$",
+    r"^/resultado_editar(?:@[\w_]+)?(?:\s+(\S+)\s+(\S+))?\s*$",
     re.I,
 )
 
-_EXT_CODES = {
-    "gb5": "goal_before_5min",
-    "var": "var_used",
-    "fk": "free_kick_goal",
-    "psv": "penalty_saved",
-    "psc": "penalty_scored",
-}
+_SCORE_RE = re.compile(r"^\s*(\d+)\s*[-:]\s*(\d+)\s*$")
+_SI_NO_RE = re.compile(r"^\s*(si|sí|no)\s*$", re.I)
 
-_DRAFT_FIELDS = (
-    "home_goals",
-    "away_goals",
-    "mvp_name",
-    "red_cards",
-    "goal_before_5min",
-    "var_used",
-    "free_kick_goal",
-    "penalty_saved",
-    "penalty_scored",
-)
+_TOUCHED_KEY = "_touched"
 
 
 def _admin_only(user_id: str) -> bool:
@@ -71,65 +53,31 @@ def _resolve_match(teams: tuple[str, str] | None, match_id: str | None = None) -
     return None
 
 
-def _get_draft(profile: dict[str, Any]) -> dict[str, Any] | None:
-    draft = profile.get("result_admin_draft")
-    return draft if isinstance(draft, dict) else None
+def _get_wizard(profile: dict[str, Any]) -> dict[str, Any] | None:
+    wiz = profile.get("result_admin_wizard")
+    return wiz if isinstance(wiz, dict) else None
 
 
-def _save_draft(user_id: str, draft: dict[str, Any] | None) -> None:
+def _save_wizard(user_id: str, wizard: dict[str, Any] | None) -> None:
     from src.dao.dynamo.user_dao import UserDAO
 
-    if draft is None:
-        UserDAO().update_profile(user_id, result_admin_draft=None)
-    else:
-        UserDAO().update_profile(user_id, result_admin_draft=draft)
+    UserDAO().update_profile(user_id, result_admin_wizard=wizard)
 
 
-def _set_mvp_pending(user_id: str, match_id: str) -> None:
-    from src.dao.dynamo.user_dao import UserDAO
-
-    UserDAO().update_profile(
-        user_id,
-        result_admin_pending={"match_id": match_id, "field": "mvp"},
-    )
-
-
-def _clear_pending(user_id: str) -> None:
-    from src.dao.dynamo.user_dao import UserDAO
-
-    UserDAO().update_profile(user_id, result_admin_pending=None)
-
-
-def _resolve_edit_result(
-    user_id: str,
-    match_id: str,
-    match: dict[str, Any],
-    svc: ResultAdminService,
-) -> MatchResult | None:
-    """Fusiona borrador admin + candidato/publicado (el draft gana en conflicto)."""
-    from src.dao.dynamo.user_dao import UserDAO
-
-    base = svc.get_candidate_result(match_id) or ResultDAO().get_result(match_id)
-    profile = UserDAO().get_profile(user_id) or {}
-    draft = _get_draft(profile)
-    if not base and not draft:
-        return None
-    merged: dict[str, Any] = _result_to_draft(base) if base else {"red_cards": 0}
-    if draft and draft.get("match_id") == match_id:
-        for key in _DRAFT_FIELDS:
-            if key in draft:
-                merged[key] = draft[key]
-    merged["match_id"] = match_id
-    return _draft_to_result(merged, match)
+def _touch_draft(draft: dict[str, Any], *fields: str) -> None:
+    touched = set(draft.get(_TOUCHED_KEY) or [])
+    touched.update(fields)
+    draft[_TOUCHED_KEY] = sorted(touched)
 
 
 def _draft_to_result(draft: dict[str, Any], match: dict[str, Any]) -> MatchResult:
+    red = draft.get("red_cards", 0)
     return MatchResult(
         home_goals=int(draft.get("home_goals", 0)),
         away_goals=int(draft.get("away_goals", 0)),
         phase=match.get("phase", "GROUP"),
-        mvp_name=draft.get("mvp_name"),
-        red_cards=int(draft.get("red_cards", 0)),
+        mvp_name=None,
+        red_cards=int(red) if isinstance(red, bool) else int(red or 0),
         goal_before_5min=draft.get("goal_before_5min"),
         var_used=draft.get("var_used"),
         free_kick_goal=draft.get("free_kick_goal"),
@@ -140,18 +88,29 @@ def _draft_to_result(draft: dict[str, Any], match: dict[str, Any]) -> MatchResul
     )
 
 
-def _result_to_draft(result: MatchResult) -> dict[str, Any]:
-    return {
-        "home_goals": result.home_goals,
-        "away_goals": result.away_goals,
-        "mvp_name": result.mvp_name,
-        "red_cards": result.red_cards,
-        "goal_before_5min": result.goal_before_5min,
-        "var_used": result.var_used,
-        "free_kick_goal": result.free_kick_goal,
-        "penalty_saved": result.penalty_saved,
-        "penalty_scored": result.penalty_scored,
+def _start_wizard(user_id: str, match: dict[str, Any]) -> tuple[str, None]:
+    mid = match["match_id"]
+    wizard = {
+        "match_id": mid,
+        "step_idx": 0,
+        "draft": {_TOUCHED_KEY: []},
     }
+    _save_wizard(user_id, wizard)
+    return wizard_prompt_for_step(match, 0), None
+
+
+def _parse_score(text: str) -> tuple[int, int] | None:
+    m = _SCORE_RE.match((text or "").strip())
+    if not m:
+        return None
+    return int(m.group(1)), int(m.group(2))
+
+
+def _parse_si_no(text: str) -> bool | None:
+    m = _SI_NO_RE.match((text or "").strip())
+    if not m:
+        return None
+    return m.group(1).lower() in ("si", "sí")
 
 
 def matches_result_admin_command(text: str) -> bool:
@@ -160,9 +119,78 @@ def matches_result_admin_command(text: str) -> bool:
         _RESULTADO_PENDIENTES.match(stripped)
         or _RESULTADO_PUBLICADOS.match(stripped)
         or _RESULTADO_RECOLECTAR.match(stripped)
-        or _RESULTADO_PUBLICAR.match(stripped)
         or _RESULTADO_EDITAR.match(stripped)
     )
+
+
+def is_wizard_active(profile: dict[str, Any]) -> bool:
+    wiz = _get_wizard(profile)
+    return bool(wiz and wiz.get("match_id"))
+
+
+def handle_result_admin_wizard(
+    user_id: str,
+    profile: dict[str, Any],
+    text: str,
+) -> tuple[str | None, dict | None] | None:
+    """Wizard secuencial: marcador → cada extendida (SI/NO)."""
+    if not _admin_only(user_id):
+        return None
+    wiz = _get_wizard(profile)
+    if not wiz or not wiz.get("match_id"):
+        return None
+
+    if (text or "").strip().lower() in ("/cancel", "/cancelar"):
+        _save_wizard(user_id, None)
+        return "Wizard cancelado.", None
+
+    match_id = str(wiz["match_id"])
+    match = MatchDAO().get_match(match_id)
+    if not match:
+        _save_wizard(user_id, None)
+        return "Partido no encontrado.", None
+
+    step_idx = int(wiz.get("step_idx", 0))
+    if step_idx < 0 or step_idx >= len(WIZARD_STEPS):
+        _save_wizard(user_id, None)
+        return "Wizard inválido. Usá /resultado_editar HOME AWAY.", None
+
+    field, _label = WIZARD_STEPS[step_idx]
+    draft = dict(wiz.get("draft") or {})
+    draft.setdefault(_TOUCHED_KEY, [])
+
+    if field == "score":
+        parsed = _parse_score(text)
+        if not parsed:
+            return (
+                "Formato inválido. Ingresá el resultado así: 2-0",
+                None,
+            )
+        draft["home_goals"], draft["away_goals"] = parsed
+        _touch_draft(draft, "home_goals", "away_goals")
+        step_idx += 1
+    else:
+        val = _parse_si_no(text)
+        if val is None:
+            return "Respondé solo SI o NO.", None
+        if field == "red_cards":
+            draft["red_cards"] = 1 if val else 0
+        else:
+            draft[field] = val
+        _touch_draft(draft, field)
+        step_idx += 1
+
+    wiz["draft"] = draft
+    wiz["step_idx"] = step_idx
+    _save_wizard(user_id, wiz)
+
+    if step_idx >= len(WIZARD_STEPS):
+        result = _draft_to_result(draft, match)
+        republish = ResultDAO().has_scores(match_id)
+        preview = format_admin_preview_message(match, result, republish=republish)
+        return preview, publish_confirm_keyboard(match_id)
+
+    return wizard_prompt_for_step(match, step_idx), None
 
 
 def handle_result_admin_command(
@@ -185,33 +213,18 @@ def handle_result_admin_command(
         match = _resolve_match((m.group(1), m.group(2)))
         if not match:
             return "No encontré ese partido.", None
-        svc = ResultAdminService()
-        cand = svc.propose_result(match["match_id"], force_notify=True)
+        cand = ResultAdminService().propose_result(match["match_id"], force_notify=True)
         if not cand:
             return "No pude recolectar un borrador. Reintentá más tarde.", None
         return format_admin_pending_message(match, cand), pending_result_keyboard(match["match_id"])
-
-    m = _RESULTADO_PUBLICAR.match(stripped)
-    if m:
-        match = _resolve_match((m.group(1), m.group(2)))
-        if not match:
-            return "No encontré ese partido.", None
-        outcome = ResultAdminService().confirm_and_publish(match["match_id"], user_id)
-        if not outcome.published:
-            return f"No publiqué: {', '.join(outcome.errors) or 'sin candidato'}", None
-        return (
-            f"✅ Publicado v{outcome.publish_version}. "
-            f"Notificados: {outcome.notified_users}. Scoring encolado.",
-            None,
-        )
 
     m = _RESULTADO_EDITAR.match(stripped)
     if m:
         home_t, away_t = m.group(1), m.group(2)
         if not home_t:
             lines = [
-                "Uso: /resultado_editar HOME AWAY [marcador]",
-                "Ejemplo: /resultado_editar MEX RSA 2-0",
+                "Uso: /resultado_editar HOME AWAY",
+                "Ejemplo: /resultado_editar CAN BIH",
             ]
             try:
                 published = _list_published()
@@ -223,25 +236,7 @@ def handle_result_admin_command(
         match = _resolve_match((home_t, away_t))
         if not match:
             return "No encontré ese partido.", None
-        mid = match["match_id"]
-        rdao = ResultDAO()
-        base = ResultAdminService().get_candidate_result(mid)
-        if not base:
-            published = rdao.get_result(mid)
-            base = published
-        if not base:
-            return "Sin borrador ni resultado publicado para editar.", None
-        draft = _result_to_draft(base)
-        if m.group(3) is not None and m.group(4) is not None:
-            draft["home_goals"] = int(m.group(3))
-            draft["away_goals"] = int(m.group(4))
-        draft["match_id"] = mid
-        _save_draft(user_id, draft)
-        return (
-            f"Editá el marcador del partido #{match.get('match_number')} "
-            f"({match['home_team']} vs {match['away_team']}):",
-            edit_score_keyboard(mid),
-        )
+        return _start_wizard(user_id, match)
 
     return None, None
 
@@ -269,7 +264,7 @@ def handle_result_admin_callback(
 
     svc = ResultAdminService()
     parts = data.split(":")
-    # res:pub:confirm:<uuid>
+
     if len(parts) >= 4 and parts[1] == "pub":
         action = parts[2]
         match_id = parts[3]
@@ -277,17 +272,13 @@ def handle_result_admin_callback(
         if not match:
             return "Partido no encontrado.", None
 
-        if action == "confirm":
-            outcome = svc.confirm_and_publish(match_id, user_id)
-            if not outcome.published:
-                return f"No publiqué: {', '.join(outcome.errors)}", None
-            return (
-                f"✅ Publicado. Usuarios notificados: {outcome.notified_users}.",
-                None,
-            )
+        if action in ("wizard", "edit", "confirm"):
+            return _start_wizard(user_id, match)
+
         if action == "reject":
             svc.reject_candidate(match_id, user_id)
-            return "Borrador rechazado. Podés re-recolectar más tarde.", None
+            return "Borrador rechazado.", None
+
         if action == "recolect":
             cand = svc.propose_result(match_id, force_notify=True)
             if not cand:
@@ -296,55 +287,33 @@ def handle_result_admin_callback(
                 format_admin_pending_message(match, cand),
                 pending_result_keyboard(match_id),
             )
-        if action == "edit":
-            base = svc.get_candidate_result(match_id) or ResultDAO().get_result(match_id)
-            if not base:
-                return "Sin datos para editar.", None
-            draft = _result_to_draft(base)
-            draft["match_id"] = match_id
-            _save_draft(user_id, draft)
-            return "Elegí el marcador:", edit_score_keyboard(match_id)
-        if action == "editext":
-            return "Ajustá las extendidas:", edit_extended_keyboard(match_id)
-        if action == "preview":
-            result = _resolve_edit_result(user_id, match_id, match, svc)
-            if not result:
-                return "Primero editá el marcador.", None
-            svc.update_candidate_from_admin(match_id, result, user_id)
-            republish = ResultDAO().has_scores(match_id)
-            preview = format_admin_preview_message(match, result, republish=republish)
-            kb = {
-                "inline_keyboard": [
-                    [
-                        {
-                            "text": "✅ Publicar ahora",
-                            "callback_data": f"res:pub:publish:{match_id}",
-                        },
-                    ],
-                    [
-                        {
-                            "text": "← Editar marcador",
-                            "callback_data": f"res:pub:edit:{match_id}",
-                        },
-                    ],
-                ]
-            }
-            return preview, kb
+
+        if action == "cancel":
+            _save_wizard(user_id, None)
+            return "Publicación cancelada.", None
+
         if action == "publish":
-            result = _resolve_edit_result(user_id, match_id, match, svc)
-            if not result:
-                return "Sin resultado para publicar.", None
+            from src.dao.dynamo.user_dao import UserDAO
+
+            profile = UserDAO().get_profile(user_id) or {}
+            wiz = _get_wizard(profile)
+            if not wiz or wiz.get("match_id") != match_id:
+                return "No hay wizard activo. Usá /resultado_editar HOME AWAY.", None
+            draft = wiz.get("draft") or {}
+            if "home_goals" not in draft or "away_goals" not in draft:
+                return "Completá el wizard antes de publicar.", None
+            result = _draft_to_result(draft, match)
             if ResultDAO().has_scores(match_id):
                 outcome = svc.republish_result(match_id, result, user_id)
             else:
                 svc.update_candidate_from_admin(match_id, result, user_id)
                 outcome = svc.confirm_and_publish(match_id, user_id)
-            _save_draft(user_id, None)
-            _clear_pending(user_id)
+            _save_wizard(user_id, None)
             if not outcome.published:
                 return f"Error: {', '.join(outcome.errors)}", None
             label = "Republicado" if outcome.republish else "Publicado"
             return f"✅ {label} v{outcome.publish_version}.", None
+
         if action == "back":
             cand_raw = ResultDAO().get_candidate_raw(match_id)
             if not cand_raw:
@@ -363,115 +332,7 @@ def handle_result_admin_callback(
                 pending_result_keyboard(match_id),
             )
 
-    # res:scr:<uuid>:<h>:<a>
-    if len(parts) >= 5 and parts[1] == "scr":
-        match_id = parts[2]
-        match = MatchDAO().get_match(match_id)
-        if not match:
-            return "Partido no encontrado.", None
-        from src.dao.dynamo.user_dao import UserDAO
-
-        profile = UserDAO().get_profile(user_id) or {}
-        draft = _get_draft(profile) or {"match_id": match_id}
-        draft["match_id"] = match_id
-        draft["home_goals"] = int(parts[3])
-        draft["away_goals"] = int(parts[4])
-        _save_draft(user_id, draft)
-        return (
-            f"Marcador {parts[3]}-{parts[4]}. Ajustá extendidas:",
-            edit_extended_keyboard(match_id),
-        )
-
-    # res:ext:<uuid>:<code>:<val>
-    if len(parts) >= 5 and parts[1] == "ext":
-        match_id = parts[2]
-        field = _EXT_CODES.get(parts[3])
-        if not field:
-            return "Campo inválido.", None
-        val_raw = parts[4]
-        if val_raw == "n":
-            parsed_val = None
-        else:
-            parsed_val = val_raw == "1"
-        from src.dao.dynamo.user_dao import UserDAO
-
-        profile = UserDAO().get_profile(user_id) or {}
-        draft = _get_draft(profile) or {"match_id": match_id, "home_goals": 0, "away_goals": 0}
-        draft["match_id"] = match_id
-        draft[field] = parsed_val
-        _save_draft(user_id, draft)
-        return f"{field} actualizada.", edit_extended_keyboard(match_id)
-
-    # res:red:<uuid>:<n>
-    if len(parts) >= 4 and parts[1] == "red":
-        match_id = parts[2]
-        try:
-            red_n = int(parts[3])
-        except ValueError:
-            return "Valor de expulsiones inválido.", None
-        from src.dao.dynamo.user_dao import UserDAO
-
-        profile = UserDAO().get_profile(user_id) or {}
-        draft = _get_draft(profile) or {"match_id": match_id, "home_goals": 0, "away_goals": 0}
-        draft["match_id"] = match_id
-        draft["red_cards"] = max(0, min(red_n, 5))
-        _save_draft(user_id, draft)
-        return f"Expulsiones: {draft['red_cards']}.", edit_extended_keyboard(match_id)
-
-    # res:mvp:clear|ask:<uuid>
-    if len(parts) >= 4 and parts[1] == "mvp":
-        match_id = parts[2]
-        mvp_action = parts[3]
-        from src.dao.dynamo.user_dao import UserDAO
-
-        profile = UserDAO().get_profile(user_id) or {}
-        draft = _get_draft(profile) or {"match_id": match_id, "home_goals": 0, "away_goals": 0}
-        draft["match_id"] = match_id
-        if mvp_action == "clear":
-            draft["mvp_name"] = None
-            _save_draft(user_id, draft)
-            _clear_pending(user_id)
-            return "MVP borrado.", edit_extended_keyboard(match_id)
-        if mvp_action == "ask":
-            _save_draft(user_id, draft)
-            _set_mvp_pending(user_id, match_id)
-            return (
-                "Escribí el nombre del jugador del partido en el próximo mensaje "
-                "(ej. «Edin Džeko»).",
-                None,
-            )
-
     return None, None
-
-
-def handle_result_admin_pending(
-    user_id: str,
-    profile: dict[str, Any],
-    text: str,
-) -> tuple[str | None, dict | None] | None:
-    """Captura texto libre para MVP u otros campos del wizard."""
-    if not _admin_only(user_id):
-        return None
-    pending = profile.get("result_admin_pending")
-    if not isinstance(pending, dict) or pending.get("field") != "mvp":
-        return None
-    match_id = pending.get("match_id")
-    if not match_id:
-        _clear_pending(user_id)
-        return None
-    match = MatchDAO().get_match(str(match_id))
-    if not match:
-        _clear_pending(user_id)
-        return "Partido no encontrado.", None
-    name = (text or "").strip()
-    if not name or name.startswith("/"):
-        return "Enviá solo el nombre del MVP (sin comando).", None
-    draft = _get_draft(profile) or {"match_id": match_id, "home_goals": 0, "away_goals": 0}
-    draft["match_id"] = match_id
-    draft["mvp_name"] = name[:80]
-    _save_draft(user_id, draft)
-    _clear_pending(user_id)
-    return f"MVP guardado: {name[:80]}", edit_extended_keyboard(str(match_id))
 
 
 def _list_pending() -> str:
@@ -491,7 +352,7 @@ def _list_pending() -> str:
             f"(consenso {int(float(item.get('consensus_score', 0)) * 100)}%)"
         )
     lines.append("")
-    lines.append("Usá los botones del mensaje o /resultado_publicar HOME AWAY")
+    lines.append("Tocá «Ingresar resultado» en el mensaje o /resultado_editar HOME AWAY")
     return "\n".join(lines)
 
 
@@ -513,7 +374,7 @@ def _list_published() -> str:
             break
         scan_kwargs["ExclusiveStartKey"] = resp["LastEvaluatedKey"]
     if not items:
-        return "Aún no hay resultados publicados con metadata SPEC-051."
+        return "Aún no hay resultados publicados."
     items.sort(key=lambda x: str(x.get("published_at", "")), reverse=True)
     lines = ["🏁 Resultados publicados (recientes):", ""]
     mdao = MatchDAO()
